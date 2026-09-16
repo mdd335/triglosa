@@ -1,0 +1,11 @@
+name: An idea
+description: Something that would make Triglosa more useful to you.
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: What you were trying to do when you missed it matters more than how it should look.
+    validations:
+      required: true

@@ -1,0 +1,28 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the windows are allowed to reach outside the process. All three are named \u2014 the reading, the settings and a flashcard each have a window of their own, and one left out here gets no shell at all: no commands, no events, no requests.",
+  "windows": ["main", "settings", "card"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-size",
+    "core:window:allow-inner-size",
+    "core:window:allow-outer-size",
+    "core:window:allow-scale-factor",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "http://localhost:*" },
+        { "url": "http://127.0.0.1:*" },
+        { "url": "https://*" },
+        { "url": "https://*.*" },
+        { "url": "https://*.*.*" }
+      ]
+    },
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://*" }, { "url": "https://*.*" }, { "url": "https://*.*.*" }]
+    }
+  ]
+}

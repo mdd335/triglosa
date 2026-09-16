@@ -1,0 +1,29 @@
+{
+  "name": "triglosa",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "app": "tauri dev",
+    "bundle": "tauri build --bundles app && node scripts/sign.mjs",
+    "release": "npm run sidecar && npm run bundle && node scripts/dmg.mjs",
+    "sidecar":"bash scripts/build-sidecar.sh",
+    "test": "node --test \"tests/**/*.test.*js\""
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "jsdom": "^29.1.1",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-http": "^2.6.0",
+    "@tauri-apps/plugin-opener": "^2.5.5",
+    "@tauri-apps/plugin-shell": "^2.3.6"
+  }
+}

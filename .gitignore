@@ -1,0 +1,21 @@
+# Dependencies and build output
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# Compiled binaries of the Swift bridge
+src-tauri/binaries/
+*.dSYM/
+
+# Raw measurement output: reproducible, does not belong in the repo.
+tests/runs/
+tests/**/out_L*.json
+tests/__pycache__/
+
+# macOS
+.DS_Store
+
+# A model key, kept out of the repository by name.
+openrouter_key
+*_key

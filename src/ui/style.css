@@ -1,0 +1,1249 @@
+/* The window.
+
+   Built to look at home on the system rather than to have a look of its own:
+   system font, the two colour schemes the user already chose between. The
+   The layout rule throughout: every section is a heading line and a box
+   under it, never a heading inside a box. */
+
+:root {
+  color-scheme: light dark;
+  --ground: #f6f6f7;
+  --panel: rgba(0, 0, 0, 0.05);
+  --field: #ffffff;
+  --ink: #1b1b1f;
+  --ink-soft: #5f5f68;
+  --ink-faint: #8b8b93;
+  --line: #dcdce1;
+  --accent: #3b6ef6;
+  --control: #fbfbfc;
+  --control-hover: #eeeef1;
+  --control-line: #c9c9d0;
+  --lift: rgba(0, 0, 0, 0.06);
+  --lift-strong: rgba(0, 0, 0, 0.11);
+  /* The ground under a row of the list, a shade under the first step. */
+  --lift-row: rgba(0, 0, 0, 0.045);
+  --frame: rgba(0, 0, 0, 0.45);
+
+  /* Two families that already part at the hue: verbs warm (yellow 92° to
+     red-orange 25°), terms cold (green 148° through turquoise to blue 262°).
+     Three shades each — the verb annotation shows no more forms, and the term
+     list lets no more through.
+
+     In oklch because there the first number is perceived lightness: all six
+     sit on the same step, none pushes to the front. Anyone who wants them
+     stronger raises the second number. The dark scheme keeps the values the
+     original was measured on; the light one drops the lightness, or a line
+     made for a dark ground would vanish on a white one. */
+  --vmark0: oklch(0.62 0.15 92);
+  --vmark1: oklch(0.58 0.16 55);
+  --vmark2: oklch(0.55 0.16 25);
+  --wmark0: oklch(0.6 0.14 148);
+  --wmark1: oklch(0.57 0.14 205);
+  --wmark2: oklch(0.53 0.15 262);
+
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #1c1c1f;
+    --panel: rgba(255, 255, 255, 0.07);
+    --field: #262629;
+    --ink: #f2f2f7;
+    --ink-soft: #b0b0b6;
+    --ink-faint: #8e8e93;
+    --line: #3a3a40;
+    --accent: #6f95ff;
+    --control: #36363c;
+    --control-hover: #414148;
+    --control-line: #4c4c54;
+    --lift: rgba(255, 255, 255, 0.1);
+    --lift-strong: rgba(255, 255, 255, 0.18);
+    --lift-row: rgba(255, 255, 255, 0.08);
+    --frame: rgba(255, 255, 255, 0.5);
+
+    --vmark0: oklch(0.8 0.11 92);
+    --vmark1: oklch(0.76 0.12 55);
+    --vmark2: oklch(0.72 0.12 25);
+    --wmark0: oklch(0.8 0.1 148);
+    --wmark1: oklch(0.77 0.1 205);
+    --wmark2: oklch(0.73 0.11 262);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app { display: flex; flex-direction: column; height: 100%; }
+
+/* The window's buttons, at the right end of the first heading line. There is
+   no bar of their own: the strip that held them was 38 px of nothing, and the
+   three window buttons macOS would have drawn on its left are hidden by the
+   shell — this window is closed by Escape, by the focus leaving, and by the
+   menu bar symbol.
+
+   They are the same symbol buttons as the ones in a reading, down to the
+   hover: two kinds of hover in one window read as two kinds of button, and
+   where the two columns met the pointer showed both at once.
+
+   What makes the line draggable is `data-tauri-drag-region` on it, not a rule
+   here: `-webkit-app-region` is Chromium's, and this window is a WKWebView,
+   where it does nothing at all. The shell takes the press only when the
+   element under it carries the attribute, so the buttons in the line need
+   nothing to stay clickable. */
+.window-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  /* At the right end of the line, whatever the heading beside it says. */
+  margin-left: auto;
+}
+
+/* A button has to look pressable next to a field that has to look
+   writable, and both used to sit on the same white. The button keeps a
+   surface of its own, a shade off the ground, with a hairline under it —
+   enough to read as raised without becoming decoration. */
+button {
+  font: inherit;
+  padding: 0 14px;
+  border: 1px solid var(--control-line);
+  border-radius: 8px;
+  background: var(--control);
+  box-shadow: 0 1px 1px var(--lift);
+  color: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) { background: var(--control-hover); border-color: var(--control-line); }
+button:active:not(:disabled) { background: var(--control-hover); box-shadow: none; }
+button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+button.quiet { color: var(--ink-soft); }
+
+/* The gap is the one the settings window keeps between its rows, and the
+   headings below are its size: three windows, one rhythm. A heading needs
+   more air above it than the box under it has, or it reads as belonging to
+   the section it follows. */
+.sheet {
+  /* A stacking context of its own, under the line above it: a panel's
+     buttons are lifted inside the sheet, and without this they were lifted
+     over the title line's labels too. */
+  position: relative;
+  z-index: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* The line above the sheet: what the box under it is, and the three buttons
+   that belong to the window rather than to any text. It is the original text's
+   heading — the same words, in the same size, as every other section heading
+   — and it stands outside the scrolling sheet because the buttons in it may
+   not scroll away. A sticky line inside the sheet would not do: it holds only
+   while its own section is in view, and the original text scrolls past.
+
+   The air above it is where the system's title bar band lies. Nothing is
+   drawn there any more — the shell hides the three window buttons — but a
+   line pressed against the very top edge of a window reads as cut off. */
+.topline {
+  flex: 0 0 auto;
+  /* Above the sheet, not only before it. The label a symbol button shows on
+     hover hangs below the button, which puts it over the first panel — and
+     the panel has a ground of its own and was painting straight over it.
+     Nothing else in this window overlaps anything, so one step is enough. */
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* As much air under the buttons as over them: the line is 24 px of button
+     with 6 px on either side, so they sit in the middle of the strip rather
+     than resting on the panel below — a hover ground pressed against the
+     panel's top edge reads as one shape with it.
+
+     The heading does not follow them, and that is the whole of the rule
+     below: two things in one strip, answering to two different rhythms.
+
+     Sideways they end where the sheet ends. The edges of the panels are the
+     long vertical lines in this window, and buttons standing short of them
+     read as not aligned with anything — the column of a panel's own buttons,
+     which is 9 px further in, is three faint squares and no line at all. The
+     heading on the left keeps the 14 px every other section heading starts
+     at. */
+  height: 36px;
+  padding: 6px 12px 6px 14px;
+}
+
+/* The heading belongs to the sheet, the buttons to the strip.
+
+   Centred against a 24 px button the name's text ends 5.5 px above the strip's
+   content box, and with 6 px of padding under it that is 10 px from the panel
+   — where every other heading on the sheet stands 4 px from its box, because
+   a 16 px `.label` around 13 px of text leaves 1.5 px plus the pane's 4 px
+   gap. Measured, not assumed: 10.03 against 4.03.
+
+   The two cannot both be had from the padding — the gap under a centred
+   heading is `padding-bottom + 5.5`, so matching the sheet would mean no
+   padding at all, and then the hover ground of a button touches the panel.
+   So the buttons keep their air and the heading alone is moved down into it. */
+.topline .name {
+  position: relative;
+  top: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ---- a section ---- */
+
+.pane { display: flex; flex-direction: column; gap: 4px; }
+
+/* The same heading the settings window sets over a row and the card window
+   over a field: one size, one spacing, one colour, so a reader moving between
+   the three windows reads the same kind of line in each. */
+.label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+  height: 16px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.label .name { white-space: nowrap; }
+
+/* The picked word's two chevrons, at the right end of its heading line. The
+   title bar's pair, drawn with the title bar's heavier stroke; the buttons are
+   taller than the line, and hang over it rather than making it taller, so the
+   heading stands where every other one does whether they are there or not. */
+.label .trail { display: flex; gap: 2px; margin-block: -4px; }
+.label .trail svg { stroke-width: 1.9; }
+
+/* The fold behind a translation's name, where it leaves every heading
+   standing flush with the others. Quieter than every other button
+   on the sheet — it is there for the long text, not for every reading — so
+   smaller, without a ground of its own until the pointer is on it, and hung
+   over the line rather than making it taller. */
+.label .fold {
+  width: 18px;
+  height: 18px;
+  margin: -1px -4px;
+  padding: 0;
+  color: var(--ink-faint);
+}
+.label .fold svg { width: 12px; height: 12px; stroke-width: 1.8; }
+.pane.folded > .frame { display: none; }
+
+/* What the section is doing right now, at the right end of its heading line.
+   Not a heading itself, so it drops the capitals and the letter-spacing. */
+/* A section that found nothing says so on its heading's line. */
+.label .empty-note {
+  font-size: 12px;
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-faint);
+}
+
+.label .status {
+  flex: 1 1 auto;
+  text-align: right;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.frame { position: relative; }
+
+/* A panel carries the reading, and the reading is what the window is for: it
+   gets a sheet of its own with a hairline around it rather than a grey block
+   on a grey ground. The size of the text is the size it always was — what
+   separates the sections is the edge of the sheet, not a larger typeface. */
+.box {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: 0 1px 2px var(--lift);
+  padding: 10px;
+  -webkit-user-select: text;
+}
+
+/* What a section says while it is working, and what it says when it found
+   nothing. It is a sentence, not a panel: the sections below the translations
+   have given up their boxes, and a box that appears only while a section is
+   empty draws a frame around exactly the moment there is nothing to frame. */
+.box.plain {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  /* Indented like a row of the list this section holds when it is full, so
+     the sentence does not step sideways the moment the first row arrives. */
+  padding: 3px 8px 3px 12px;
+}
+
+/* Where a box carries buttons, the text keeps clear of them: two squares,
+   the gap between them and the air around them — and one square's worth less
+   where there is only one button, which is what the original field has while
+   it is being written in. Room kept for a button that is not there is room
+   the text wraps around for nothing. */
+.frame:has(> .actions) > .box { padding-right: 66px; }
+.frame:has(> .actions):not(:has(> .actions > :nth-child(2))) > .box { padding-right: 38px; }
+
+.box.muted { color: var(--ink-faint); font-style: italic; }
+
+/* The original box with a caret in it. It keeps the box's own padding, so the
+   text sits exactly where it sat a moment ago and nothing shifts on the way
+   between reading and writing — and so the rule above, which keeps text clear
+   of the buttons, goes on applying without knowing about this at all.
+
+   The field grows with what is typed rather than scrolling inside itself: the
+   window scrolls as a whole, and a box with a scrollbar of its own would hide
+   the end of a text about to be sent off. */
+.box.writing { padding: 0; }
+
+/* As tall as the box was a moment ago, and no taller. The floor is one line
+   plus the box's own padding — the height the same text stands at while it is
+   being read — so pressing Edit changes what the box is for and not how much
+   room it takes. A floor of its own made the whole sheet step down by 19 px
+   on every press. */
+.box.writing textarea {
+  display: block;
+  width: 100%;
+  min-height: calc(1.45em + 20px);
+  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  resize: none;
+  overflow: hidden;
+}
+
+/* No ring around the field with the caret in it. Saying nothing here is not
+   enough: WebKit then draws its own, in the system's accent colour, which is
+   the ring this rule exists to remove. The box already says which of its two
+   states it is in — it has a ground of its own while it is written in. */
+.box.writing textarea:focus,
+.box.writing textarea:focus-visible { outline: none; }
+
+.frame:has(> .actions) > .box.writing > textarea { padding-right: 66px; }
+.frame:has(> .actions):not(:has(> .actions > :nth-child(2))) > .box.writing > textarea {
+  padding-right: 38px;
+}
+
+/* Verbs, terms and the picked word are what there is to know about the
+   reading, not a fourth, fifth and sixth reading. So they give up the sheet
+   the panels have and become a list: no ground, no frame, one hairline
+   between two entries. */
+.box.rows {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  white-space: normal;
+}
+
+/* Short mode: the panels hold a dictionary entry instead of a sentence, and
+   every line of one is a translation in its own right — three answers to the
+   same question, not three parts of one answer. So each gets a field of its
+   own, the same field a translated sentence stands in, and they are separated
+   by the gap between them rather than by a rule inside a shared box. */
+.box.rows.entries { gap: 5px; }
+
+/* One line of text in a field a button's height tall: pinned to the top of it
+   the line hangs off the ceiling. A row of the list below is a different
+   thing — it may carry an explanation and synonyms under its first line, and
+   its buttons belong beside that first line. */
+.box.rows.entries .row {
+  align-items: center;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px var(--lift);
+  padding: 6px 9px;
+}
+
+/* No ground under the pointer: the words of a line are picked like those of
+   a sentence, and a whole field lighting up would say the line is one thing
+   to click. The buttons stand on the field's own ground, so they take the
+   first step and not the second. */
+.box.rows.entries .row:hover { background: var(--field); }
+/* A dictionary line is a translation, and a translation panel shows its
+   buttons at rest — so these do too, rather than arriving with the pointer
+   the way a row of the list below does. */
+.box.rows.entries .row .row-actions { opacity: 1; }
+.box.rows.entries .row:hover .icon:hover:not(:disabled) { background: var(--lift); }
+.box.rows.entries .row:hover .icon:active:not(:disabled) { background: var(--lift-strong); color: var(--ink); }
+
+/* Side by side, always: the buttons are squares of one size, so there is no
+   box they do not fit beside. */
+.actions {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  z-index: 2;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.pill {
+  appearance: none;
+  border: 0;
+  background: var(--lift-strong);
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 6px;
+  white-space: nowrap;
+  line-height: 1.5;
+  text-align: center;
+}
+
+/* A written one, that is. A symbol button carries both classes, and these two
+   rules and the `.icon` ones below are equally specific — which left the two
+   of them to be decided by the order they happen to stand in. */
+.pill:not(.icon):hover:not(:disabled) { background: var(--frame); color: var(--ground); }
+.pill:not(.icon):disabled { opacity: 0.4; }
+
+/* A button carrying a symbol instead of a word — in a reading and in the
+   title bar alike. One size for all of them, so a rail of them reads as a set
+   of choices rather than as a ragged edge, and so the row's height comes from
+   its text again rather than from a column of buttons beside it.
+
+   No ground until the pointer is on it: at rest a window full of these would
+   be a page of grey chips. That is also what the title bar always did, and
+   the two are now the same button. */
+.icon {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-faint);
+}
+
+.icon svg { width: 15px; height: 15px; }
+.icon:hover:not(:disabled) { background: var(--lift); color: var(--ink); }
+.icon:active:not(:disabled) { background: var(--lift-strong); color: var(--ink); }
+
+/* One step above whatever it stands on, so the step is the same wherever the
+   button is. On a row under the pointer the ground is already the first step,
+   and a button taking that same step would answer the pointer with nothing. */
+.row:hover .icon:hover:not(:disabled) { background: var(--lift-strong); }
+.row:hover .icon:active:not(:disabled) { background: var(--frame); color: var(--ground); }
+/* A chevron with nowhere to go stays where it is rather than disappearing:
+   its place is what says there is a way back at all. A button that is only
+   showing what it just did is not one of those. */
+.icon:disabled { opacity: 0.4; }
+.icon.reporting:disabled { opacity: 1; }
+
+/* The word the symbol stands for. It is there while the pointer is, and takes
+   no room otherwise. The delay is what keeps a pointer travelling down the
+   window from trailing labels behind it; once one is open it is the answer to
+   a question that was asked.
+
+   Under the button, never over it. The sheet scrolls, so it clips whatever
+   leaves it at the top — and the buttons of the first panel sit at the very
+   top edge, where a label above them was cut in half. Under it there is
+   always the box's own text, which a label may cover for as long as a pointer
+   rests on a button. */
+.pill-label {
+  position: absolute;
+  top: calc(100% + 5px);
+  right: 0;
+  z-index: 3;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 90ms ease 260ms;
+}
+
+.icon:hover .pill-label,
+.icon:focus-visible .pill-label { opacity: 1; }
+
+/* A group of buttons whose label is showing stands over the groups after it,
+   which are lifted to the same step and would otherwise paint over the label. */
+.actions:has(.icon:hover),
+.actions:has(.icon:focus-visible),
+.row-actions:has(.icon:hover),
+.row-actions:has(.icon:focus-visible) { z-index: 4; }
+
+/* Just shown, the page still believes the pointer is where it was when the
+   window was put away — on the close button, as often as not — and showed
+   its label with nobody pointing at it. Until the pointer moves, nothing is
+   under it (app.js). */
+/* Weighted past every rule that shows a label or a hover ground, or the more
+   specific of those simply win. */
+:root.pointer-stale .icon:hover:not(:disabled),
+:root.pointer-stale .row:hover .icon:hover:not(:disabled) { background: transparent; color: var(--ink-faint); }
+:root.pointer-stale .icon .pill-label { opacity: 0; transition: none; }
+
+/* Above the button where there is no room under it: a window as tall as what
+   it holds ends right under its last row, and a label hanging below the last
+   button stood outside the window. Decided on hover (labelsInside). */
+.icon.label-above .pill-label { top: auto; bottom: calc(100% + 5px); }
+
+/* What went wrong is the one thing worth reading without being asked for. */
+.icon.failed { color: var(--vmark2); }
+.icon.failed .pill-label {
+  opacity: 1;
+  transition-delay: 0s;
+  background: var(--vmark2);
+  color: var(--ground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-label { transition: none; }
+}
+
+/* The one line the window says something in that is not part of a reading:
+   what it is doing, or why nothing came of it. It is not a strip along the
+   bottom — with nothing to say it takes no room at all, so the window ends
+   where the sheet ends. It keeps the same gutter as the sheet above it, and
+   a sentence too long for one line wraps rather than running off the corner. */
+.status-line {
+  flex: 0 0 auto;
+  padding: 6px 14px 12px;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.status-line:empty { display: none; }
+
+/* ---- highlighting ---- */
+
+.vmark0 { --c: var(--vmark0); }
+.vmark1 { --c: var(--vmark1); }
+.vmark2 { --c: var(--vmark2); }
+.wmark0 { --c: var(--wmark0); }
+.wmark1 { --c: var(--wmark1); }
+.wmark2 { --c: var(--wmark2); }
+
+/* Marked with a line under the word, not with an area behind it. An area has
+   to stay weak so as not to disturb the reading — and at that strength six
+   hues collapse into shades of grey. On a 2px line the same colour may stand
+   fully opaque: it separates effortlessly and still takes nothing from the
+   text, because it lies under it instead of behind it. */
+.mark {
+  background-repeat: repeat-x;
+  background-position: 0 100%;
+  background-size: 100% 2px;
+  /* Room for the line without moving the line break. */
+  padding: 0 1px 2px;
+  margin: 0 -1px -2px;
+  /* Where a multipart term wraps, each piece gets a line of its own. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* The kind of line says the family, the hue says the row: verbs dashed,
+   terms solid. */
+.vmark0, .vmark1, .vmark2 {
+  background-image: repeating-linear-gradient(to right, var(--c) 0 4px, transparent 4px 7px);
+}
+
+.wmark0, .wmark1, .wmark2 {
+  background-image: linear-gradient(var(--c) 0 0);
+}
+
+/* Switched off in the settings: the line goes, the spans stay — the pointer
+   on a row still lights its words up, and then with all four corners round,
+   since there is no line under it to sit on. */
+.unlined .mark { background-image: none; }
+#app .unlined .mark { border-radius: 3px; }
+
+/* Every word sits in a span of its own so a click can hit it. Padding and a
+   negative margin as on .mark: the selection frame needs air but must not
+   move the line break. */
+.words .w {
+  padding: 0 2px;
+  margin: 0 -2px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* A word can be picked and says so; what stands between two words cannot,
+   and the text cursor the panel would otherwise show there says it is
+   writeable, which it is not. */
+.words,
+.words .g { cursor: default; }
+
+.words .w:hover { background: var(--lift); }
+.words::selection, .words .w::selection { background: transparent; }
+
+/* The picked word carries no hue but a colourless frame — it is not one of
+   the rows, it is the one thing the reader chose.
+
+   The frame only in the panel it was chosen in. Elsewhere the same word is a
+   finding rather than a choice: the model said where it went, and drawing
+   that with the frame of a picked word says the reader picked three. So the
+   other panels get the ground and nothing else — enough to find the spot,
+   not enough to claim it was clicked. */
+.sel {
+  background: var(--lift);
+  border-radius: 3px;
+  /* One pixel, not two: the frame is drawn around the outside of the word and
+     the space after it is only a few pixels wide, so at two the frame arrives
+     at the next word and the two read as one. */
+  padding: 0 1px;
+  margin: 0 -1px;
+}
+
+.sel.picked { box-shadow: inset 0 0 0 1px var(--frame); }
+
+.words .sel .w:hover { background: transparent; }
+.words .sel:hover { background: var(--lift-strong); }
+
+/* The row under the pointer and its spots in every panel belong together —
+   until now the colour had to be hunted for, now the row points at it. The
+   line alone cannot do that: it cannot grow louder without losing its resting
+   state. So for the length of the hover the area it does not have joins it,
+   in the same hue, so it reads as more of the same mark rather than a second
+   kind.
+
+   Through an attribute on the whole window rather than classes on the spans:
+   the panels are rebuilt at any time, and classes set there would be lost. */
+#app[data-hl="vmark0"] .vmark0,
+#app[data-hl="vmark1"] .vmark1,
+#app[data-hl="vmark2"] .vmark2,
+#app[data-hl="wmark0"] .wmark0,
+#app[data-hl="wmark1"] .wmark1,
+#app[data-hl="wmark2"] .wmark2 {
+  background-color: color-mix(in oklab, var(--c) 20%, transparent);
+  border-radius: 3px 3px 0 0;
+}
+
+#app[data-hl="sel"] .sel { background-color: var(--lift-strong); }
+
+/* The hover: a word of the original and what it became in the reader's own
+   panel, lit up together while the pointer rests on either (glance-view.js).
+   The ground a word under the pointer already has, a step stronger, laid
+   over the words and the spaces between them as one stretch with round ends
+   — the way a marked term reads as one. */
+/* Weighted past the ground a single word gets under the pointer, or the
+   word the pointer is on stands out of its own group a shade apart. */
+.words .w.glance-lit,
+.words .g.glance-lit,
+.words .w.glance-lit:hover,
+.words .sel .w.glance-lit:hover {
+  background: var(--lift-strong);
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+}
+
+.words .glance-lit.glance-start,
+.words .w.glance-lit.glance-start:hover,
+.words .sel .w.glance-lit.glance-start:hover {
+  padding-left: 2px;
+  margin-left: -2px;
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+
+.words .glance-lit.glance-end,
+.words .w.glance-lit.glance-end:hover,
+.words .sel .w.glance-lit.glance-end:hover {
+  padding-right: 2px;
+  margin-right: -2px;
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+
+/* What it became, over the word. The same dark chip a button's label is,
+   because it is the same kind of thing — a word that is there while the
+   pointer is — but in the reading's own size: it is read, not glanced at. */
+.glance {
+  position: fixed;
+  z-index: 20;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 3px 8px 4px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--ground);
+  font-size: 12.5px;
+  line-height: 1.35;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 80ms ease;
+}
+
+.glance.shown { opacity: 1; visibility: visible; }
+.glance.pending { color: color-mix(in oklab, var(--ground) 60%, var(--ink)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .glance { transition: none; }
+}
+
+/* With the lines switched off the ground is all a spot has, and a ground says
+   nothing about which row it belongs to — a verb's spot and a term's look the
+   same. So the line comes back for the one row under the pointer, and only
+   for its own spots: the hover then says the same two things it says with the
+   lines on, which family and which row. */
+#app[data-hl="vmark0"] .unlined .vmark0,
+#app[data-hl="vmark1"] .unlined .vmark1,
+#app[data-hl="vmark2"] .unlined .vmark2 {
+  background-image: repeating-linear-gradient(to right, var(--c) 0 4px, transparent 4px 7px);
+}
+
+#app[data-hl="wmark0"] .unlined .wmark0,
+#app[data-hl="wmark1"] .unlined .wmark1,
+#app[data-hl="wmark2"] .unlined .wmark2 {
+  background-image: linear-gradient(var(--c) 0 0);
+}
+
+/* ---- the rows ---- */
+
+/* One entry of the list. The hairline above it is what separates two of them;
+   the colour of its marking stands at its left edge, where the eye lands
+   before it reads the word — the same assignment the underline in the text
+   makes, said a second time where the answer is.
+
+   Highlighting the row under the pointer makes clear which one the buttons
+   act on, and it points at that row's spots in the text. Weak on purpose:
+   enough to find the row, too little to jump at the reader. */
+.row {
+  position: relative;
+  border-top: 1px solid var(--line);
+  padding: 6px 8px 6px 12px;
+}
+
+.row:first-child { border-top: 0; }
+
+/* A row that stands for no marking — a line of a dictionary entry — has no
+   colour at its edge and therefore keeps no room for one. */
+.row:not([data-hl]) { padding-left: 9px; }
+
+/* The line between two entries stops where the entry under the pointer
+   begins. Its ground has rounded corners, and a rule running the full width
+   past them juts out on both sides — so the hovered row drops its own line
+   and the one belonging to the entry below it. The border keeps its place
+   while it is invisible, so nothing moves. */
+.row:hover,
+.row:hover + .row { border-top-color: transparent; }
+
+.row::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  bottom: 8px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--c, transparent);
+}
+
+.row[data-hl="vmark0"] { --c: var(--vmark0); }
+.row[data-hl="vmark1"] { --c: var(--vmark1); }
+.row[data-hl="vmark2"] { --c: var(--vmark2); }
+.row[data-hl="wmark0"] { --c: var(--wmark0); }
+.row[data-hl="wmark1"] { --c: var(--wmark1); }
+.row[data-hl="wmark2"] { --c: var(--wmark2); }
+/* The picked word carries no hue anywhere else either. */
+.row[data-hl="sel"] { --c: var(--frame); }
+
+.row:hover { background: var(--lift-row); border-radius: 8px; }
+
+/* A rail of grey squares on every entry reads as a toolbar rather than as a
+   reading. They belong to the row under the pointer, so they arrive with it —
+   and with the keyboard, which reaches them by tabbing. */
+.row .row-actions { opacity: 0; transition: opacity 90ms ease; }
+.row:hover .row-actions,
+.row:focus-within .row-actions { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .row .row-actions { transition: none; }
+}
+
+.row-main { min-width: 0; }
+
+/* The blocks under the first line keep their distance from it and from each
+   other. It used to come from the row being one wrapping flex line with a
+   row gap; with the first line in a box of its own there is no gap to
+   inherit, and every explanation sat on the line above it — on the dashes
+   under a verb form, which reach 2 px below their own text. Said here
+   instead, once, for the note, the longer explanation, the examples and the
+   related words alike. */
+.row-main > * + * { margin-top: 7px; }
+
+/* The first line of a row — the form, its base, the equivalent, the grammar —
+   and the one part that keeps clear of the buttons. The room it leaves is the
+   rail's own width, which the row states in `--actions`, plus the gap a
+   heading keeps from anything beside it. */
+.row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  align-content: center;
+  row-gap: 2px;
+  gap: 9px;
+  min-width: 0;
+  /* As tall as a button, so a row saying one line is as tall as it was when
+     the buttons stood in the flow — and the buttons, which are laid against
+     this box, sit in the middle of it rather than at the top of a row they no
+     longer hold open. */
+  min-height: 24px;
+  padding-right: calc(var(--actions, 0px) + 10px);
+}
+
+/* The buttons lie over the row, aligned to its first line. In the flow they
+   were a column kept free down the whole height of the row, so an
+   explanation of eight lines was set in a panel a fifth narrower than the one
+   it stands in — and the buttons are one line tall. */
+.row-actions {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  height: 24px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.term { font-size: 13px; font-weight: 500; }
+.arrow { font-size: 11px; color: var(--ink-faint); }
+.base { font-size: 13px; font-weight: 600; }
+
+/* The equivalent, set apart from the term itself: smaller, quieter, italic.
+   Otherwise the two read as one phrase. */
+.equivalent { font-size: 12px; color: var(--ink-soft); font-style: italic; }
+
+.grammar { font-size: 10px; color: var(--ink-faint); white-space: nowrap; }
+
+/* Under the first line and across the whole panel: it is not part of the
+   first line's row of fields, and nothing but the first line keeps clear of
+   the buttons. */
+.explanation {
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.35;
+  min-width: 0;
+}
+
+/* Two pixels more than the blocks above it keep from each other: the related
+   words are buttons and their ground begins before their text does. */
+.row-main > .synonyms { margin-top: 9px; }
+
+.synonyms {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.synonyms > .label {
+  display: inline;
+  height: auto;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* Clickable, but deliberately not like a pill: those act on the whole row,
+   this one on a single word. So the word itself stands there, in the size and
+   colour of the explanation, with the field only hinted at. Only the pointer
+   turns it into a button. */
+.synonym {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-soft);
+  appearance: none;
+  border: 0;
+  background: var(--lift);
+  border-radius: 6px;
+  padding: 1px 7px;
+  line-height: 1.35;
+}
+
+.synonym:hover { background: var(--lift-strong); color: var(--ink); }
+
+/* The longer explanation reads on from the note, so it keeps half the gap the
+   other blocks keep: enough to tell two answers apart, too little to read as
+   a section of its own. Only where there is a note above it to read on from —
+   a verb row has none, and the paragraph then stands at the row's own
+   distance like everything else. */
+.explanation.more-fault { color: var(--vmark2); }
+.explanation + .explanation.more { margin-top: 3px; }
+.explanation.more.muted { color: var(--ink-faint); font-style: italic; }
+
+/* The examples under the longer explanation. One to a line, because they are
+   read one against the other — register against register, situation against
+   situation — and a paragraph of them read as one sentence.
+
+   The sentence itself is the thing being shown and carries the text colour;
+   its translation is a help and stands behind it in the quiet italic every
+   equivalent in this window uses. The short addition in front says what kind
+   of use it is. */
+/* A step further from the prose above them than the prose keeps from itself:
+   they are a different kind of thing, and a list of them reads as one block
+   rather than as more sentences of the explanation. */
+.examples {
+  display: flex;
+  flex-direction: column;
+  row-gap: 5px;
+  min-width: 0;
+  margin-top: 10px;
+}
+
+.example { font-size: 12px; line-height: 1.35; }
+
+/* Small capitals mark a section in this window — a heading, the word over a
+   list — and the kind of use an example shows is neither. It reads in the
+   explanation's own face, a shade quieter, with the colon that says the
+   sentence after it is what it announces. */
+.example .kind { color: var(--ink-faint); margin-right: 4px; }
+.example .kind::after { content: ":"; }
+
+.example .sentence { color: var(--ink); }
+.example .rendering { color: var(--ink-soft); font-style: italic; margin-left: 5px; }
+.example.muted { color: var(--ink-faint); font-style: italic; }
+.example.example-fault { color: var(--vmark2); }
+
+/* ---- settings ---- */
+
+/* The settings have a window of their own, so they bring their own room
+   rather than borrowing the reading sheet's. That window has an ordinary
+   title bar of its own, so unlike the other one it needs no space kept free
+   at the top. */
+.settings-window {
+  display: block;
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.settings { display: flex; flex-direction: column; gap: 14px; }
+
+.field { display: flex; flex-direction: column; gap: 4px; }
+
+/* The same line as `.label` in a reading and `.card-field-head .name` on a
+   card. Changing one of the three means changing all three. */
+.field > label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.field .hint { margin: 0; color: var(--ink-soft); font-size: 11.5px; }
+
+
+/* The single line under the panels where there is no model. */
+.locked-note {
+  margin: 2px 0 6px;
+  color: var(--ink-soft);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.field > button { align-self: flex-start; padding: 6px 14px; }
+
+.settings select,
+.settings input[type="text"],
+.settings input[type="password"],
+.settings textarea {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--field);
+  color: inherit;
+  width: 100%;
+}
+
+.settings textarea { resize: vertical; }
+
+/* Two widths for a list, so the lists line up down the window: a short one
+   for an answer of a word or two — a language, a level, on or off — and a
+   long one for an answer that is a phrase. The long one is two short ones
+   and the gap between them, so a language with its level ends where a long
+   list ends. */
+.settings {
+  --list-short: 240px;
+  --list-long: calc(2 * var(--list-short) + 6px);
+}
+.settings select { max-width: var(--list-long); }
+.settings select.short { max-width: var(--list-short); }
+
+/* A group of settings, with its heading above the rows it holds. It has to
+   read as a different kind of thing from the row labels under it, which are
+   already small and upper case — so this one goes the other way: ordinary
+   sentence case, larger, with a line across to separate the groups. */
+.settings .group {
+  margin: 12px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.settings .group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
+/* The one line under a group heading that is about the whole group. */
+.settings .group-hint { margin: -4px 0 0; color: var(--ink-soft); font-size: 11.5px; }
+/* A link inside a sentence: the sentence's own type, the accent colour. */
+.inline-link {
+  padding: 0; border: 0; background: none; font: inherit; color: var(--accent);
+  cursor: pointer;
+}
+.inline-link:hover { text-decoration: underline; }
+
+/* A language and how far along the reader is in it: one line, the level
+   narrow enough that the language stays the thing being read. */
+.with-level { display: flex; gap: 6px; align-items: center; }
+.with-level select { flex: 1 1 0; min-width: 0; }
+
+/* What the device can translate. The button only appears when there is
+   something to fetch, so it sits at the start of a line of its own rather
+   than stretching across the row. */
+.pairs > button { align-self: flex-start; padding: 6px 12px; margin-top: 2px; }
+
+/* The shortcut field is written by pressing keys, never by typing into it.
+   The caret would promise otherwise. */
+.settings input[readonly] { caret-color: transparent; cursor: pointer; }
+
+.with-presets { display: flex; gap: 6px; align-items: center; }
+.with-presets input { flex: 1; }
+.with-presets button { padding: 6px 10px; font-size: 12px; }
+
+/* ---- the flashcard, in the window it has to itself ---- */
+
+/* A window rather than a layer over the reading, and that is a reversal. A
+   layer took the whole window, so a card could not be corrected while
+   looking something up in the text it came from — and looking something up
+   is most of what correcting a card is. Two windows switch, and the reading
+   stays standing: it asks every window this app has before it puts itself
+   away. */
+.card-window {
+  display: block;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}
+
+/* The window's title line, drawn here because the system's is an overlay:
+   the title in the middle where macOS puts it, the wand at the right end.
+   Stays at the top while a long card scrolls. */
+.card-titlebar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  /* The reading window's strip: 36 px with the button in its middle, so the
+     wand sits where the gear sits there — a little below the three system
+     buttons, not on their line. */
+  height: 36px;
+  margin: 0 -16px 4px;
+  padding: 6px 16px 6px 80px;
+  background: var(--ground);
+}
+/* On the line of the three system buttons, starting right after them, the
+   way a window's title stands in an ordinary title bar. */
+.card-title {
+  position: absolute;
+  top: 0;
+  left: 80px;
+  right: 56px;
+  height: 30px;
+  line-height: 30px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.card-titlebar .window-actions { position: relative; margin-left: auto; }
+
+/* The gap the settings window and the reading sheet keep between two of
+   anything. */
+.card-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card-field { display: flex; flex-direction: column; gap: 4px; }
+
+/* The heading line of one field: which language is in it at the left, and the
+   button that copies just this one at the right. Copying one field is the
+   ordinary case — the reader wants the word, or the explanation, not the
+   three of them tab-separated. */
+.card-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.card-field-head .name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* The three fields are written in, so they look like the box the original is
+   written in and not like the sheets above it. */
+.card-box {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--field);
+  color: inherit;
+  resize: vertical;
+  /* Each field is as tall as what is in it — set from card-view.js, which
+     also says why it cannot be done here. Overflow stays hidden until the
+     cap is reached, so no scrollbar flickers into a field being typed in. */
+  overflow-y: auto;
+  min-height: 2.4em;
+}
+
+.card-box:focus { outline: none; border-color: var(--ink-faint); }
+
+.card-field .hint { margin: 0; color: var(--ink-soft); font-size: 11.5px; }
+
+/* The way out, and the two ways the card leaves. Close last and at the right:
+   it is the one that does nothing. */
+.card-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+}
+/* Ordinary buttons, not the tiny upper-case pills a row carries. A row's
+   buttons are one of several on a line of text and have to keep out of the
+   way; these three are what the card is for. */
+.card-actions button {
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--control-line);
+  background: var(--control);
+  box-shadow: 0 1px 1px var(--lift);
+}
+.card-actions button:hover:not(:disabled) { background: var(--control-hover); }
+/* The wand, or the way back from it, where no title line holds it: at the
+   far end of the row, as tall as the written buttons beside it. */
+.card-actions .card-improve { margin-left: auto; display: flex; }
+.card-actions .card-improve button { width: auto; height: auto; padding: 7px 9px; }
+.card-actions .card-improve svg { width: 16px; height: 16px; }
+.card-titlebar .card-improve { display: flex; }
+
+/* What came of the last attempt at Anki. It stays until the next one, so it
+   has room to say what happened and what to do about it — which is why it is
+   a line and not a word on a button. */
+.card-status {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+.card-status:empty { display: none; }
+/* The colour a failure already has in this window, rather than a second red
+   invented for one line. */
+.card-status.failed { color: var(--vmark2); }
+
+/* Anki's own rows sit inside a box of their own — they come and go with the
+   switch above them — so the spacing between settings has to be said again
+   here. Without it they crowd together where every other row has air.
+
+   Named rather than `.anki > div`, which is what it was: a `.field` is a div
+   too, so that rule reached inside one and pushed its label, its control and
+   its explanation 14 px apart instead of 4. What it looked like was one row
+   with a gap in the middle of it.
+
+   The switch's own row keeps a smaller gap under it, because the rows below
+   belong to it — a full one read as a second group rather than as what the
+   switch had just opened. */
+.anki, .anki-body { display: flex; flex-direction: column; gap: 14px; }
+.anki > .field { margin-bottom: -6px; }
+
+/* Three lists, one per field of a card, in the settings. Each is one line so
+   the three read as a table of what goes where. */
+.mapping { display: flex; flex-direction: column; gap: 6px; }
+.mapping-row { display: flex; align-items: center; gap: 8px; }
+.mapping-row .name {
+  flex: 0 0 132px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.mapping-row select { flex: 1; }
