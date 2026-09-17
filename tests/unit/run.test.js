@@ -151,9 +151,48 @@ test("without an endpoint a refused pair stays the device's own gap", async () =
   }
 });
 
-test("a dictionary entry that did not come back names no language pack", async () => {
-  /* Short mode never asks the device at all, so a panel of it saying "not
-     installed on this device" would name a cause that was never in it. */
+test("a dictionary entry the model did not give is translated by the device", async () => {
+  /* No internet: the model fails, and a word is still worth a plain
+     translation. The panel says who made it, because the reader chose the
+     model. */
+  const llm = {
+    async chat({ maxTokens }) {
+      if (maxTokens <= 12) return "es";
+      throw new Error("the endpoint answered 500");
+    },
+  };
+  const device = { ...noDevice, translate: async (from, to, text) => `${to}:${text}` };
+  const state = await runText("meter la pata", {
+    settings: SETTINGS,
+    translation: device,
+    llm,
+    onChange: () => {},
+  });
+  assert.strictEqual(state.short, true);
+  for (const panel of state.panels.slice(1)) {
+    assert.strictEqual(panel.status, "ready");
+    assert.strictEqual(panel.text, `${panel.code}:meter la pata`);
+    assert.strictEqual(panel.fallback, true);
+  }
+});
+
+test("a dictionary entry without a model is the device's translation, not a stand-in", async () => {
+  const device = { ...noDevice, detect: async () => "es", translate: async (from, to, text) => `${to}:${text}` };
+  const state = await runText("meter la pata", {
+    settings: SETTINGS,
+    translation: device,
+    llm: null,
+    onChange: () => {},
+  });
+  for (const panel of state.panels.slice(1)) {
+    assert.strictEqual(panel.status, "ready");
+    assert.strictEqual(panel.fallback, false);
+  }
+});
+
+test("a dictionary entry neither engine gave names no language pack while a model is set", async () => {
+  /* With an endpoint the model has tried and failed too, so the downloads
+     are not the thing to point at. */
   const llm = {
     async chat({ maxTokens }) {
       if (maxTokens <= 12) return "es";
@@ -166,10 +205,22 @@ test("a dictionary entry that did not come back names no language pack", async (
     llm,
     onChange: () => {},
   });
-  assert.strictEqual(state.short, true);
   for (const panel of state.panels.slice(1)) {
     assert.strictEqual(panel.status, "no-answer");
   }
+});
+
+test("a model that cannot be reached does not stop the device from translating", async () => {
+  const llm = { async chat() { const e = new Error("Failed to fetch"); e.fault = { kind: "unreachable" }; throw e; } };
+  const device = { ...noDevice, translate: async (from, to, text) => `${to}:${text}` };
+  const state = await runText("soslayable", {
+    settings: SETTINGS,
+    translation: device,
+    llm,
+    onChange: () => {},
+  });
+  assert.strictEqual(state.fault.kind, "unreachable");
+  assert.strictEqual(state.source.code, "");
 });
 
 test("a helper that is not there is not a language pack that is missing", async () => {

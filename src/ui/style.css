@@ -541,6 +541,15 @@ button.quiet { color: var(--ink-soft); }
    it holds ends right under its last row, and a label hanging below the last
    button stood outside the window. Decided on hover (labelsInside). */
 .icon.label-above .pill-label { top: auto; bottom: calc(100% + 5px); }
+.icon.label-beside .pill-label { top: 50%; bottom: auto; right: calc(100% + 5px); transform: translateY(-50%); }
+/* A hidden label still takes room below its button, and on a blank sheet that
+   ran past the sheet's end: a Mac draws nothing for it, Windows a scroll bar.
+   There a hidden label lies on its button instead, and moves only once it has
+   faded out. */
+:root[data-system="windows"] .icon:not(:hover):not(:focus-visible) .pill-label {
+  top: 0;
+  transition: opacity 90ms ease 260ms, top 0s 350ms;
+}
 
 /* What went wrong is the one thing worth reading without being asked for. */
 .icon.failed { color: var(--vmark2); }
@@ -1124,6 +1133,11 @@ button.quiet { color: var(--ink-soft); }
   pointer-events: none;
 }
 .card-titlebar .window-actions { position: relative; margin-left: auto; }
+/* Windows keeps its own title bar over the card, with the title in it: the
+   page's line holds the wand alone, and no room is kept for three buttons
+   standing somewhere else. */
+:root[data-system="windows"] .card-title { display: none; }
+:root[data-system="windows"] .card-titlebar { height: 32px; padding-left: 16px; }
 
 /* The gap the settings window and the reading sheet keep between two of
    anything. */
@@ -1220,7 +1234,8 @@ button.quiet { color: var(--ink-soft); }
 .card-status:empty { display: none; }
 /* The colour a failure already has in this window, rather than a second red
    invented for one line. */
-.card-status.failed { color: var(--vmark2); }
+.card-status.failed, .field .hint.failed { color: var(--vmark2); }
+.field .hint.failed:empty { display: none; }
 
 /* Anki's own rows sit inside a box of their own — they come and go with the
    switch above them — so the spacing between settings has to be said again
@@ -1247,3 +1262,25 @@ button.quiet { color: var(--ink-soft); }
   color: var(--ink-soft);
 }
 .mapping-row select { flex: 1; }
+
+/* Windows draws classic scroll bars with arrow buttons, a hand wide, where a
+   Mac shows a thin one only while scrolling. A thin one, as close to that as
+   Chromium allows. */
+:root[data-system="windows"] ::-webkit-scrollbar { width: 10px; height: 10px; }
+:root[data-system="windows"] ::-webkit-scrollbar-track { background: transparent; }
+:root[data-system="windows"] ::-webkit-scrollbar-button { display: none; }
+:root[data-system="windows"] ::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border: 3px solid transparent;
+  border-radius: 5px;
+  background-clip: padding-box;
+}
+:root[data-system="windows"] ::-webkit-scrollbar-thumb:hover { background-color: var(--frame); }
+/* And a Windows scroll bar takes room where a Mac's lies over the page: while
+   the window was still growing to its content one appeared for a moment and
+   the fields stood narrower until it went. Its room is kept whether it is
+   there or not, and taken from the right padding, so the fields end where
+   they always do. */
+:root[data-system="windows"] .sheet { scrollbar-gutter: stable; padding-right: 2px; }
+:root[data-system="windows"] .settings-window,
+:root[data-system="windows"] .card-window { scrollbar-gutter: stable; padding-right: 6px; }

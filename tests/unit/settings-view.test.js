@@ -31,7 +31,6 @@ for (const code of ["de", "en"]) {
     assert.ok(field.textContent.includes(text.permissionWhy), "what it does");
     assert.ok(!field.textContent.includes(text.permissionHave), "not said to be on");
     assert.ok(field.textContent.includes(text.permissionTrust), "what it is used for");
-    assert.ok(field.textContent.includes(text.permissionOff), "that it can be switched off");
     const shortcut = [...view.querySelectorAll(".field")]
       .find((node) => node.querySelector("label")?.textContent === text.hotkey);
     assert.strictEqual(shortcut.querySelector(".hint").textContent, text.hotkeyLead, "without it, copying is the way");
@@ -46,3 +45,31 @@ test("the hint under the shortcut teaches copying, which needs no permission", (
   assert.ok(labels("en").hotkeyLead.includes("copy"));
   assert.ok(labels("de").copyFirst("⌃⌥E").includes("⌃⌥E"));
 });
+
+/* On Windows there is no Apple translation, no permission and no Dock, so
+   none of the three is offered — and the shortcut always takes the selection
+   along. `TRIGLOSA_SYSTEM` makes the page believe it runs there. */
+for (const code of ["de", "en"]) {
+  test(`the Windows settings offer nothing that only a Mac has (${code})`, async () => {
+    globalThis.TRIGLOSA_SYSTEM = "windows";
+    try {
+      const text = labels(code);
+      const settings = normalizeSettings({ languages: [code, "es"] });
+      const view = settingsView({ settings, apiKey: "" }, { onChange: () => {}, onKeyChange: () => {} });
+      document.body.append(view);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const labelsShown = [...view.querySelectorAll(".field > label")].map((node) => node.textContent);
+      for (const macOnly of [text.permission, text.devicePairs, text.translator, text.appIcon]) {
+        assert.ok(!labelsShown.includes(macOnly), `${macOnly} is not offered`);
+      }
+      assert.ok(labelsShown.includes(text.glance), "the hover stays");
+      const shortcut = [...view.querySelectorAll(".field")]
+        .find((node) => node.querySelector("label")?.textContent === text.hotkey);
+      assert.strictEqual(shortcut.querySelector(".hint").textContent, text.hotkeyLeadSelected);
+      assert.doesNotMatch(view.textContent, /Apple|macOS|⌘/);
+      view.remove();
+    } finally {
+      delete globalThis.TRIGLOSA_SYSTEM;
+    }
+  });
+}

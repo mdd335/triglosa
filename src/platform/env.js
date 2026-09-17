@@ -6,6 +6,8 @@
    Outside — in tests, in Node — the built-in one is right. Nothing else in the
    codebase has to know which of the two it got. */
 
+import { onWindows } from "../system.js";
+
 let cached = null;
 
 export async function appFetch() {
@@ -24,6 +26,8 @@ export const insideApp = () => !!globalThis.__TAURI_INTERNALS__;
    be gone by the time someone comes back to the window. Asking for it again
    costs nothing when it is already there. */
 export async function ensureTranslationHelper(translation) {
+  /* Windows has no helper to start. */
+  if (onWindows()) return false;
   if (!insideApp()) return translation.running();
   /* A helper from an older build keeps the port, and a new one started
      beside it exits at once — so it would go on answering this window in a

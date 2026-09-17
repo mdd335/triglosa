@@ -65,7 +65,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const corpus = JSON.parse(fs.readFileSync(path.join(here, "..", "corpus.json"), "utf8"));
 /* The recorded values of the device's recognizer over the same corpus. They
    sit in a file so the measurement stays reproducible without the device. */
-const recorded = JSON.parse(fs.readFileSync(path.join(here, "..", "nl_korpus.json"), "utf8"));
+const recorded = JSON.parse(fs.readFileSync(path.join(here, "..", "recognizer.json"), "utf8"));
 
 const labelled = [];
 for (const set of Object.keys(corpus)) {
@@ -114,7 +114,7 @@ test("the two words the model itself fails on fall through", () => {
      at 0.40 — both far below the threshold. That is exactly what it is for:
      a single rare word must not be decided here. */
   for (const id of ["dev/01", "dev/21"]) {
-    assert.ok(recorded[id].wert < CONFIDENCE_THRESHOLD, `${id} sits at ${recorded[id].wert}`);
+    assert.ok(recorded[id].confidence < CONFIDENCE_THRESHOLD, `${id} sits at ${recorded[id].confidence}`);
   }
 });
 
@@ -123,8 +123,8 @@ test("across the whole corpus the two early stages are never wrong", () => {
   for (const t of labelled) {
     if (detectByStopwords(t.text, CONFIGURED)) continue;
     const n = recorded[t.id];
-    if (!n || n.wert < CONFIDENCE_THRESHOLD) continue;
-    const got = readDetection(`${n.nl} ${n.wert}`, CONFIGURED);
+    if (!n || n.confidence < CONFIDENCE_THRESHOLD) continue;
+    const got = readDetection(`${n.nl} ${n.confidence}`, CONFIGURED);
     if (got && got !== t.lang) wrong.push(`${t.id}: is ${t.lang}, read as ${got}`);
   }
   assert.deepStrictEqual(wrong, []);
@@ -134,7 +134,7 @@ test("the second stage decides enough to be worth the detour", () => {
   const open = labelled.filter((t) => !detectByStopwords(t.text, CONFIGURED));
   const taken = open.filter((t) => {
     const n = recorded[t.id];
-    return n && readDetection(`${n.nl} ${n.wert}`, CONFIGURED);
+    return n && readDetection(`${n.nl} ${n.confidence}`, CONFIGURED);
   });
   assert.ok(taken.length >= 12, `only ${taken.length} of ${open.length} decided on top`);
 });
@@ -441,6 +441,27 @@ test("the settings are offered what Anki actually has", async () => {
   assert.deepStrictEqual(await anki.decks(), ["Default", "Vokabeln"]);
   assert.deepStrictEqual(await anki.noteTypes(), ["Basic", "Cloze"]);
   assert.deepStrictEqual(await anki.fieldsOf("Basic"), ["Front", "Back"]);
+});
+
+test("a deck's note types are counted over the whole deck, not the sample", async () => {
+  /* The types are found in the first hundred notes; how many use each is
+     asked of Anki for the whole deck, or a deck of 400 said "(100)". */
+  const ids = Array.from({ length: 400 }, (_, i) => i);
+  const anki = createAnkiBackend(async (body) => {
+    const { action, params } = JSON.parse(body);
+    if (action === "findNotes") {
+      if (params.query.includes('note:"Basic"')) return JSON.stringify({ result: ids.slice(0, 300) });
+      if (params.query.includes('note:"Cloze"')) return JSON.stringify({ result: ids.slice(0, 100) });
+      return JSON.stringify({ result: ids });
+    }
+    if (action === "notesInfo") {
+      assert.strictEqual(params.notes.length, 100, "only a sample is read");
+      return JSON.stringify({ result: params.notes.map((id) => ({ modelName: id < 70 ? "Basic" : "Cloze" })) });
+    }
+    return JSON.stringify({ result: null });
+  });
+  assert.deepStrictEqual(await anki.noteTypesIn("Vokabeln"),
+    [{ noteType: "Basic", cards: 300 }, { noteType: "Cloze", cards: 100 }]);
 });
 
 /* Anki's own words are kept beside the kind, not thrown away: a card that

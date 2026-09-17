@@ -162,13 +162,30 @@ export function labelsInside(root) {
     const node = event.target.closest?.(".icon");
     const label = node?.querySelector(".pill-label");
     if (!label) return;
-    const clip = node.closest(".sheet")?.getBoundingClientRect().bottom ?? window.innerHeight;
-    const bottom = Math.min(clip, window.innerHeight);
-    const below = node.getBoundingClientRect().bottom + 5 + label.offsetHeight;
-    node.classList.toggle("label-above", below > bottom - 2);
+    const sheet = node.closest(".sheet")?.getBoundingClientRect();
+    const button = node.getBoundingClientRect();
+    const where = labelPlace({
+      top: button.top,
+      bottom: button.bottom,
+      label: label.offsetHeight,
+      clipTop: Math.max(sheet?.top ?? 0, 0),
+      clipBottom: Math.min(sheet?.bottom ?? window.innerHeight, window.innerHeight),
+    });
+    node.classList.toggle("label-above", where === "above");
+    node.classList.toggle("label-beside", where === "beside");
   };
   root.addEventListener("mouseover", place);
   root.addEventListener("focusin", place);
+}
+
+/* Under the button where it fits, above it where it does not, and beside it
+   where neither does: a blank sheet is a window one field tall, and a label
+   put above its one button stood under the title line with only its lower
+   edge showing — a bright bar in the dark scheme. */
+export function labelPlace({ top, bottom, label, clipTop, clipBottom }) {
+  if (bottom + 5 + label <= clipBottom - 2) return "below";
+  if (top - 5 - label >= clipTop + 2) return "above";
+  return "beside";
 }
 
 /* A button that says what happened and then goes back to its label.

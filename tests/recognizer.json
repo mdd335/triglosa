@@ -1,357 +1,357 @@
 {
- "alltag/L1": {
+ "everyday/L1": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.997
+  "confidence": 0.997
  },
- "alltag/L10": {
+ "everyday/L10": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.992
+  "confidence": 0.992
  },
- "alltag/L11": {
+ "everyday/L11": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.893
+  "confidence": 0.893
  },
- "alltag/L12": {
+ "everyday/L12": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.997
+  "confidence": 0.997
  },
- "alltag/L13": {
+ "everyday/L13": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
- "alltag/L16": {
+ "everyday/L16": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
- "alltag/L17": {
+ "everyday/L17": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.997
+  "confidence": 0.997
  },
- "alltag/L18": {
+ "everyday/L18": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.999
+  "confidence": 0.999
  },
- "alltag/L2": {
+ "everyday/L2": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.999
+  "confidence": 0.999
  },
- "alltag/L23": {
+ "everyday/L23": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.992
+  "confidence": 0.992
  },
- "alltag/L24": {
+ "everyday/L24": {
   "lang": "es",
   "nl": "es",
-  "wert": 1
+  "confidence": 1
  },
- "alltag/L3": {
+ "everyday/L3": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
- "alltag/L4": {
+ "everyday/L4": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.996
+  "confidence": 0.996
  },
- "alltag/L5": {
+ "everyday/L5": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
- "alltag/L6": {
+ "everyday/L6": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.999
+  "confidence": 0.999
  },
- "alltag/L7": {
+ "everyday/L7": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.994
+  "confidence": 0.994
  },
- "alltag/L8": {
+ "everyday/L8": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
- "alltag/L9": {
+ "everyday/L9": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.996
+  "confidence": 0.996
  },
  "dev/01": {
   "lang": "es",
   "nl": "en",
-  "wert": 0.474
+  "confidence": 0.474
  },
  "dev/02": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.99
+  "confidence": 0.99
  },
  "dev/03": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.999
+  "confidence": 0.999
  },
  "dev/04": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.996
+  "confidence": 0.996
  },
  "dev/05": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.999
+  "confidence": 0.999
  },
  "dev/06": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.998
+  "confidence": 0.998
  },
  "dev/07": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.996
+  "confidence": 0.996
  },
  "dev/08": {
   "lang": "de",
   "nl": "de",
-  "wert": 0.943
+  "confidence": 0.943
  },
  "dev/09": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
  "dev/10": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
  "dev/11": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
  "dev/12": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
  "dev/13": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.5
+  "confidence": 0.5
  },
  "dev/14": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.995
+  "confidence": 0.995
  },
  "dev/15": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.997
+  "confidence": 0.997
  },
  "dev/16": {
   "lang": "en",
   "nl": "en",
-  "wert": 1
+  "confidence": 1
  },
  "dev/17": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.999
+  "confidence": 0.999
  },
  "dev/18": {
   "lang": "fr",
   "nl": "fr",
-  "wert": 1
+  "confidence": 1
  },
  "dev/19": {
   "lang": "it",
   "nl": "it",
-  "wert": 1
+  "confidence": 1
  },
  "dev/20": {
   "lang": "es",
   "nl": "es",
-  "wert": 1
+  "confidence": 1
  },
  "dev/21": {
   "lang": "es",
   "nl": "en",
-  "wert": 0.404
+  "confidence": 0.404
  },
  "dev/22": {
   "lang": "de",
   "nl": "de",
-  "wert": 0.401
+  "confidence": 0.401
  },
  "dev/23": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.968
+  "confidence": 0.968
  },
  "dev/24": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.7
+  "confidence": 0.7
  },
  "dev/25": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.999
+  "confidence": 0.999
  },
  "dev/26": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.989
+  "confidence": 0.989
  },
  "dev/27": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
  "dev/28": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.946
+  "confidence": 0.946
  },
  "dev/29": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
  "dev/30": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.999
+  "confidence": 0.999
  },
  "holdout/H1": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.361
+  "confidence": 0.361
  },
  "holdout/H10": {
   "lang": "pt",
   "nl": "pt",
-  "wert": 1
+  "confidence": 1
  },
  "holdout/H2": {
   "lang": "es",
   "nl": "pt",
-  "wert": 0.57
+  "confidence": 0.57
  },
  "holdout/H3": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.999
+  "confidence": 0.999
  },
  "holdout/H4": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.998
+  "confidence": 0.998
  },
  "holdout/H5": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.987
+  "confidence": 0.987
  },
  "holdout/H6": {
   "lang": "de",
   "nl": "de",
-  "wert": 0.334
+  "confidence": 0.334
  },
  "holdout/H7": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
  "holdout/H8": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.968
+  "confidence": 0.968
  },
  "holdout/H9": {
   "lang": "en",
   "nl": "en",
-  "wert": 1
+  "confidence": 1
  },
  "holdout2/J1": {
   "lang": "es",
   "nl": "pt",
-  "wert": 0.736
+  "confidence": 0.736
  },
  "holdout2/J10": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.405
+  "confidence": 0.405
  },
  "holdout2/J11": {
   "lang": "en",
   "nl": "en",
-  "wert": 0.999
+  "confidence": 0.999
  },
  "holdout2/J12": {
   "lang": "it",
   "nl": "it",
-  "wert": 1
+  "confidence": 1
  },
  "holdout2/J2": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.623
+  "confidence": 0.623
  },
  "holdout2/J3": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.497
+  "confidence": 0.497
  },
  "holdout2/J4": {
   "lang": "es",
   "nl": "es",
-  "wert": 1
+  "confidence": 1
  },
  "holdout2/J5": {
   "lang": "es",
   "nl": "es",
-  "wert": 1
+  "confidence": 1
  },
  "holdout2/J6": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.999
+  "confidence": 0.999
  },
  "holdout2/J7": {
   "lang": "de",
   "nl": "de",
-  "wert": 0.66
+  "confidence": 0.66
  },
  "holdout2/J8": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
  "holdout2/J9": {
   "lang": "de",
   "nl": "de",
-  "wert": 1
+  "confidence": 1
  },
  "regress/N1": {
   "lang": "es",
   "nl": "es",
-  "wert": 0.998
+  "confidence": 0.998
  }
 }

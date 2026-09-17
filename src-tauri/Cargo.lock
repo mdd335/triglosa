@@ -4592,7 +4592,7 @@ dependencies = [
 
 [[package]]
 name = "triglosa"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4602,6 +4602,7 @@ dependencies = [
  "tauri-plugin-http",
  "tauri-plugin-opener",
  "tauri-plugin-shell",
+ "windows",
 ]
 
 [[package]]

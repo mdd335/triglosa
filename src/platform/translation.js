@@ -8,6 +8,7 @@
    else" — the model then does the work. A wrong answer here would spoil the
    whole run, so refusing is always the safer half. */
 
+import { currentSystem } from "../system.js";
 import { stripModelWrapping } from "../text.js";
 
 /* Where the resident helper listens. One number, in one place: the window,
@@ -120,7 +121,23 @@ export function readDetection(answer, candidates, preferred = []) {
 
 const trimSlash = (s) => String(s || "").replace(/\/+$/, "");
 
-export function createTranslationBackend({ helperUrl }, fetchImpl = fetch) {
+/* Windows has no translation on the device. What stands in for it answers
+   every question the way a helper that is not running does, which is a state
+   the run already handles: the model translates, and without one the panels
+   say what is missing. */
+const ABSENT = {
+  running: async () => false,
+  current: () => false,
+  retire: async () => {},
+  pairStatus: async () => "",
+  canTranslate: async () => false,
+  warm: async () => 0,
+  translate: async () => "",
+  detect: async () => "",
+};
+
+export function createTranslationBackend({ helperUrl, system = currentSystem() }, fetchImpl = fetch) {
+  if (system === "windows") return ABSENT;
   const base = trimSlash(helperUrl);
   /* Answered once per session. A failure is NOT remembered: then every call
      simply goes the slow way, and next time it is tried again. */

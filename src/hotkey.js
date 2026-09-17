@@ -21,6 +21,8 @@
    see `src-tauri/src/keyboard.rs`. Every function that shows a key takes
    that table and manages without it. */
 
+import { currentSystem } from "./system.js";
+
 /* What the app suggests when nobody has chosen. ⌃⌥ leaves every ⌘
    combination to the programs the reader is actually working in, which is
    where their own shortcuts live, and E stands for what the app does in both
@@ -43,12 +45,45 @@
    default. */
 export const DEFAULT_HOTKEY = { accelerator: "Control+Alt+KeyE", label: "⌃⌥E" };
 
+/* On Windows Ctrl+Alt cannot be the preset: on a German, French, Spanish or
+   Polish keyboard Ctrl+Alt *is* AltGr, and AltGr+E types €. Win+Shift leaves
+   AltGr alone and every program's own Ctrl combinations too, and Windows
+   gives no meaning of its own to Win+Shift+E. The E stays. */
+export const WINDOWS_HOTKEY = { accelerator: "Super+Shift+KeyE", label: "Win+Shift+E" };
+
+export function defaultHotkey(system = currentSystem()) {
+  return system === "windows" ? WINDOWS_HOTKEY : DEFAULT_HOTKEY;
+}
+
 /* Pressing only Shift is typing, not a shortcut: ⇧A is A. One of the other
    three has to be down, or every capital letter in the window would be one. */
 const HOLDING = ["metaKey", "ctrlKey", "altKey"];
 
 /* macOS reads them in this order, and so does every menu in the system. */
 const SYMBOLS = { control: "⌃", alt: "⌥", shift: "⇧", command: "⌘" };
+
+/* Windows spells them out, joined by a plus, the Windows key first. */
+const WINDOWS_NAMES = [
+  ["Super", "Win"],
+  ["Control", "Ctrl"],
+  ["Alt", "Alt"],
+  ["Shift", "Shift"],
+];
+
+/* What a stored combination is called on Windows. */
+function windowsLabel(parts, key, layout) {
+  const names = WINDOWS_NAMES.filter(([part]) => parts.includes(part)).map(([, name]) => name);
+  return names.concat(windowsKeyLabel(key, layout)).join("+");
+}
+
+/* Arrows and the like have names on Windows, not the Mac's symbols. */
+function windowsKeyLabel(code, layout) {
+  if (/^Arrow/.test(code)) return code.slice(5);
+  if (code === "Escape") return "Esc";
+  if (code === "Delete") return "Del";
+  if (NAMED[code]) return code.replace(/^Numpad/, "");
+  return keyLabel(code, layout);
+}
 
 /* Keys with no character of their own. Anything not in here that has a
    single-character `key` shows that character instead. */
@@ -81,12 +116,12 @@ export function isShortcutKey(code) {
   );
 }
 
-/* The name the shell will be handed. `CommandOrControl` rather than `Super`,
-   because the Windows version is intended and the reader who pressed ⌘ meant
-   "the modifier this platform uses for shortcuts". */
-function acceleratorOf(event) {
+/* The name the shell will be handed. On a Mac ⌘ is `CommandOrControl`; on
+   Windows the key that sets `metaKey` is the Windows key, which is `Super`,
+   and Ctrl is Ctrl. */
+function acceleratorOf(event, system) {
   const parts = [];
-  if (event.metaKey) parts.push("CommandOrControl");
+  if (event.metaKey) parts.push(system === "windows" ? "Super" : "CommandOrControl");
   if (event.ctrlKey) parts.push("Control");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
@@ -94,7 +129,15 @@ function acceleratorOf(event) {
   return parts.join("+");
 }
 
-function labelOf(event, layout) {
+function labelOf(event, layout, system) {
+  if (system === "windows") {
+    const parts = [];
+    if (event.metaKey) parts.push("Super");
+    if (event.ctrlKey) parts.push("Control");
+    if (event.altKey) parts.push("Alt");
+    if (event.shiftKey) parts.push("Shift");
+    return windowsLabel(parts, event.code, layout);
+  }
   let out = "";
   if (event.ctrlKey) out += SYMBOLS.control;
   if (event.altKey) out += SYMBOLS.alt;
@@ -124,11 +167,11 @@ export function keyLabel(code, layout) {
 /* What a key press amounts to: a combination, or nothing. Returning null for
    "not yet" is the normal case — the reader is still holding modifiers down
    while they decide. */
-export function hotkeyFrom(event, layout) {
+export function hotkeyFrom(event, layout, system = currentSystem()) {
   if (!event || isModifierKey(event.code)) return null;
   if (!HOLDING.some((flag) => event[flag])) return null;
   if (!isShortcutKey(event.code)) return null;
-  return { accelerator: acceleratorOf(event), label: labelOf(event, layout) };
+  return { accelerator: acceleratorOf(event, system), label: labelOf(event, layout, system) };
 }
 
 /* Whether something read back from the settings file is a combination at
@@ -140,7 +183,7 @@ export function isHotkey(value) {
   const key = parts.pop();
   if (!isShortcutKey(key)) return false;
   if (!parts.length) return false;
-  const allowed = ["CommandOrControl", "Control", "Alt", "Shift"];
+  const allowed = ["CommandOrControl", "Control", "Alt", "Shift", "Super"];
   if (parts.some((part) => !allowed.includes(part))) return false;
   return parts.some((part) => part !== "Shift");
 }
@@ -152,11 +195,14 @@ export function isHotkey(value) {
    key under the reader's finger today is the one worth naming. The stored
    label is what is left when there is no layout to ask, which is a browser
    and a settings file written by hand. */
-export function hotkeyLabel(value, layout) {
+export function hotkeyLabel(value, layout, system = currentSystem()) {
   if (!isHotkey(value)) return "";
   const parts = String(value.accelerator).split("+");
   const key = parts.pop();
   if (!layout && value.label) return String(value.label);
+  if (system === "windows") {
+    return windowsLabel(parts.map((part) => (part === "CommandOrControl" ? "Control" : part)), key, layout);
+  }
   let out = "";
   if (parts.includes("Control")) out += SYMBOLS.control;
   if (parts.includes("Alt")) out += SYMBOLS.alt;
@@ -169,12 +215,14 @@ export function hotkeyLabel(value, layout) {
    character it is given, so the key goes in as what is written on it in the
    reader's layout — `Control+Alt+ü`, not the code of the key under an
    American Ü. Keys with no character keep their code. */
-export function menuAccelerator(value, layout) {
+export function menuAccelerator(value, layout, system = currentSystem()) {
   if (!isHotkey(value)) return "";
   const parts = String(value.accelerator).split("+");
   const key = parts.pop();
   const written = NAMED[key] ? "" : keyLabel(key, layout);
   const character = [...written].length === 1 ? written.toLowerCase() : key;
+  /* muda on Windows reads the key by its code and draws the label itself. */
+  if (system === "windows") return parts.concat(key).join("+");
   return parts.concat(character).join("+");
 }
 
@@ -189,7 +237,7 @@ export function menuAccelerator(value, layout) {
 
    Deliberately short. A long list of "we know better" turns into a fight with
    someone who has a good reason. */
-const RESERVED = [
+const RESERVED_MAC = [
   "KeyA", "KeyC", "KeyF", "KeyN", "KeyO", "KeyP", "KeyQ",
   "KeyS", "KeyT", "KeyV", "KeyW", "KeyX", "KeyZ",
 ].map((key) => `CommandOrControl+${key}`).concat([
@@ -197,15 +245,22 @@ const RESERVED = [
   "CommandOrControl+Tab",
 ]);
 
+/* The same keys under Ctrl, and the few combinations Windows keeps for
+   itself whatever a program registers. */
+const RESERVED_WINDOWS = RESERVED_MAC.map((accelerator) => accelerator.replace("CommandOrControl", "Control"))
+  .concat(RESERVED_MAC)
+  .concat(["Alt+Tab", "Alt+F4", "Alt+Escape", "Control+Escape", "Control+Shift+Escape", "Control+Alt+Delete"]);
+
 /* Whether a combination is already spoken for, and by whom. Two sources, and
    they mean different things to the reader: "the system" is something they
    can go and change, "every program" is not.
 
    Answers "" for a combination that is free. */
-export function shortcutTaken(hotkey, taken) {
+export function shortcutTaken(hotkey, taken, system = currentSystem()) {
   const accelerator = hotkey && hotkey.accelerator;
   if (!accelerator) return "";
-  if (RESERVED.includes(accelerator)) return "everywhere";
+  const reserved = system === "windows" ? RESERVED_WINDOWS : RESERVED_MAC;
+  if (reserved.includes(accelerator)) return "everywhere";
   if (Array.isArray(taken) && taken.includes(accelerator)) return "system";
   return "";
 }

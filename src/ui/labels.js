@@ -1,18 +1,8 @@
-/* What the interface itself says, in the language explanations are written in.
-
-   Only German and English, for the same reason as in strings.js: the first
-   language is one of the two. A foreign language someone is learning never
-   appears here — they would be reading their own interface as an exercise.
-
-   Kept apart from strings.js on purpose. Those strings are read by parsers as
-   well; these are only ever shown. */
+import { currentSystem } from "../system.js";
 
 const TABLE = {
   de: {
     placeholder: "Text einfügen oder eintippen",
-    /* Der Knopf am Original-Feld heißt nach dem, was er auslöst. Er steht
-       dort, wo im Lesemodus „Editieren“ steht — dasselbe Feld, zwei Zustände,
-       an derselben Stelle ein Knopf. */
     translate: "Übersetzen",
     edit: "Editieren",
     settings: "Einstellungen",
@@ -41,47 +31,24 @@ const TABLE = {
     copy: "Kopieren",
     insert: "Einfügen",
     copied: "Kopiert",
-    /* Beide sagen dazu, dass sie aus dem Fenster hinausführen: was sie
-       öffnen, ist eine Seite im Browser und nichts, was hier steht. */
     search: "Suchen (extern)",
     opened: "Geöffnet",
     conjugation: "Konjugation (extern)",
-    /* Der Knopf an einer Zeile heißt nach dem, was er zeigt, und nicht nach
-       einem Programm: was er öffnet, ist eine Karte, die man lesen, ändern
-       und herauskopieren kann — mit oder ohne Anki auf dem Rechner. */
     card: "Lernkarte",
-    /* Was in der Titelleiste des eigenen Fensters steht. */
     cardCreate: "Lernkarte erstellen",
     added: "Angelegt",
     synonymBack: "Voriges Wort",
     synonymForward: "Nächstes Wort",
-    /* Die Überschriften der drei Felder. Die ersten beiden stehen nur da, wo
-       die Sprache unbekannt ist — sonst steht der Name der Sprache selbst,
-       aus dem Pack. */
     cardTerm: "Fremdsprache",
     cardMeaning: "Muttersprache",
     cardNote: "Erklärung",
-    /* Die beiden Zeilen unter einer Erklärung. Ohne Beschriftung standen dort
-       zwei Absätze Lauftext, und nichts sagte, dass der eine ein Beispiel ist
-       und der andere seine Übersetzung. */
     cardCopyAll: "Alle drei kopieren",
     cardCopyField: "Feld kopieren",
     cardToAnki: "Direkt nach Anki",
     cardAnkiStart: "Anki starten",
     cardAnkiStarting: "Anki wird gestartet …",
     cardAnkiSetup: "Stapel wählen",
-    /* Ohne zugeordnetes Feld ginge die Erklärung stillschweigend verloren. */
     cardNoteUnmapped: "Kein Feld zugeordnet — diese Zeilen gehen nicht nach Anki.",
-    /* Was aus dem Versuch geworden ist, in einem Satz, der sagt was passiert
-       ist und was dagegen zu tun ist — und der stehen bleibt. „Nicht
-       angelegt“ am Knopf, das nach anderthalb Sekunden wieder verschwand,
-       hat einen Nachmittag gekostet: die eigentliche Ursache stand in Ankis
-       Antwort und wurde weggeworfen.
-
-       Ankis eigene Worte kommen in Klammern dahinter, wo sie die Erklärung
-       sind — und nur da. Ein Satz in der Sprache des Lesers zuerst, weil
-       „cannot create note because it is empty“ allein niemandem sagt, was zu
-       tun ist. */
     ankiSaved: "Die Karte liegt im Stapel.",
     ankiDuplicate: "Diese Karte liegt schon im Stapel — Anki vergleicht dazu das erste Feld des Notiztyps.",
     ankiSending: "Wird angelegt …",
@@ -115,24 +82,9 @@ const TABLE = {
     linking: "verknüpft …",
     noTerms: "keine schwierigen Begriffe gefunden",
     noVerbs: "keine schwierigen Verben gefunden",
-    /* Ein gesperrter Bereich sagt, was in ihm stünde — dreimal derselbe
-       Hinweis liest sich als Rauschen. Wie man ihn aufmacht, steht einmal
-       darunter. */
-    lockedEntry: "Für einen Wörterbuch-Eintrag braucht es ein KI-Modell.",
     lockedHow:
       "Verbinde in den Einstellungen ein KI-Modell für genauere Übersetzungen, Verben, Begriffe, Erklärungen und weitere Funktionen.",
-    /* Beide Wege haben es versucht und keiner hat geantwortet. Was hier nicht
-       stehen darf, ist der Hinweis auf fehlende Sprachpakete: der ist nur
-       richtig, wenn das Gerät der einzige Weg war. */
-    /* Nur die Tatsache. Der Grund steht einmal unter dem Blatt, und ein
-       Ratschlag, der in vier Flächen gleichzeitig steht, ist derselbe Lärm
-       wie die Meldung, die er ersetzt hat. */
     noAnswer: "Keine Antwort erhalten.",
-    /* Was schiefgegangen ist, in einem Satz, der ohne Fehlercode-Wissen
-       auskommt: was passiert ist und was man dagegen tun kann. Die Nummer
-       steht mit dabei, weil sie in einer Support-Antwort weiterhilft — aber
-       nie als einziges. Welche Art es ist, entscheidet faults.js.
-       Jede Meldung hat dieselbe Form: kurz, was passiert ist, dann ein Satz mit „Bitte“, der sagt, was zu tun ist. */
     faults: {
       unreachable:
         "Keine Verbindung zum KI-Modell. Bitte prüfe die Internetverbindung und die Einstellungen.",
@@ -158,8 +110,6 @@ const TABLE = {
         "Im lokalen Server ist kein Modell geladen. Bitte lade eines oder trage einen Modellnamen in den Einstellungen ein.",
       unknown: (f) => f.detail || "Etwas ist schiefgegangen. Bitte versuche es noch einmal.",
     },
-    /* Nicht dasselbe wie ein fehlendes Sprachpaket: hier ist der Dienst
-       überhaupt nicht da, und nachladen lässt sich dagegen nichts. */
     noDevice:
       "Apples Übersetzung antwortet nicht. Bitte richte in den Einstellungen ein KI-Modell ein.",
     onlyKnownLanguages:
@@ -184,9 +134,6 @@ const TABLE = {
     updatesDownload: "Zum Download",
     updatesFailed: (status) => `Keine Antwort von GitHub${status ? ` (${status})` : ""}. Bitte versuche es später noch einmal.`,
 
-    /* Zwei Schalter, nicht einer: die Karte selbst verlässt den Rechner
-       nicht und ist deshalb an, der Export in ein anderes Programm ist eine
-       eigene Entscheidung. */
     optionOn: "an",
     optionOff: "aus",
     cardsEnabled: "Option zum Erstellen von Lernkarten",
@@ -211,21 +158,14 @@ const TABLE = {
     ankiDeckList: "Aus der Liste",
     ankiNoteType: "Notiztyp",
     ankiNoteTypeHint: "Der Notiztyp entscheidet, welche Felder eine Karte hat.",
-    /* Der Notiztyp ist die Frage, auf die niemand von sich aus eine Antwort
-       hat. Anki weiß sie: welcher in diesem Stapel tatsächlich benutzt wird.
-       Der Satz daneben sagt, wo man sie in Anki selbst findet. */
     ankiNoteTypeUsed: (count) => `in diesem Stapel (${count})`,
     ankiNoteTypeFound: (name) =>
-      `Die Karten in diesem Stapel benutzen „${name}“ — das ist hier eingetragen.`,
+      `Die Karten im ausgewählten Stapel nutzen den Notiztyp „${name}“.`,
     ankiNoteTypeLook:
-      "Der Stapel ist leer, also kann Anki nicht sagen, welcher gemeint ist. In Anki steht er beim Bearbeiten einer Karte oben links; „Basic“ ist der eingebaute mit Vorder- und Rückseite.",
+      "Der ausgewählte Stapel hat noch keine Karten, an denen sich der Notiztyp ablesen lässt. Bitte wähle ihn selbst aus.",
     ankiFields: "Felder",
     ankiFieldsHint: "Welches Feld des Notiztyps welche der drei Zeilen bekommt.",
     ankiNoField: "— nicht schreiben",
-    /* Kein Zauber: Anki entscheidet an genau diesem Feld, ob eine Notiz leer
-       ist, und lehnt sie sonst ab. Auf dem Notiztyp des Autors heißt es „ID“
-       und sagt einem Leser nichts, also hätte es niemand zugeordnet — und
-       jede Karte wurde abgelehnt. */
     ankiFirstField: (name) =>
       `Das erste Feld des Notiztyps („${name}“) bekommt zusätzlich das Wort in der Fremdsprache. Anki nimmt Notizen mit leerem erstem Feld nicht an.`,
 
@@ -233,7 +173,6 @@ const TABLE = {
     secondLanguage: "Zweite Sprache",
     thirdLanguage: "Dritte Sprache (optional)",
     noThird: "keine",
-    /* Ein Wort pro Stufe, für alle, denen die Skala nichts sagt. */
     levelNames: {
       A1: "Anfang",
       A2: "Grundlagen",
@@ -249,7 +188,6 @@ const TABLE = {
       foreign: "bei allen unterstützten Fremdsprachen",
       all: "bei allen unterstützten Sprachen",
     },
-    /* Begriffe gibt es auch in Sprachen, die die App nicht unterstützt. */
     termModes: {
       never: "nie",
       second: "nur bei der zweiten Sprache",
@@ -263,17 +201,8 @@ const TABLE = {
     underlineHint: "Unterstreicht die Verben und Begriffe in Original und Übersetzungen.",
     glance: "Übersetzung beim Überfahren",
     glanceHint: "Zeigt über einem Wort des Originals, was ihm in deiner Sprache entspricht.",
-    /* Was die drei Zeilen zusammen entscheiden, steht über ihnen und nicht
-       im Hinweis einer von ihnen: ohne KI-Modell fällt die halbe App weg,
-       und das gehört an den Anfang der Gruppe. */
     modelIntro:
       "Ohne KI-Modell gibt es nur Apples Übersetzung auf dem Gerät, sofern unten eingerichtet. Verbinde ein KI-Modell für genauere Übersetzungen, Verben, Begriffe, Erklärungen und weitere Funktionen.",
-    /* Für alle, die noch nie einen Modell-Zugang eingerichtet haben. Die
-       Antwort darauf sind drei Absätze — wofür das Modell hier gebraucht
-       wird, worin sich Cloud und lokal unterscheiden, was in welches Feld
-       gehört — und die stehen in der README und nicht in diesem Fenster: sie
-       gehören zum Einrichten und nicht zum Bedienen, und im Fenster hätten
-       sie die drei Felder vom Bildschirm geschoben. */
     modelHelpAsk: "Noch nie ein KI-Modell eingerichtet?",
     modelHelpLink: "Zur Anleitung",
     endpoint: "Modell-Endpunkt",
@@ -286,15 +215,14 @@ const TABLE = {
     apiKeyHint:
       "Landet im Schlüsselbund des Systems, nie in der Einstellungsdatei. Ein lokales Modell braucht meist keinen.",
     forgetKey: "Vergessen",
+    keySaveFailed: (detail) =>
+      `Der Schlüssel wurde nicht gespeichert${detail ? ` (${detail})` : ""}. Bitte versuche es noch einmal.`,
     testConnection: "Verbindung prüfen",
     testing: "Wird geprüft …",
     testOk: (name) => `Antwortet, mit „${name}“.`,
 
     translator: "Übersetzung durch",
     translatorModes: { model: "KI-Modell", device: "Apple (auf dem Gerät)" },
-    /* Apples Übersetzung ist ein Zusatz: gemessen liegt sie bei etwa jeder
-       vierten Übersetzung im Sinn daneben, ein Cloud-Modell bei einer von
-       dreihundert. Was für sie spricht, ist Tempo und dass sie offline geht. */
     deviceIntro:
       "Optional kannst du für die Übersetzungen selbst Apples Übersetzung auf dem Gerät einrichten. Sie ist sehr schnell und funktioniert offline, ist aber oft ungenau.",
     translatorHint: "Kann eines der beiden nicht übersetzen, springt das andere ein, sofern es eingerichtet ist.",
@@ -334,9 +262,6 @@ const TABLE = {
     hotkeyLead: "Übersetzt Text aus jedem Programm: Text kopieren (⌘C), dann das Kürzel drücken.",
     hotkeyLeadSelected: "Übersetzt den markierten Text in jedem Programm.",
     hotkeyHint: "Passiert beim Drücken des Kürzels nichts, ist die Kombination schon vergeben. Wähle dann eine andere.",
-    /* Was die Shell dazu sagt, steht auf Englisch und hilft selten weiter —
-       deshalb erst der Satz, der weiterhilft, und die Worte der Shell danach
-       in Klammern. */
     hotkeyFailed: (reason) =>
       "Das Tastenkürzel ist vermutlich schon vergeben"
       + (reason ? ` (${reason})` : "") + ". Bitte wähle eine andere Kombination.",
@@ -345,21 +270,15 @@ const TABLE = {
     hotkeyTakenEverywhere:
       "Diese Kombination nutzt jedes Programm selbst. Bitte wähle eine andere.",
 
-    /* Die Berechtigung ist ein Zusatz, keine Voraussetzung. Erklärt wird
-       sie, bevor der Systemdialog kommt: was sie bringt, wofür Triglosa sie
-       nutzt und wofür nicht, und wo sich das nachprüfen lässt. macOS
-       beschreibt sie so allgemein, dass sie ohne diesen Satz nach viel mehr
-       klingt, als sie hier tut. */
     permission: "Markierten Text direkt übernehmen (optional)",
     permissionWhy:
       "Markierten Text übersetzen, ohne ihn vorher zu kopieren, und Übersetzungen direkt in andere Programme einfügen.",
     permissionHave: "Eingeschaltet.",
     permissionTrust:
-      "Dafür braucht Triglosa die macOS-Berechtigung „Bedienungshilfen“. Triglosa nutzt sie nur für diese zwei Dinge und nur, wenn du das Kürzel drückst oder auf „Einfügen“ klickst. Triglosa ist Open Source, du kannst das also nachprüfen:",
+      "Dafür braucht Triglosa die macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ unter Datenschutz & Sicherheit (bis macOS 26 „Bedienungshilfen“). Triglosa nutzt sie nur für diese zwei Dinge und nur, wenn du das Kürzel drückst oder auf „Einfügen“ klickst. Triglosa ist Open Source, du kannst das also nachprüfen:",
     permissionCode: "zum Code",
     permissionAsk: "Erlauben …",
     permissionOpen: "Systemeinstellungen öffnen",
-    permissionOff: "Ausschalten lässt sie sich jederzeit in den Systemeinstellungen unter Datenschutz & Sicherheit → Bedienungshilfen.",
     permissionPending:
       "macOS hat Triglosa dort in die Liste aufgenommen. Bitte schalte Triglosa in der Liste ein — dieses Fenster merkt es von selbst.",
     copyFirst: (key) => `Tipp: Text in einem Programm kopieren (⌘C), dann ${key} drücken.`,
@@ -368,7 +287,7 @@ const TABLE = {
     inserted: "Eingefügt",
     insertNoWay: (reason) =>
       reason === "focus" ? "Kein Programm zum Einfügen"
-      : reason === "accessibility" ? "Bedienungshilfen fehlen"
+      : reason === "accessibility" ? "Berechtigung fehlt"
       : "Nicht eingefügt",
 
     trayCapture: "Markierten Text übersetzen",
@@ -379,8 +298,6 @@ const TABLE = {
     trayProblem: "Problem melden",
     trayRestart: "Triglosa neu starten",
     trayQuit: "Triglosa beenden",
-    /* Der Text, der nirgends steht: ein Knopf ohne Aufschrift braucht einen
-       Namen für alle, die das Fenster nicht sehen. */
     settingsOpen: "Einstellungen öffnen",
     historyBack: "Vorige Übersetzung",
     historyForward: "Nächste Übersetzung",
@@ -493,7 +410,6 @@ const TABLE = {
     noVerbs: "no difficult verbs found",
     /* A locked area says what would stand in it — the same hint three times
        over reads as noise. How to open it stands once, underneath. */
-    lockedEntry: "A dictionary entry needs an AI model.",
     lockedHow:
       "Connect an AI model in the settings for more accurate translations, verbs, terms, explanations and other features.",
     /* Both ways were tried and neither answered. What must not stand here is
@@ -588,12 +504,13 @@ const TABLE = {
     ankiNoteTypeHint: "The note type decides which fields a card has.",
     /* The note type is the question nobody has an answer to off the top of
        their head. Anki has one: which type the cards in this deck actually
-       use. The sentence beside it says where to find it in Anki itself. */
+       use. Where the deck is empty the choice is left to the reader: a tip
+       about Anki's own screens was wrong, and its names are translated. */
     ankiNoteTypeUsed: (count) => `in this deck (${count})`,
     ankiNoteTypeFound: (name) =>
-      `The cards in this deck use "${name}", so that is what is set here.`,
+      `The cards in the selected deck use the note type "${name}".`,
     ankiNoteTypeLook:
-      "The deck is empty, so Anki cannot say which one is meant. In Anki it stands at the top left while you edit a card; \"Basic\" is the built-in one with a front and a back.",
+      "The selected deck has no cards yet to read the note type from. Please choose it yourself.",
     ankiFields: "Fields",
     ankiFieldsHint: "Which field of the note type takes which of the three lines.",
     ankiNoField: "— do not write",
@@ -660,6 +577,8 @@ const TABLE = {
     apiKeyHint:
       "Goes into the system's key store, never into the settings file. A local model usually needs none.",
     forgetKey: "Forget",
+    keySaveFailed: (detail) =>
+      `The key was not saved${detail ? ` (${detail})` : ""}. Please try again.`,
     testConnection: "Test connection",
     testing: "Testing…",
     testOk: (name) => `Answers, with “${name}”.`,
@@ -718,16 +637,20 @@ const TABLE = {
     hotkeyTakenEverywhere:
       "Every program uses this combination itself. Please choose another one.",
 
+    /* The permission is an extra, not a requirement. It is explained before
+       the system dialog comes: what it adds, what Triglosa uses it for and
+       what not, and where that can be checked. macOS describes it so
+       broadly that without this sentence it sounds like far more than it
+       does here. */
     permission: "Use selected text directly (optional)",
     permissionWhy:
       "Translate selected text without copying it first, and insert translations straight into other programs.",
     permissionHave: "Switched on.",
     permissionTrust:
-      "For this, Triglosa needs the macOS permission “Accessibility”. Triglosa uses it only for these two things, and only when you press the shortcut or click “Insert”. Triglosa is open source, so you can verify this:",
+      "For this, Triglosa needs the macOS permission “Device Control and Data Access” under Privacy & Security (“Accessibility” up to macOS 26). Triglosa uses it only for these two things, and only when you press the shortcut or click “Insert”. Triglosa is open source, so you can verify this:",
     permissionCode: "see the code",
     permissionAsk: "Allow…",
     permissionOpen: "Open System Settings",
-    permissionOff: "You can switch it off at any time in System Settings under Privacy & Security → Accessibility.",
     permissionPending:
       "macOS has added Triglosa to the list there. Please switch Triglosa on in the list — this window notices by itself.",
     copyFirst: (key) => `Tip: copy some text in any program (⌘C), then press ${key}.`,
@@ -736,7 +659,7 @@ const TABLE = {
     inserted: "Inserted",
     insertNoWay: (reason) =>
       reason === "focus" ? "No program to insert into"
-      : reason === "accessibility" ? "Accessibility is missing"
+      : reason === "accessibility" ? "Permission missing"
       : "Not inserted",
 
     trayCapture: "Translate selected text",
@@ -762,8 +685,50 @@ const TABLE = {
    window. */
 export const windowTitle = (name) => `Triglosa · ${name}`;
 
-export function labels(code) {
-  return TABLE[String(code || "").toLowerCase()] || TABLE.en;
+/* What is worded differently on Windows: no translation on the device, so
+   the model is what everything waits for; no permission to explain; the
+   keyboard's Ctrl rather than ⌘; and the system's own name. Each sentence is
+   written for somebody who only ever sees this system: nothing is worded as a
+   difference from the other one. Laid over the
+   table rather than beside it, so the Mac's wording has one place. */
+const WINDOWS = {
+  de: {
+    noDevice: "Kein KI-Modell eingerichtet. Bitte richte in den Einstellungen ein KI-Modell ein.",
+    onlyKnownLanguages: "Kein KI-Modell eingerichtet. Bitte richte in den Einstellungen ein KI-Modell ein.",
+    pairMissing: () => "Kein KI-Modell eingerichtet. Bitte richte in den Einstellungen ein KI-Modell ein.",
+    modelIntro:
+      "Triglosa übersetzt und erklärt mit einem KI-Modell. Verbinde eines für Übersetzungen, Verben, Begriffe, Erklärungen und weitere Funktionen.",
+    lockedHow:
+      "Verbinde in den Einstellungen ein KI-Modell für Übersetzungen, Verben, Begriffe, Erklärungen und weitere Funktionen.",
+    apiKeyHint:
+      "Landet in der Windows-Anmeldeinformationsverwaltung, nie in der Einstellungsdatei. Ein lokales Modell braucht meist keinen.",
+    hotkeyLead: "Übersetzt den markierten Text in jedem Programm.",
+    hotkeyTakenSystem: "Diese Kombination ist von Windows belegt. Bitte wähle eine andere.",
+    copyFirst: (key) => `Tipp: Text in einem Programm markieren, dann ${key} drücken.`,
+  },
+  en: {
+    noDevice: "No AI model is set up. Please set one up in the settings.",
+    onlyKnownLanguages: "No AI model is set up. Please set one up in the settings.",
+    pairMissing: () => "No AI model is set up. Please set one up in the settings.",
+    modelIntro:
+      "Triglosa translates and explains with an AI model. Connect one for translations, verbs, terms, explanations and other features.",
+    lockedHow:
+      "Connect an AI model in the settings for translations, verbs, terms, explanations and other features.",
+    apiKeyHint:
+      "Kept in the Windows Credential Manager, never in the settings file. A local model usually needs none.",
+    hotkeyLead: "Translates the selected text in any program.",
+    hotkeyTakenSystem: "This combination is taken by Windows. Please choose another one.",
+    copyFirst: (key) => `Tip: select some text in any program, then press ${key}.`,
+  },
+};
+
+const OVERLAID = {};
+
+export function labels(code, system = currentSystem()) {
+  const language = TABLE[String(code || "").toLowerCase()] ? String(code).toLowerCase() : "en";
+  if (system !== "windows") return TABLE[language];
+  OVERLAID[language] = OVERLAID[language] || { ...TABLE[language], ...WINDOWS[language] };
+  return OVERLAID[language];
 }
 
 /* What goes in brackets after the fact: the HTTP number, where there is one,

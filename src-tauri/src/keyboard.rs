@@ -35,7 +35,7 @@
    handful every program has, which is a different file and a different kind
    of knowledge. */
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
     use std::collections::BTreeMap;
 
@@ -44,6 +44,98 @@ mod platform {
     }
     pub fn taken() -> Vec<String> {
         Vec::new()
+    }
+}
+
+/* On Windows the label is asked of the active keyboard layout through
+   `ToUnicodeEx`, by scan code — the place on the keyboard, the same kind of
+   "where" as the W3C name. What is taken cannot be read anywhere: Windows
+   keeps its own combinations in no register. It does refuse to register one
+   that another program already holds, which the shell reports; the list here
+   is the Windows key combinations Windows documents for itself. */
+#[cfg(target_os = "windows")]
+mod platform {
+    use std::collections::BTreeMap;
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        GetKeyboardLayout, MapVirtualKeyExW, ToUnicodeEx, MAPVK_VSC_TO_VK_EX,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
+    /* Scan codes of the keys that type a character. */
+    const KEYS: &[(&str, u32)] = &[
+        ("Backquote", 0x29), ("Digit1", 0x02), ("Digit2", 0x03), ("Digit3", 0x04),
+        ("Digit4", 0x05), ("Digit5", 0x06), ("Digit6", 0x07), ("Digit7", 0x08),
+        ("Digit8", 0x09), ("Digit9", 0x0A), ("Digit0", 0x0B), ("Minus", 0x0C),
+        ("Equal", 0x0D), ("KeyQ", 0x10), ("KeyW", 0x11), ("KeyE", 0x12), ("KeyR", 0x13),
+        ("KeyT", 0x14), ("KeyY", 0x15), ("KeyU", 0x16), ("KeyI", 0x17), ("KeyO", 0x18),
+        ("KeyP", 0x19), ("BracketLeft", 0x1A), ("BracketRight", 0x1B), ("KeyA", 0x1E),
+        ("KeyS", 0x1F), ("KeyD", 0x20), ("KeyF", 0x21), ("KeyG", 0x22), ("KeyH", 0x23),
+        ("KeyJ", 0x24), ("KeyK", 0x25), ("KeyL", 0x26), ("Semicolon", 0x27),
+        ("Quote", 0x28), ("Backslash", 0x2B), ("KeyZ", 0x2C), ("KeyX", 0x2D),
+        ("KeyC", 0x2E), ("KeyV", 0x2F), ("KeyB", 0x30), ("KeyN", 0x31), ("KeyM", 0x32),
+        ("Comma", 0x33), ("Period", 0x34), ("Slash", 0x35),
+    ];
+
+    pub fn labels() -> BTreeMap<String, String> {
+        let mut out = BTreeMap::new();
+        /* The layout of the program in front, which is the reader's current
+           one; this app's own thread may still be on the layout it started
+           with. */
+        let layout = unsafe {
+            let thread = GetWindowThreadProcessId(GetForegroundWindow(), None);
+            GetKeyboardLayout(thread)
+        };
+        let nothing_held = [0u8; 256];
+        for (code, scan) in KEYS {
+            let key = unsafe { MapVirtualKeyExW(*scan, MAPVK_VSC_TO_VK_EX, Some(layout)) };
+            if key == 0 {
+                continue;
+            }
+            let mut buffer = [0u16; 8];
+            /* Flag 4: leave the keyboard's state alone, so a dead key asked
+               about here does not put an accent on the reader's next letter. */
+            let mut length = unsafe { ToUnicodeEx(key, *scan, &nothing_held, &mut buffer, 4, Some(layout)) };
+            if length < 0 {
+                /* A dead key answers with its accent and a negative count. */
+                length = 1;
+            }
+            if length <= 0 {
+                continue;
+            }
+            let text = String::from_utf16_lossy(&buffer[..length as usize]);
+            let text = text.trim();
+            if text.is_empty() || text.chars().any(|c| c.is_control()) {
+                continue;
+            }
+            let shown = text.to_uppercase();
+            let shown = if shown.chars().count() == text.chars().count() { shown } else { text.to_string() };
+            out.insert((*code).to_string(), shown);
+        }
+        out
+    }
+
+    pub fn taken() -> Vec<String> {
+        let mut out: Vec<String> = "ABCDEGHIKLMNOPQRSTUVWXZ"
+            .chars()
+            .map(|letter| format!("Super+Key{letter}"))
+            .chain((0..=9).map(|digit| format!("Super+Digit{digit}")))
+            .chain(
+                ["Tab", "Space", "Comma", "Period", "Semicolon", "Home", "ArrowUp", "ArrowDown",
+                 "ArrowLeft", "ArrowRight"]
+                    .iter()
+                    .map(|key| format!("Super+{key}")),
+            )
+            .chain(
+                ["KeyS", "KeyM", "KeyC", "KeyV", "KeyR", "ArrowUp", "ArrowDown", "ArrowLeft",
+                 "ArrowRight"]
+                    .iter()
+                    .map(|key| format!("Super+Shift+{key}")),
+            )
+            .chain(["Super+Control+KeyD", "Super+Alt+KeyR", "Super+Alt+KeyG",
+                    "Super+Alt+KeyB"].iter().map(|one| one.to_string()))
+            .collect();
+        out.sort();
+        out
     }
 }
 
