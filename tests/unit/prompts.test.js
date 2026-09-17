@@ -293,7 +293,7 @@ test("the definition prompt is character for character the original", () => {
      it ever named a language it was not asked about. */
   assert.strictEqual(
     definitionPrompt({ source: RUN.source, unknown: "UNBEKANNT" }),
-    dynamic.sinn.system,
+    dynamic.meaning.system,
   );
 });
 

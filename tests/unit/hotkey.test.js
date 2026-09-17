@@ -8,6 +8,7 @@ import {
   isShortcutKey,
   keyLabel,
   shortcutTaken,
+  defaultHotkey,
 } from "../../src/hotkey.js";
 
 /* What the platform answers when asked what is written on each key. A German
@@ -130,4 +131,29 @@ test("a menu is handed the character on the key, not the key's American name", (
   assert.equal(menuAccelerator({ accelerator: "Control+Alt+Space", label: "⌃⌥Space" }, null), "Control+Alt+Space");
   assert.equal(menuAccelerator({ accelerator: "Control+F5", label: "⌃F5" }, null), "Control+F5");
   assert.equal(menuAccelerator(null, null), "");
+});
+
+test("on Windows the Windows key is Super and the labels are spelled out", () => {
+  const recorded = hotkeyFrom(press({ code: "KeyE", key: "E", metaKey: true, shiftKey: true }), { KeyE: "E" }, "windows");
+  assert.deepStrictEqual(recorded, { accelerator: "Super+Shift+KeyE", label: "Win+Shift+E" });
+  const german = hotkeyFrom(press({ code: "BracketLeft", ctrlKey: true, altKey: true }), GERMAN, "windows");
+  assert.deepStrictEqual(german, { accelerator: "Control+Alt+BracketLeft", label: "Ctrl+Alt+Ü" });
+  assert.ok(isHotkey(recorded));
+  assert.strictEqual(hotkeyLabel({ accelerator: "Control+Shift+ArrowUp" }, {}, "windows"), "Ctrl+Shift+Up");
+});
+
+test("a combination carried over from a Mac is named for Windows", () => {
+  /* ⌘ means the platform's shortcut modifier, which Windows resolves to Ctrl. */
+  assert.strictEqual(hotkeyLabel({ accelerator: "CommandOrControl+Shift+Digit4", label: "⇧⌘4" }, {}, "windows"), "Ctrl+Shift+4");
+});
+
+test("on Windows the preset leaves AltGr alone and Ctrl+C is still refused", () => {
+  const preset = defaultHotkey("windows");
+  assert.ok(!preset.accelerator.includes("Control+Alt"), "Ctrl+Alt is AltGr on most European keyboards");
+  assert.ok(isHotkey(preset));
+  assert.strictEqual(defaultHotkey("mac").accelerator, "Control+Alt+KeyE");
+  assert.strictEqual(shortcutTaken({ accelerator: "Control+KeyC" }, [], "windows"), "everywhere");
+  assert.strictEqual(shortcutTaken({ accelerator: "Control+KeyC" }, [], "mac"), "");
+  assert.strictEqual(shortcutTaken({ accelerator: "Alt+F4" }, [], "windows"), "everywhere");
+  assert.strictEqual(menuAccelerator(preset, { KeyE: "e" }, "windows"), "Super+Shift+KeyE");
 });

@@ -10,6 +10,7 @@
    it is in is the only piece of interface state this file keeps. The settings
    have a window of their own and are not part of this one. */
 
+import { onWindows } from "../system.js";
 import { runText } from "../run.js";
 import { addExample, explainMarked, explainMore } from "../ask.js";
 import { otherPanels } from "../panels.js";
@@ -293,7 +294,18 @@ async function applyMenu() {
     restart: text.trayRestart,
     quit: text.trayQuit,
   };
-  applyTray(words, menuAccelerator(settings.hotkey, await keyLayout));
+  const layout = await keyLayout;
+  /* A Windows menu writes whatever follows a tab at the right edge of its
+     entry, which is where the shortcut goes, named the way the settings name
+     it. Handed over as an accelerator instead, it was drawn from the key's
+     American name: Ctrl+Ä came out as Ctrl+'. */
+  if (onWindows()) {
+    const label = hotkeyLabel(settings.hotkey, layout);
+    if (label) words.capture += `\t${label}`;
+    applyTray(words, "");
+    return;
+  }
+  applyTray(words, menuAccelerator(settings.hotkey, layout));
 }
 
 /* The combination, handed to the shell. Done again after every change in the

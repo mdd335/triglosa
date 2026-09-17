@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+- Triglosa now runs on Windows 11 (Intel and AMD). The shortcut there is
+  Win+Shift+E, and an AI model is needed.
+
+### Changed
+- The Anki settings say more clearly which note type the deck uses.
+
+### Fixed
+- Button labels no longer hang out of a short window.
+- Without internet or an AI model, a single word is now translated by
+  Apple's translation instead of not at all.
+- The settings and the flashcard window no longer pull you onto another
+  program's full screen when you switch to them.
+- The button for another example sentence stays in place while it works.
+- Anki's note types show how many notes in the whole deck use them, not at
+  most 100.
+- The optional permission is named the way System Settings names it on
+  macOS 27: Device Control and Data Access.
+
 ## 0.2.0
 
 - The app is now called Triglosa. Settings, the API key and the Accessibility

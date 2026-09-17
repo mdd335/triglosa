@@ -1,3 +1,5 @@
+#![cfg_attr(not(target_os = "macos"), allow(dead_code))]
+
 /* Where a window is allowed to appear.
 
    A window belongs to one Space. Asking for it from a program that is running
@@ -11,9 +13,44 @@
    that matters, and it is the one no layer below us sets — tao offers only
    the first, through `set_visible_on_all_workspaces`.
 
+   A window left standing behind another program — the settings, a card — is
+   the exception to the first flag. On every Space at once it is on the full
+   screen Space too, and macOS, asked to bring the app forward, went there to
+   show it rather than stay on the desktop the reader was on. Those two move
+   to whichever Space is active when they are brought forward instead: the
+   same trip into a full screen, never out of the one the reader is on.
+
    Said by hand through the Objective-C runtime, the way capture.rs speaks to
    the Accessibility API: this is one message to the window, and a binding
    crate for one message is a dependency that carries nothing. */
+
+const CAN_JOIN_ALL_SPACES: u64 = 1 << 0;
+const MOVE_TO_ACTIVE_SPACE: u64 = 1 << 1;
+/* Mutually exclusive with the one below: a window cannot both be something
+   another program's full screen may cover and something that goes full screen
+   itself. tao sets Primary on every resizable window, so it has to come off
+   again — the green button loses its full screen and keeps the zoom, which is
+   the trade this whole file is about. */
+const FULL_SCREEN_PRIMARY: u64 = 1 << 7;
+const FULL_SCREEN_AUXILIARY: u64 = 1 << 8;
+
+/* Which Space a window lives on: every one, or whichever is active when it
+   is brought forward. */
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Spaces {
+    All,
+    Active,
+}
+
+pub fn collection_behavior(current: u64, spaces: Spaces) -> u64 {
+    let placed = match spaces {
+        Spaces::All => CAN_JOIN_ALL_SPACES,
+        Spaces::Active => MOVE_TO_ACTIVE_SPACE,
+    };
+    (current & !(FULL_SCREEN_PRIMARY | CAN_JOIN_ALL_SPACES | MOVE_TO_ACTIVE_SPACE))
+        | placed
+        | FULL_SCREEN_AUXILIARY
+}
 
 #[cfg(target_os = "macos")]
 mod platform {
@@ -25,14 +62,7 @@ mod platform {
     const MINIATURIZE_BUTTON: u64 = 1;
     const ZOOM_BUTTON: u64 = 2;
 
-    const CAN_JOIN_ALL_SPACES: u64 = 1 << 0;
-    /* Mutually exclusive with the one below: a window cannot both be
-       something another program's full screen may cover and something that
-       goes full screen itself. tao sets Primary on every resizable window, so
-       it has to come off again — the green button loses its full screen and
-       keeps the zoom, which is the trade this whole file is about. */
-    const FULL_SCREEN_PRIMARY: u64 = 1 << 7;
-    const FULL_SCREEN_AUXILIARY: u64 = 1 << 8;
+    use super::{collection_behavior, Spaces};
 
     extern "C" {
         fn sel_registerName(name: *const c_char) -> *const c_void;
@@ -46,7 +76,7 @@ mod platform {
 
     /* Must run on the main thread, like everything else that touches a
        window; the caller sees to that. */
-    pub fn over_full_screen(ns_window: *mut c_void) {
+    pub fn over_full_screen(ns_window: *mut c_void, spaces: Spaces) {
         if ns_window.is_null() {
             return;
         }
@@ -60,9 +90,7 @@ mod platform {
             unsafe { std::mem::transmute(send) };
 
         let current = read(ns_window, selector("collectionBehavior"));
-        let wanted =
-            (current & !FULL_SCREEN_PRIMARY) | CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY;
-        write(ns_window, selector("setCollectionBehavior:"), wanted);
+        write(ns_window, selector("setCollectionBehavior:"), collection_behavior(current, spaces));
     }
 
     /* The first entry of a status item's menu drawn as a section heading —
@@ -200,7 +228,16 @@ pub fn app_is_active() -> bool {
     {
         platform::app_is_active()
     }
-    #[cfg(not(target_os = "macos"))]
+    /* On Windows: whether the window in front is one of ours. A window just
+       built — a card — can be in front before it reports the focus. */
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+        let mut process = 0u32;
+        unsafe { GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut process)) };
+        process == std::process::id()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         false
     }
@@ -357,18 +394,18 @@ pub fn in_live_resize(window: &tauri::WebviewWindow) -> bool {
    are reached from that window, and a settings window that pulled the reader
    out of their full screen would have moved the problem rather than solved
    it. */
-pub fn over_full_screen(window: &tauri::WebviewWindow) {
+pub fn over_full_screen(window: &tauri::WebviewWindow, spaces: Spaces) {
     #[cfg(target_os = "macos")]
     {
         let target = window.clone();
         let _ = window.run_on_main_thread(move || {
             if let Ok(handle) = target.ns_window() {
-                platform::over_full_screen(handle);
+                platform::over_full_screen(handle, spaces);
             }
         });
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = window;
+    let _ = (window, spaces);
 }
 
 /* The reading window only, and never the settings: a window that is reached
@@ -391,6 +428,44 @@ pub fn without_window_buttons(window: &tauri::WebviewWindow) {
     }
     #[cfg(not(target_os = "macos"))]
     let _ = window;
+}
+
+/* The window in front and focused, on Windows.
+
+   Windows lets a program take the foreground only while it is the one the
+   reader last used, and a window shown from a global shortcut or the
+   notification area is not: it opened behind whatever was in front, and the
+   focus stayed there. The one sanctioned way round it is to share the input
+   state of the thread that holds the foreground for the moment of asking —
+   the program in front then counts as having handed the focus over. Must be
+   called on the main thread. Elsewhere Tauri's own focus is enough. */
+pub fn bring_to_front(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Threading::GetCurrentThreadId;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+        };
+        use windows::Win32::System::Threading::AttachThreadInput;
+        let Ok(handle) = window.hwnd() else { return };
+        unsafe {
+            let front = GetForegroundWindow();
+            let theirs = GetWindowThreadProcessId(front, None);
+            let ours = GetCurrentThreadId();
+            let attached = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, true).as_bool();
+            let _ = BringWindowToTop(handle);
+            let _ = SetForegroundWindow(handle);
+            if attached {
+                let _ = AttachThreadInput(ours, theirs, false);
+            }
+        }
+        /* The window having the focus is not the page having it: without
+           this the keys went to the frame, and Escape did nothing. */
+        let _ = AsRef::<tauri::Webview>::as_ref(window).set_focus();
+        return;
+    }
+    #[allow(unreachable_code)]
+    let _ = window.set_focus();
 }
 
 /* Whether a combination ends on a key with a character of its own, the kind
@@ -441,6 +516,16 @@ pub fn finish_tray_menu(tray: &tauri::tray::TrayIcon, shortcut: Option<(String, 
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    #[test]
+    fn a_window_lives_on_every_space_or_follows_the_active_one_never_both() {
+        let primary = FULL_SCREEN_PRIMARY | CAN_JOIN_ALL_SPACES;
+        let all = collection_behavior(primary, Spaces::All);
+        assert_eq!(all, CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY);
+        let active = collection_behavior(primary, Spaces::Active);
+        assert_eq!(active, MOVE_TO_ACTIVE_SPACE | FULL_SCREEN_AUXILIARY);
+    }
+
     #[test]
     fn a_combination_on_a_character_key_is_told_to_appkit_with_its_mask() {
         use super::{is_character_combination, key_and_mask};

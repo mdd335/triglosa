@@ -142,17 +142,25 @@ export function createAnkiBackend(post = ankiPost) {
        thousand notes would be five thousand notes over the wire to answer a
        question the first hundred answer just as well. */
     async noteTypesIn(deck, sample = 100) {
-      const ids = await listing("findNotes", { query: `deck:"${deck.replace(/"/g, '\\"')}"` });
+      const inDeck = `deck:"${deck.replace(/"/g, '\\"')}"`;
+      const ids = await listing("findNotes", { query: inDeck });
       if (!ids.length) return [];
+      /* Which types there are is read off a sample — five thousand notes over
+         the wire say nothing the first hundred do not. How many use each is
+         not: a count of the sample reads "(100)" under a deck of thousands.
+         Anki counts a query for the price of a list of numbers. */
       const notes = await listing("notesInfo", { notes: ids.slice(0, sample) });
-      const counts = new Map();
+      const found = new Map();
       for (const note of notes) {
         if (!note || !note.modelName) continue;
-        counts.set(note.modelName, (counts.get(note.modelName) || 0) + 1);
+        found.set(note.modelName, (found.get(note.modelName) || 0) + 1);
       }
-      return [...counts.entries()]
-        .map(([noteType, cards]) => ({ noteType, cards }))
-        .sort((one, other) => other.cards - one.cards);
+      const counted = await Promise.all([...found.entries()].map(async ([noteType, seen]) => {
+        const query = `${inDeck} note:"${noteType.replace(/"/g, '\\"')}"`;
+        const all = ids.length > sample ? (await listing("findNotes", { query })).length : seen;
+        return { noteType, cards: all || seen };
+      }));
+      return counted.sort((one, other) => other.cards - one.cards);
     },
 
     /* Duplicates are Anki's own business: it compares the note type's first

@@ -3,175 +3,175 @@
   {
    "id": "01",
    "lang": "es",
-   "kind": "kurz-1w",
+   "kind": "short-1w",
    "text": "soslayable"
   },
   {
    "id": "02",
    "lang": "es",
-   "kind": "kurz-3w",
+   "kind": "short-3w",
    "text": "echar de menos"
   },
   {
    "id": "03",
    "lang": "es",
-   "kind": "satz",
+   "kind": "sentence",
    "text": "Ayer compramos pan fresco en la panadería del barrio."
   },
   {
    "id": "04",
    "lang": "es",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Cuando llegamos al pueblo, la niebla cubría los tejados y apenas se distinguían las siluetas de las casas. Los vecinos habían encendido las chimeneas, de modo que el aire olía a leña quemada. Nos detuvimos en la plaza y esperamos a que alguien nos indicara el camino hacia la ermita."
   },
   {
    "id": "05",
    "lang": "es",
-   "kind": "subjuntivo",
+   "kind": "subjunctive",
    "text": "Si hubiéramos sabido que el plazo vencía hoy, habríamos presentado la solicitud antes de que cerraran las oficinas."
   },
   {
    "id": "06",
    "lang": "es",
-   "kind": "nur-kopula",
+   "kind": "copula-only",
    "text": "El libro es interesante y está sobre la mesa."
   },
   {
    "id": "07",
    "lang": "es",
-   "kind": "fachtext",
+   "kind": "technical",
    "text": "La resonancia magnética funcional permitió inferir la conectividad entre regiones corticales, si bien la resolución temporal seguía siendo insuficiente para descartar artefactos."
   },
   {
    "id": "08",
    "lang": "de",
-   "kind": "kurz-1w",
+   "kind": "short-1w",
    "text": "Fernweh"
   },
   {
    "id": "09",
    "lang": "de",
-   "kind": "kurz-3w",
+   "kind": "short-3w",
    "text": "auf Anhieb verstehen"
   },
   {
    "id": "10",
    "lang": "de",
-   "kind": "satz",
+   "kind": "sentence",
    "text": "Der Bäcker öffnet jeden Morgen um sechs Uhr sein Geschäft."
   },
   {
    "id": "11",
    "lang": "de",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Nach dem Umzug dauerte es Wochen, bis die Wohnung bewohnbar wirkte. Überall standen Kisten, deren Beschriftung sich als unzuverlässig erwies, und in der Küche fehlte ausgerechnet das Werkzeug, mit dem sich die Regale hätten montieren lassen. Erst als die Nachbarin mit einem Akkuschrauber vorbeikam, ging es voran."
   },
   {
    "id": "12",
    "lang": "de",
-   "kind": "fachtext",
+   "kind": "technical",
    "text": "Die Prokrastination lässt sich nicht hinreichend durch mangelnde Selbstdisziplin erklären; vielmehr deutet die Befundlage auf eine Störung der Affektregulation hin."
   },
   {
    "id": "13",
    "lang": "en",
-   "kind": "kurz-1w",
+   "kind": "short-1w",
    "text": "serendipity"
   },
   {
    "id": "14",
    "lang": "en",
-   "kind": "kurz-3w",
+   "kind": "short-3w",
    "text": "come to terms"
   },
   {
    "id": "15",
    "lang": "en",
-   "kind": "satz",
+   "kind": "sentence",
    "text": "She locked the door and walked slowly towards the station."
   },
   {
    "id": "16",
    "lang": "en",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "The committee had spent months reviewing the proposal, yet the final vote hinged on a single clause that almost nobody had read carefully. When the chair finally called for a decision, two members abstained, and the measure passed by the narrowest possible margin. Nobody celebrated."
   },
   {
    "id": "17",
    "lang": "en",
-   "kind": "fachtext",
+   "kind": "technical",
    "text": "The heuristic exhibits diminishing returns once the corpus exceeds a certain heterogeneity threshold, which undermines its purported scalability."
   },
   {
    "id": "18",
    "lang": "fr",
-   "kind": "vierte-sprache",
+   "kind": "fourth-language",
    "text": "Le train est parti avec vingt minutes de retard, ce qui nous a obligés à courir dans le couloir pour attraper la correspondance."
   },
   {
    "id": "19",
    "lang": "it",
-   "kind": "vierte-sprache",
+   "kind": "fourth-language",
    "text": "Nonostante la pioggia battente, i ragazzi hanno deciso di attraversare il bosco per raggiungere il rifugio prima del tramonto."
   },
   {
    "id": "20",
    "lang": "es",
-   "kind": "sonderzeichen",
+   "kind": "special-characters",
    "text": "El periodista preguntó: \"¿Cuánto costará —realmente— la reforma?\" y el ministro respondió con evasivas; nadie quedó satisfecho."
   },
   {
    "id": "21",
    "lang": "es",
-   "kind": "kurz-1w-selten",
+   "kind": "short-1w-rare",
    "text": "inefable"
   },
   {
    "id": "22",
    "lang": "de",
-   "kind": "kurz-1w-selten",
+   "kind": "short-1w-rare",
    "text": "Kladderadatsch"
   },
   {
    "id": "23",
    "lang": "en",
-   "kind": "kurz-1w-selten",
+   "kind": "short-1w-rare",
    "text": "obstreperous"
   },
   {
    "id": "24",
    "lang": "es",
-   "kind": "kurz-2w",
+   "kind": "short-2w",
    "text": "dar por sentado"
   },
   {
    "id": "25",
    "lang": "es",
-   "kind": "verbdicht",
+   "kind": "verb-dense",
    "text": "Mientras esperábamos, el técnico revisó los cables, sustituyó el fusible y comprobó que el aparato volviera a encenderse sin chisporrotear."
   },
   {
    "id": "26",
    "lang": "es",
-   "kind": "einfach",
+   "kind": "simple",
    "text": "Hoy hace sol y los niños juegan en el parque."
   },
   {
    "id": "27",
    "lang": "de",
-   "kind": "einfach",
+   "kind": "simple",
    "text": "Am Wochenende fahren wir mit dem Zug ans Meer."
   },
   {
    "id": "28",
    "lang": "en",
-   "kind": "einfach",
+   "kind": "simple",
    "text": "The cat sat on the mat and looked out of the window."
   },
   {
    "id": "29",
    "lang": "de",
-   "kind": "juristisch",
+   "kind": "legal",
    "text": "Der Beklagte rügte die örtliche Zuständigkeit und beantragte hilfsweise die Verweisung an das sachlich zuständige Landgericht."
   },
   {
@@ -185,61 +185,61 @@
   {
    "id": "H1",
    "lang": "es",
-   "kind": "kurz-1w-selten",
+   "kind": "short-1w-rare",
    "text": "acervo"
   },
   {
    "id": "H2",
    "lang": "es",
-   "kind": "kurz-3w",
+   "kind": "short-3w",
    "text": "tomar el pelo"
   },
   {
    "id": "H3",
    "lang": "es",
-   "kind": "satz",
+   "kind": "sentence",
    "text": "El fontanero arregló la tubería antes de que se inundara el sótano."
   },
   {
    "id": "H4",
    "lang": "es",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Durante el verano, el pueblo se llenaba de forasteros que alquilaban las casas del casco antiguo. Los comerciantes duplicaban los precios sin disimulo, y quienes vivían allí todo el año se resignaban a esperar septiembre. Nadie se quejaba en voz alta, pero el resentimiento se notaba en los saludos."
   },
   {
    "id": "H5",
    "lang": "es",
-   "kind": "fachtext",
+   "kind": "technical",
    "text": "La sentencia consideró prescrita la acción, puesto que el demandante había dejado transcurrir el plazo sin interponer requerimiento fehaciente alguno."
   },
   {
    "id": "H6",
    "lang": "de",
-   "kind": "kurz-1w-selten",
+   "kind": "short-1w-rare",
    "text": "Zaudern"
   },
   {
    "id": "H7",
    "lang": "de",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Die Sitzung zog sich hin, weil niemand bereit war, den Vorschlag rundheraus abzulehnen. Stattdessen wurde er in einen Unterausschuss verwiesen, wo er nach aller Erfahrung versanden würde. Der Vorsitzende notierte zufrieden, dass Einvernehmen erzielt worden sei."
   },
   {
    "id": "H8",
    "lang": "en",
-   "kind": "kurz-3w",
+   "kind": "short-3w",
    "text": "beat around the bush"
   },
   {
    "id": "H9",
    "lang": "en",
-   "kind": "fachtext",
+   "kind": "technical",
    "text": "The plaintiff's counsel conceded that the indemnity clause was severable, thereby forestalling a wholesale invalidation of the agreement."
   },
   {
    "id": "H10",
    "lang": "pt",
-   "kind": "vierte-sprache",
+   "kind": "fourth-language",
    "text": "Apesar do atraso, conseguimos chegar ao aeroporto a tempo de embarcar no último voo para Lisboa."
   }
  ],
@@ -247,73 +247,73 @@
   {
    "id": "J1",
    "lang": "es",
-   "kind": "kurz-1w-substantiv",
+   "kind": "short-1w-noun",
    "text": "quebranto"
   },
   {
    "id": "J2",
    "lang": "es",
-   "kind": "kurz-1w-adjektiv",
+   "kind": "short-1w-adjective",
    "text": "acuciante"
   },
   {
    "id": "J3",
    "lang": "es",
-   "kind": "kurz-3w-idiom",
+   "kind": "short-3w-idiom",
    "text": "meter la pata"
   },
   {
    "id": "J4",
    "lang": "es",
-   "kind": "satz",
+   "kind": "sentence",
    "text": "El cartero dejó el paquete en la portería porque nadie abrió la puerta."
   },
   {
    "id": "J5",
    "lang": "es",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "La huelga paralizó el puerto durante nueve días. Los armadores sostenían que las pérdidas eran inasumibles, mientras el comité de trabajadores denunciaba un hostigamiento sistemático. Al final medió el gobierno regional y ambas partes firmaron un acuerdo provisional que nadie consideraba duradero."
   },
   {
    "id": "J6",
    "lang": "es",
-   "kind": "fachtext",
+   "kind": "technical",
    "text": "El perito subrayó que la fisura era compatible con una fatiga del material, descartando así el sabotaje que aventuraba la acusación."
   },
   {
    "id": "J7",
    "lang": "de",
-   "kind": "kurz-1w-substantiv",
+   "kind": "short-1w-noun",
    "text": "Sperrklinke"
   },
   {
    "id": "J8",
    "lang": "de",
-   "kind": "satz",
+   "kind": "sentence",
    "text": "Der Schlosser wechselte das Schloss, weil der Schlüssel abgebrochen war."
   },
   {
    "id": "J9",
    "lang": "de",
-   "kind": "fachtext",
+   "kind": "technical",
    "text": "Die Kammer verwarf die Beschwerde als unstatthaft, da der Rechtsweg insoweit erschöpft und eine Wiedereinsetzung nicht veranlasst war."
   },
   {
    "id": "J10",
    "lang": "en",
-   "kind": "kurz-1w-selten",
+   "kind": "short-1w-rare",
    "text": "peremptory"
   },
   {
    "id": "J11",
    "lang": "en",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "The archivist had catalogued the correspondence for thirty years, and she could place any letter within a decade by the texture of its paper alone. When the collection was digitised, that knowledge became unbillable and then, quietly, unwanted. She retired without a farewell party."
   },
   {
    "id": "J12",
    "lang": "it",
-   "kind": "vierte-sprache",
+   "kind": "fourth-language",
    "text": "Il sindaco ha smentito le voci secondo cui il teatro comunale sarebbe stato venduto a un privato."
   }
  ],
@@ -321,355 +321,355 @@
   {
    "id": "N1",
    "lang": "es",
-   "kind": "nuxe-periphrase",
+   "kind": "nuxe-periphrasis",
    "text": "Las cremas, más densas y nutritivas, se sustituyen en verano por los aceites corporales, mucho más ligeros y de fácil absorción. Nuxe lleva décadas siendo una de las firmas de cabecera de las francesas, y en concreto, su aceite Huile Prodigieuse es un clásico de julio a septiembre."
   }
  ],
- "alltag": [
+ "everyday": [
   {
    "id": "L1",
    "lang": "es",
-   "klasse": "kurz",
-   "kind": "alltag-satz",
+   "class": "short",
+   "kind": "everyday-sentence",
    "text": "Ayer hice una tarta deliciosa de chocolate.",
-   "verboten": [
+   "forbidden": [
     "chocolate"
    ],
-   "warum": "Screenshot 1: Wortzuordnung setzte Gruen auf 'gebacken', deutsches Kompositum unmarkierbar; 'tarta' vom Nutzer als grenzwertig zugelassen",
-   "herkunft": "Vorschlag Claude, vom Nutzer zu bestaetigen"
+   "why": "screenshot 1: word alignment put green on 'gebacken', German compound cannot be marked; 'tarta' accepted by the user as borderline",
+   "origin": "suggested by Claude, to be confirmed by the user"
   },
   {
    "id": "L2",
    "lang": "es",
-   "klasse": "kurz",
-   "kind": "alltag-satz",
+   "class": "short",
+   "kind": "everyday-sentence",
    "text": "El fin de semana mis padres siempre van al campo.",
-   "verboten": [
+   "forbidden": [
     "campo",
     "padres",
     "fin de semana"
    ],
-   "warum": "Screenshot 5: 'campo' als schwieriges Wort, Erklaerung ueberkontextualisiert",
-   "herkunft": "Vorschlag Claude, vom Nutzer zu bestaetigen"
+   "why": "screenshot 5: 'campo' as a difficult word, explanation tied too closely to the context",
+   "origin": "suggested by Claude, to be confirmed by the user"
   },
   {
    "id": "L3",
    "lang": "de",
-   "klasse": "kurz",
-   "kind": "alltag-satz",
+   "class": "short",
+   "kind": "everyday-sentence",
    "text": "Wir sind beim Auto",
-   "verboten": [
+   "forbidden": [
     "Wir",
     "Auto",
     "sind"
    ],
-   "warum": "Screenshot 4: Pronomen als schwieriges Wort - deutsche Kalibrierung ignoriert",
-   "herkunft": "Vorschlag Claude, vom Nutzer zu bestaetigen"
+   "why": "screenshot 4: pronoun as a difficult word - German calibration ignored",
+   "origin": "suggested by Claude, to be confirmed by the user"
   },
   {
    "id": "L4",
    "lang": "es",
-   "klasse": "kurz",
-   "kind": "alltag-frage",
+   "class": "short",
+   "kind": "everyday-question",
    "text": "Viajar a diferentes lugares del mundo, ¿me gusta?",
-   "warum": "Screenshot 2: Satztyp ging im Deutschen verloren, gustar-Person irrefuehrend"
+   "why": "screenshot 2: sentence type lost in German, person of gustar misleading"
   },
   {
    "id": "L5",
    "lang": "de",
-   "klasse": "kurz",
-   "kind": "alltag-satz",
+   "class": "short",
+   "kind": "everyday-sentence",
    "text": "Kannst du mir kurz Bescheid geben, wenn du losfährst?",
-   "verboten": [
+   "forbidden": [
     "Bescheid",
     "kurz",
     "losfahren"
    ],
-   "herkunft": "Vorschlag Claude, vom Nutzer zu bestaetigen"
+   "origin": "suggested by Claude, to be confirmed by the user"
   },
   {
    "id": "L6",
    "lang": "en",
-   "klasse": "kurz",
-   "kind": "alltag-idiom",
+   "class": "short",
+   "kind": "everyday-idiom",
    "text": "I'll swing by after work if that still suits you."
   },
   {
    "id": "L7",
    "lang": "es",
-   "klasse": "kurz",
-   "kind": "alltag-idiom",
+   "class": "short",
+   "kind": "everyday-idiom",
    "text": "No me da la gana de madrugar mañana."
   },
   {
    "id": "L8",
    "lang": "de",
-   "klasse": "kurz",
-   "kind": "alltag-satz",
+   "class": "short",
+   "kind": "everyday-sentence",
    "text": "Der Termin wurde kurzfristig auf nächste Woche verschoben.",
-   "verboten": [
+   "forbidden": [
     "Termin",
     "Woche",
     "kurzfristig"
    ],
-   "herkunft": "Vorschlag Claude, vom Nutzer zu bestaetigen"
+   "origin": "suggested by Claude, to be confirmed by the user"
   },
   {
    "id": "L9",
    "lang": "es",
-   "klasse": "chat",
+   "class": "chat",
    "kind": "whatsapp-es",
    "text": "Tío q pasada el finde, acabamos a las 6 de la mañana 😅 mañana no me levanto ni de coña",
-   "warum": "Chatkuerzel q, Umgangssprache tio/finde/ni de coña, Emoji"
+   "why": "chat abbreviation q, colloquial tio/finde/ni de coña, emoji"
   },
   {
    "id": "L10",
    "lang": "es",
-   "klasse": "chat",
+   "class": "chat",
    "kind": "whatsapp-es",
    "text": "oye perdona el retraso, se me fue la olla completamente. te lo compenso el jueves vale?",
-   "warum": "Redewendung 'irse la olla', fehlende Grossschreibung und Fragezeichen"
+   "why": "idiom 'irse la olla', missing capitals and question marks"
   },
   {
    "id": "L11",
    "lang": "es",
-   "klasse": "chat",
+   "class": "chat",
    "kind": "whatsapp-es",
    "text": "estoy hasta arriba de curro esta semana, a ver si el finde puedo escaparme un rato a la playa",
-   "verboten": [
+   "forbidden": [
     "playa",
     "semana"
    ],
-   "warum": "'hasta arriba de curro' umgangssprachlich, playa als Trivialfalle",
-   "herkunft": "Vorschlag Claude, vom Nutzer zu bestaetigen"
+   "why": "'hasta arriba de curro' colloquial, playa as a trivial trap",
+   "origin": "suggested by Claude, to be confirmed by the user"
   },
   {
    "id": "L12",
    "lang": "es",
-   "klasse": "chat",
+   "class": "chat",
    "kind": "whatsapp-es",
    "text": "nose si voy a poder, esq tengo lio con el piso. el casero no me devuelve la fianza y estoy que trino",
-   "verboten": [
+   "forbidden": [
     "piso"
    ],
-   "warum": "Tippfehler nose/esq/lio ohne Akzente, Fachbegriff fianza neben Trivialwoertern; 'casero' war ein falscher Sollwert: echter Fachbegriff der Domaene, beim Lesen von Zyklus 1 korrigiert",
-   "herkunft": "Vorschlag Claude, vom Nutzer zu bestaetigen"
+   "why": "typos nose/esq/lio without accents, the term fianza among trivial words; 'casero' was a wrong target: a real term of the domain, corrected while reading cycle 1",
+   "origin": "suggested by Claude, to be confirmed by the user"
   },
   {
    "id": "L13",
    "lang": "de",
-   "klasse": "chat",
+   "class": "chat",
    "kind": "whatsapp-de",
    "text": "sry hab dein nachricht garnicht gesehn, war den ganzen tag im call. meld mich morgen früh 👍",
-   "verboten": [
+   "forbidden": [
     "Nachricht",
     "Tag",
     "sry"
    ],
-   "warum": "Deutsche Tippfehler, Denglisch 'Call', Kleinschreibung durchgehend",
-   "herkunft": "Vorschlag Claude, vom Nutzer zu bestaetigen"
+   "why": "German typos, Denglisch 'Call', lower case throughout",
+   "origin": "suggested by Claude, to be confirmed by the user"
   },
   {
    "id": "L16",
    "lang": "de",
-   "klasse": "mittel",
-   "kind": "behoerde-de",
+   "class": "medium",
+   "kind": "authorities-de",
    "text": "Der Bescheid ergeht unter dem Vorbehalt des Widerrufs. Sollten Sie mit der Festsetzung nicht einverstanden sein, können Sie innerhalb eines Monats nach Bekanntgabe Widerspruch einlegen; die aufschiebende Wirkung entfällt bei Abgaben und Kosten.",
-   "verboten": [
+   "forbidden": [
     "Kosten",
     "Monat"
    ],
-   "warum": "Deutscher Fachtext: hier sind Eintraege erwuenscht, aber nur die juristischen; 'Bescheid' war ein falscher Sollwert: echter Fachbegriff der Domaene, beim Lesen von Zyklus 1 korrigiert",
-   "herkunft": "Vorschlag Claude, vom Nutzer zu bestaetigen"
+   "why": "German technical text: items are wanted here, but only the legal ones; 'Bescheid' was a wrong target: a real term of the domain, corrected while reading cycle 1",
+   "origin": "suggested by Claude, to be confirmed by the user"
   },
   {
    "id": "L17",
    "lang": "en",
-   "klasse": "mittel",
+   "class": "medium",
    "kind": "news-en",
    "text": "The council has quietly shelved the pedestrianisation scheme after pushback from local traders, notwithstanding a consultation that found a clear majority in favour. Officers say the plans will be revisited once the funding position is clearer.",
-   "warum": "'notwithstanding' und 'shelved' - gehobenes Englisch, das laut Messung uebersehen wird"
+   "why": "'notwithstanding' and 'shelved' - formal English that measurement shows being missed"
   },
   {
    "id": "L18",
    "lang": "es",
-   "klasse": "mittel",
-   "kind": "kultur-es",
+   "class": "medium",
+   "kind": "culture-es",
    "text": "Aprovechamos el puente de mayo para bajar al sur, y como el chiringuito de siempre estaba petado, acabamos comiendo en un guachinche de carretera. Nos salió bordado.",
-   "warum": "Kulturelle Eigenheiten und Kanarismus: puente, chiringuito, guachinche, salir bordado"
+   "why": "cultural particulars and Canarian Spanish: puente, chiringuito, guachinche, salir bordado"
   },
   {
    "id": "L23",
    "lang": "en",
-   "klasse": "fach",
-   "kind": "wirtschaft-en",
+   "class": "technical",
+   "kind": "economy-en",
    "text": "Gross margin expanded 240 basis points on a favourable mix, but management guided the next quarter below consensus, citing softer bookings in EMEA and a tougher comp. The buyback was paused, which the sell side read as a signal about the pending covenant test.",
-   "warum": "basis points, comp, sell side, covenant - Finanzjargon mit Alltagsschriftbild"
+   "why": "basis points, comp, sell side, covenant - finance jargon that looks like everyday words"
   },
   {
    "id": "L24",
    "lang": "es",
-   "klasse": "fach",
-   "kind": "wirtschaft-es",
+   "class": "technical",
+   "kind": "economy-es",
    "text": "La prima de riesgo se ha relajado desde que el Tesoro adelantó las emisiones, pero el repunte del IPC subyacente deja al banco central sin margen para bajar tipos antes del verano. Las empresas muy apalancadas son las primeras en notarlo al refinanciar.",
-   "warum": "prima de riesgo, IPC subyacente, apalancadas - spanischer Finanzwortschatz"
+   "why": "prima de riesgo, IPC subyacente, apalancadas - Spanish finance vocabulary"
   }
  ],
  "unsupported": [
   {
    "id": "cs1",
    "lang": "cs",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Praha je hlavní město České republiky a leží na řece Vltavě. Ve městě žije přibližně milion obyvatel a každý rok sem přijíždějí miliony turistů z celého světa."
   },
   {
    "id": "cs2",
    "lang": "cs",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Předpokládá se, že do roku 2099 se rozšíří hlavně tropické podnebí (A) a zmenší rozloha pro polární podnebí (E)."
   },
   {
    "id": "hr1",
    "lang": "hr",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Zagreb je glavni grad Hrvatske i nalazi se na sjeveru zemlje. U gradu živi oko milijun stanovnika, a kroz njega prolazi važna željeznička pruga."
   },
   {
    "id": "hr2",
    "lang": "hr",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Ukupna masa Zemljine hidrosfere iznosi oko 1,4 × 1018 tona, što je oko 0,023% ukupne Zemljine mase. U bilo kojem trenutku, oko 2 × 1013 tona od ovoga je u obliku vodene pare u Zemljinoj atmosferi. Otprilike 71% Zemljine površine prekriveno je globalnim okeanom."
   },
   {
    "id": "pl1",
    "lang": "pl",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Warszawa jest stolicą Polski i leży nad Wisłą. W mieście mieszka prawie dwa miliony ludzi, a jego historia sięga wielu stuleci."
   },
   {
    "id": "nl1",
    "lang": "nl",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "De stad Utrecht ligt in het midden van Nederland en heeft een oude binnenstad. Veel studenten wonen er, omdat de universiteit een van de grootste van het land is."
   },
   {
    "id": "nl2",
    "lang": "nl",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Het weer aan de kust verandert snel, want de wind komt meestal uit het westen. Wie hier woont, neemt altijd een jas mee."
   },
   {
    "id": "sv1",
    "lang": "sv",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Göteborg ligger på västkusten och är Sveriges näst största stad. Hamnen har länge varit viktig för handeln med andra länder."
   },
   {
    "id": "da1",
    "lang": "da",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Aarhus ligger i det østlige Jylland og er en af landets ældste byer. Mange unge flytter hertil, fordi universitetet tiltrækker studerende fra hele landet."
   },
   {
    "id": "no1",
    "lang": "no",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Bergen ligger mellom sju fjell på vestkysten av Norge. Byen er kjent for mye regn, og fisken fra havet har alltid vært viktig for folk her."
   },
   {
    "id": "fi1",
    "lang": "fi",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Tampere sijaitsee kahden järven välissä ja on Suomen kolmanneksi suurin kaupunki. Kaupungissa on paljon vanhoja tehtaita, jotka on muutettu museoiksi."
   },
   {
    "id": "hu1",
    "lang": "hu",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Szeged az ország déli részén fekszik, a Tisza partján. A várost a nagy árvíz után újjáépítették, ezért utcái szabályos rendben futnak."
   },
   {
    "id": "ro1",
    "lang": "ro",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Cluj-Napoca se află în inima Transilvaniei și este un important centru universitar. În fiecare vară, în oraș au loc festivaluri care atrag mii de vizitatori."
   },
   {
    "id": "ro2",
    "lang": "ro",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Marea Neagră are o suprafață de peste patru sute de mii de kilometri pătrați. Apa de la adâncime nu se amestecă cu cea de la suprafață."
   },
   {
    "id": "tr1",
    "lang": "tr",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "İzmir Ege kıyısında kurulmuş büyük bir liman kentidir. Şehrin tarihi çok eskiye dayanır ve her yıl binlerce turist buraya gelir."
   },
   {
    "id": "ca1",
    "lang": "ca",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Girona es troba al nord-est de Catalunya, vora el riu Onyar. El barri antic conserva muralles que els visitants poden recórrer a peu."
   },
   {
    "id": "ca2",
    "lang": "ca",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Els mercats de la ciutat obren cada matí i la gent hi compra fruita i peix fresc. Al migdia, els carrers queden buits durant unes hores."
   },
   {
    "id": "gl1",
    "lang": "gl",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Santiago de Compostela é a capital de Galicia e o final do Camiño. Cada ano chegan á cidade milleiros de peregrinos de moitos países."
   },
   {
    "id": "sk1",
    "lang": "sk",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Košice ležia na východe Slovenska a sú druhým najväčším mestom krajiny. V centre stojí veľký gotický dóm, ktorý navštevujú mnohí turisti."
   },
   {
    "id": "sl1",
    "lang": "sl",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Maribor leži ob reki Dravi na severovzhodu Slovenije. V okolici mesta rastejo vinogradi, ki so znani po dobrem vinu."
   },
   {
    "id": "id1",
    "lang": "id",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Kota Bandung terletak di dataran tinggi Jawa Barat dan udaranya lebih sejuk daripada di pantai. Banyak mahasiswa datang ke sana untuk belajar."
   },
   {
    "id": "uk1",
    "lang": "uk",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Львів розташований на заході України і відомий своїм старим містом. Щороку сюди приїжджають тисячі туристів, щоб побачити давні церкви."
   },
   {
    "id": "el1",
    "lang": "el",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Η Θεσσαλονίκη βρίσκεται στο βόρειο τμήμα της Ελλάδας και είναι το δεύτερο μεγαλύτερο λιμάνι της χώρας."
   },
   {
    "id": "vi1",
    "lang": "vi",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Thành phố Huế nằm bên bờ sông Hương và từng là kinh đô của Việt Nam. Nhiều du khách đến đây để thăm các lăng tẩm cổ."
   },
   {
    "id": "et1",
    "lang": "et",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Tartu asub Emajõe kaldal ja on Eesti vanim ülikoolilinn. Suvel toimub seal palju kontserte ja laatu."
   },
   {
    "id": "la1",
    "lang": "la",
-   "kind": "absatz",
+   "kind": "paragraph",
    "text": "Gallia est omnis divisa in partes tres, quarum unam incolunt Belgae, aliam Aquitani, tertiam qui ipsorum lingua Celtae appellantur."
   }
  ]

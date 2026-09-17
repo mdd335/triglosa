@@ -31,8 +31,10 @@
    replacement. A route that cannot be told apart from a working one is worse
    than no route at all.
 
-   All of this is macOS. Everything below the cfg boundary answers "not on
-   this platform", which is where a Windows implementation hangs.
+   On Windows the same two routes run through UI Automation and Ctrl+C, and
+   neither needs a permission: any program in the reader's session may read
+   the focused element and send keys to it. So there `trusted` is always yes
+   and the clipboard-only route never runs.
 
    The clipboard goes through pbcopy and pbpaste rather than through a crate,
    the same way the keychain goes through `security`: no dependency, and the
@@ -56,11 +58,11 @@ pub struct Selection {
     pub route: String,
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
     use super::Selection;
 
-    const NO: &str = "Reading a selection is only implemented on macOS.";
+    const NO: &str = "Reading a selection is not implemented on this platform.";
 
     pub fn trusted() -> bool {
         false
@@ -78,6 +80,279 @@ mod platform {
         Err(NO.into())
     }
     pub fn note_clipboard() {}
+}
+
+#[cfg(target_os = "windows")]
+mod platform {
+    use super::Selection;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::{Duration, Instant};
+    use windows::Win32::Foundation::{HANDLE, HGLOBAL, HWND};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+    };
+    use windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, GetClipboardData, GetClipboardSequenceNumber,
+        OpenClipboard, SetClipboardData,
+    };
+    use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows::Win32::System::Ole::CF_UNICODETEXT;
+    use windows::Win32::UI::Accessibility::{
+        CUIAutomation, IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId,
+    };
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
+        KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, VIRTUAL_KEY, VK_C, VK_CONTROL, VK_LWIN, VK_MENU,
+        VK_RWIN, VK_SHIFT, VK_V,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
+    };
+
+    pub fn trusted() -> bool {
+        true
+    }
+    pub fn request() -> bool {
+        true
+    }
+    pub fn open_settings() -> Result<(), String> {
+        Ok(())
+    }
+
+    /* The clipboard's sequence number, the counterpart of macOS' change
+       count: asking reads nothing out of it. */
+    static SEEN: AtomicU32 = AtomicU32::new(0);
+
+    pub fn note_clipboard() {
+        SEEN.store(unsafe { GetClipboardSequenceNumber() }, Ordering::Relaxed);
+    }
+
+    /* Another program may hold the clipboard open for a moment; it is asked
+       again rather than read as empty. */
+    fn open_clipboard() -> bool {
+        for _ in 0..20 {
+            if unsafe { OpenClipboard(None) }.is_ok() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    fn clipboard_read() -> String {
+        if !open_clipboard() {
+            return String::new();
+        }
+        let text = unsafe {
+            match GetClipboardData(CF_UNICODETEXT.0 as u32) {
+                Ok(handle) if !handle.is_invalid() => {
+                    let global = HGLOBAL(handle.0);
+                    let start = GlobalLock(global) as *const u16;
+                    if start.is_null() {
+                        String::new()
+                    } else {
+                        let mut length = 0;
+                        while *start.add(length) != 0 {
+                            length += 1;
+                        }
+                        let text = String::from_utf16_lossy(std::slice::from_raw_parts(start, length));
+                        let _ = GlobalUnlock(global);
+                        text
+                    }
+                }
+                _ => String::new(),
+            }
+        };
+        let _ = unsafe { CloseClipboard() };
+        text
+    }
+
+    /* An empty text empties the clipboard, which is what "nothing arrived"
+       is told apart by. */
+    fn clipboard_write(text: &str) {
+        if !open_clipboard() {
+            return;
+        }
+        unsafe {
+            let _ = EmptyClipboard();
+            if !text.is_empty() {
+                let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+                if let Ok(global) = GlobalAlloc(GMEM_MOVEABLE, wide.len() * 2) {
+                    let start = GlobalLock(global) as *mut u16;
+                    if !start.is_null() {
+                        std::ptr::copy_nonoverlapping(wide.as_ptr(), start, wide.len());
+                        let _ = GlobalUnlock(global);
+                        /* The system owns the memory once this succeeds. */
+                        let _ = SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(global.0)));
+                    }
+                }
+            }
+            let _ = CloseClipboard();
+        }
+    }
+
+    fn held(key: VIRTUAL_KEY) -> bool {
+        (unsafe { GetAsyncKeyState(key.0 as i32) } as u16) & 0x8000 != 0
+    }
+
+    /* The shortcut is still held when it arrives, and Ctrl+C sent into it
+       would reach the other program as a different combination. */
+    fn wait_for_release() {
+        let deadline = Instant::now() + Duration::from_millis(600);
+        while Instant::now() < deadline {
+            if ![VK_CONTROL, VK_MENU, VK_SHIFT, VK_LWIN, VK_RWIN].into_iter().any(held) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn key(code: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+        INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT { wVk: code, dwFlags: flags, ..Default::default() },
+            },
+        }
+    }
+
+    fn press_with_control(code: VIRTUAL_KEY) {
+        let none = KEYBD_EVENT_FLAGS(0);
+        let presses = [
+            key(VK_CONTROL, none),
+            key(code, none),
+            key(code, KEYEVENTF_KEYUP),
+            key(VK_CONTROL, KEYEVENTF_KEYUP),
+        ];
+        unsafe { SendInput(&presses, std::mem::size_of::<INPUT>() as i32) };
+    }
+
+    /* Route 1: the focused element's selection, through UI Automation. On a
+       thread of its own with a deadline, because the question crosses into
+       the other program and a program that is busy does not answer it. */
+    fn selected_by_automation() -> Option<String> {
+        let (tell, answer) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let found = unsafe {
+                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+                (|| -> Option<String> {
+                    let automation: IUIAutomation =
+                        CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).ok()?;
+                    let element = automation.GetFocusedElement().ok()?;
+                    let pattern: IUIAutomationTextPattern =
+                        element.GetCurrentPatternAs(UIA_TextPatternId).ok()?;
+                    let ranges = pattern.GetSelection().ok()?;
+                    let mut text = String::new();
+                    for index in 0..ranges.Length().ok()? {
+                        text.push_str(&ranges.GetElement(index).ok()?.GetText(-1).ok()?.to_string());
+                    }
+                    Some(text)
+                })()
+            };
+            let _ = tell.send(found);
+        });
+        answer.recv_timeout(Duration::from_millis(700)).ok().flatten()
+    }
+
+    fn handle_of(source: i32) -> HWND {
+        HWND(source as isize as *mut std::ffi::c_void)
+    }
+
+    fn process_of(window: HWND) -> u32 {
+        let mut process = 0u32;
+        unsafe { GetWindowThreadProcessId(window, Some(&mut process)) };
+        process
+    }
+
+    pub fn read() -> Result<Selection, String> {
+        /* The window the text is in, which is where it goes back to. A window
+           handle fits in 32 bits on every version of Windows, which is what
+           lets 64-bit and 32-bit programs pass them to each other. */
+        let front = unsafe { GetForegroundWindow() };
+        let source = front.0 as isize as i32;
+
+        let automated = selected_by_automation();
+        #[cfg(debug_assertions)]
+        eprintln!("automation answered: {:?}", automated.as_ref().map(|text| text.chars().count()));
+        if let Some(text) = automated {
+            if !text.trim().is_empty() {
+                return Ok(Selection { text, source, route: "automation".into() });
+            }
+        }
+
+        /* Route 2, bracketed the same way as on macOS: emptied first, so a
+           copy that did nothing is not read as the reader's last one. */
+        let saved = clipboard_read();
+        clipboard_write("");
+        wait_for_release();
+        press_with_control(VK_C);
+        let deadline = Instant::now() + Duration::from_millis(500);
+        let mut copied = String::new();
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+            copied = clipboard_read();
+            if !copied.is_empty() {
+                break;
+            }
+        }
+        clipboard_write(&saved);
+        note_clipboard();
+
+        if copied.trim().is_empty() {
+            return Err("empty".into());
+        }
+        Ok(Selection { text: copied, source, route: "clipboard".into() })
+    }
+
+    /* The program in front once the window has hidden itself, and only where
+       that is still this app, the window the text came from. */
+    fn front_after_hiding(source: i32) -> bool {
+        let own = std::process::id();
+        let deadline = Instant::now() + Duration::from_millis(600);
+        while Instant::now() < deadline {
+            let front = unsafe { GetForegroundWindow() };
+            if !front.is_invalid() && process_of(front) != own {
+                std::thread::sleep(Duration::from_millis(120));
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        raise(source)
+    }
+
+    fn raise(source: i32) -> bool {
+        let window = handle_of(source);
+        if source == 0 || !unsafe { IsWindow(Some(window)) }.as_bool() {
+            return false;
+        }
+        let _ = unsafe { SetForegroundWindow(window) };
+        let deadline = Instant::now() + Duration::from_millis(1500);
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
+            if unsafe { GetForegroundWindow() } == window {
+                std::thread::sleep(Duration::from_millis(120));
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn write(source: i32, text: &str) -> Result<(), String> {
+        if text.trim().is_empty() {
+            return Err("empty".into());
+        }
+        if !front_after_hiding(source) {
+            return Err("focus".into());
+        }
+        let saved = clipboard_read();
+        clipboard_write(text);
+        wait_for_release();
+        press_with_control(VK_V);
+        std::thread::sleep(Duration::from_millis(400));
+        clipboard_write(&saved);
+        note_clipboard();
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]

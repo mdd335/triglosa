@@ -14,7 +14,7 @@ const dom = new JSDOM("<!doctype html><div id=\"app\"></div>", { pretendToBeVisu
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 
-const { button, reportOn } = await import("../../src/ui/elements.js");
+const { button, labelPlace, reportOn } = await import("../../src/ui/elements.js");
 
 const label = (node) => node.querySelector(".pill-label")?.textContent ?? node.textContent;
 const symbol = (node) => node.querySelector("svg")?.innerHTML || "";
@@ -63,4 +63,14 @@ test("a written button swaps its word, and its width is pinned first", async () 
   assert.strictEqual(node.textContent, "Geprüft");
   assert.ok(node.style.minWidth, "pinned before the word changed");
   assert.ok(!node.classList.contains("icon"));
+});
+
+test("a button's label goes where the window has room for it", () => {
+  /* A row in the middle of a reading: under the button. */
+  assert.strictEqual(labelPlace({ top: 200, bottom: 224, label: 18, clipTop: 40, clipBottom: 700 }), "below");
+  /* The last row of a window as tall as what it holds: above. */
+  assert.strictEqual(labelPlace({ top: 670, bottom: 694, label: 18, clipTop: 40, clipBottom: 700 }), "above");
+  /* A blank sheet, one field tall: neither fits, and above it stood under the
+     title line with only its lower edge showing. */
+  assert.strictEqual(labelPlace({ top: 48, bottom: 72, label: 18, clipTop: 40, clipBottom: 89 }), "beside");
 });

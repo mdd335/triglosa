@@ -24,6 +24,12 @@ npm run release               # helper, signed app and the dmg
 node scripts/shot.mjs out.png "some text"   # photograph the window's page (needs npm run app)
 ```
 
+On Windows (Visual Studio's C++ build tools, Node and Rust) there is no
+helper and no signing: `npx tauri build --bundles nsis` builds the installer.
+`.github/workflows/windows.yml` does the same on a clean runner and keeps the
+installer as an artifact. `scripts/windows/` builds and drives the app in a
+Windows virtual machine over SSH from a Mac.
+
 Always build with `npm run bundle`, never `tauri build` alone: macOS binds the
 Accessibility permission to the app's signature, and `scripts/sign.mjs` pins
 it to the identifier so it survives the next build. The language download
@@ -69,8 +75,10 @@ tests/
 - **Everything that leaves the process goes through `platform/`** and takes
   its own `fetch`, so the same code runs in the app, in a browser and in tests.
   `platform/env.js` is the only file that knows which.
-- **Windows is intended.** Keep macOS code behind those seams and behind
-  `cfg` in the shell, and keep paths out of the source.
+- **Two systems, one code base.** Platform code stays behind those seams and
+  behind `cfg` in the shell, paths out of the source. The page learns which
+  system it runs on from `src/system.js`; wording that differs lives in the
+  `WINDOWS` table in `labels.js`, laid over the Mac's.
 - **Tests stay green.** A change to what the window draws belongs in
   `tests/unit/reading-view.test.js` or its neighbours.
 - **No new dependencies** without a good reason.
@@ -91,5 +99,12 @@ tests/
   `pbpaste` answers in Mac Roman.
 - AnkiConnect refuses Tauri's `Origin` header, so Anki is reached through the
   shell (`anki_request`), not through `fetch`.
+- On Windows a command that builds a window must be `async`: a synchronous
+  command runs on the main thread, and building a web view there deadlocks.
+- Windows keeps a background program from taking the foreground, and a
+  focused window is not a focused page: `overlay::bring_to_front` does both.
+- A process started from an SSH session or a scheduled task has no logon
+  session, and the Credential Manager refuses every key in it. Start the app
+  through `explorer.exe` when testing remotely.
 - The app has no dock icon by default and therefore no menu bar of its own:
   Escape and ⌘W exist only because the pages listen for them.

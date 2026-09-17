@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "targets": [
+      "dmg",
+      "app"
+    ],
+    "externalBin": [
+      "binaries/translator"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "26.0",
+      "signingIdentity": "-"
+    }
+  }
+}

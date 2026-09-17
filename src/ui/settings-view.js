@@ -10,6 +10,7 @@
    to the system's key store, so it arrives and leaves through its own pair of
    callbacks rather than through onChange. */
 
+import { onWindows } from "../system.js";
 import {
   DEFAULT_LEVEL,
   ENDPOINT_PRESETS,
@@ -195,9 +196,17 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   const key = secretInput(apiKey ? keyHint(apiKey) : text.apiKeyEmpty);
   let typed = null;
   key.addEventListener("input", () => { typed = key.value.trim(); });
+  /* A store that refuses says so under the field: a key that silently did
+     not arrive is found only later, as a refusal from the model. */
+  const keyFailed = element("p", "hint failed");
   key.addEventListener("change", async () => {
     if (typed === null) return;
-    await onKeyChange(typed);
+    keyFailed.textContent = "";
+    try {
+      await onKeyChange(typed);
+    } catch (error) {
+      keyFailed.textContent = text.keySaveFailed(String(error?.message || error || ""));
+    }
   });
   const keyRow = element("div", "with-presets");
   keyRow.append(key);
@@ -210,7 +219,9 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
     });
     keyRow.append(forget);
   }
-  view.append(field({ label: text.apiKey, hint: text.apiKeyHint, control: keyRow }));
+  const keyField = field({ label: text.apiKey, hint: text.apiKeyHint, control: keyRow });
+  keyField.append(keyFailed);
+  view.append(keyField);
 
   /* Saying what answered saves half the support traffic: "nothing happens" and
      "the address is right but no model is loaded" look identical otherwise.
@@ -254,11 +265,14 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
      merely not downloaded can be fetched from here, while a pair the device
      does not know never will be. Both fall back to the model, so neither is
      fatal — this only says which is which. */
+  /* On Windows there is no translation on the device: the model is the only
+     translator, and the group holds nothing but the hover. */
+  const onDevice = !onWindows();
   const pairs = element("p", "hint");
   pairs.textContent = text.pairsChecking;
   const pairsRow = element("div", "field pairs");
   pairsRow.append(element("label", null, text.devicePairs), element("p", "hint", text.deviceIntro), pairs);
-  view.append(pairsRow);
+  if (onDevice) view.append(pairsRow);
   /* Who goes first, and that the other steps in. */
   const translator = select(
     TRANSLATORS.map((value) => ({ value, label: text.translatorModes[value] })),
@@ -269,7 +283,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   if (settings.translator === "model" && !settings.endpoint) {
     translatorField.append(element("p", "hint", text.translatorNoModel));
   }
-  view.append(translatorField);
+  if (onDevice) view.append(translatorField);
   /* What a word became, on hover — a translation too, of one word at a time,
      and the last thing this group has to say. */
   view.append(field({
@@ -279,7 +293,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   }));
   let fetchButton = null;
   let gaps = false;
-  showPairs();
+  if (onDevice) showPairs();
 
   /* Asked again when the reader comes back to this window — from System
      Settings, or from the system's own prompt — and only while something was
@@ -290,7 +304,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
     device = null;
     showPairs();
   };
-  window.addEventListener("focus", recheck);
+  if (onDevice) window.addEventListener("focus", recheck);
 
   async function showPairs() {
     device = device || createTranslationBackend({ helperUrl: HELPER_URL }, await appFetch());
@@ -458,9 +472,14 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   /* The line under the shortcut says what pressing it takes along, and that
      depends on the permission below it. */
   const shortcutLead = shortcutField.querySelector(".hint");
-  view.append(permissionField(text, (granted) => {
-    shortcutLead.textContent = granted ? text.hotkeyLeadSelected : text.hotkeyLead;
-  }));
+  /* Windows asks no permission for reading a selection, so there is nothing
+     to explain and the shortcut always takes the selection along. */
+  if (onWindows()) shortcutLead.textContent = text.hotkeyLeadSelected;
+  else {
+    view.append(permissionField(text, (granted) => {
+      shortcutLead.textContent = granted ? text.hotkeyLeadSelected : text.hotkeyLead;
+    }));
+  }
 
   view.append(field({
     label: text.closeOnBlur,
@@ -469,7 +488,9 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   const icons = select(APP_ICONS.map((value) => ({ value, label: text.appIcons[value] })), settings.appIcon);
   icons.classList.add("short");
   icons.addEventListener("change", () => onChange({ ...settings, appIcon: icons.value }));
-  view.append(field({ label: text.appIcon, control: icons }));
+  /* A Mac question: the Dock and the menu bar. On Windows the symbol is in
+     the notification area, always. */
+  if (!onWindows()) view.append(field({ label: text.appIcon, control: icons }));
 
   /* Asked the first time this view is built, and the view redrawn once the
      answers are in — the field would otherwise show a key by its American
@@ -840,7 +861,8 @@ function permissionField(text, onGranted = () => {}) {
     open.addEventListener("click", () => openAccessibilitySettings());
     state.textContent = granted ? text.permissionHave : "";
     state.hidden = !granted;
-    note.textContent = pending ? text.permissionPending : text.permissionOff;
+    note.textContent = pending ? text.permissionPending : "";
+    note.hidden = !pending;
     if (granted) {
       buttons.append(open);
       return;

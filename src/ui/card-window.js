@@ -6,6 +6,7 @@
    the settings window does. So the two windows share no state, and switching
    between them takes nothing with it. */
 
+import { onWindows } from "../system.js";
 import { loadSettings } from "../platform/store.js";
 import { appFetch, copyText } from "../platform/env.js";
 import { loadApiKey } from "../platform/keychain.js";
@@ -54,6 +55,10 @@ const anki = createAnkiBackend();
    the sheet decides it — three fields as tall as their text, and a line under
    the buttons that is not there at all until something has to be said. */
 const AIR = 20;
+/* On Windows a fractional display scale rounds the window a pixel or two
+   short, which the fit leaves alone as noise — and Windows then draws a
+   scroll bar where a Mac draws none. */
+const SLACK = onWindows() ? 3 : 0;
 /* And a ceiling, because an explanation somebody pasted a page into would
    otherwise ask for a window taller than the screen it is on. Past it the
    page scrolls, which is what a window is for. */
@@ -61,7 +66,7 @@ const ROOM = () => Math.max(220, (window.screen?.availHeight || 900) - 120);
 const fit = (grow) => {
   const sheet = root.querySelector(".card-sheet");
   if (!sheet) return;
-  const wanted = Math.ceil(sheet.getBoundingClientRect().height + bar.getBoundingClientRect().height) + AIR;
+  const wanted = Math.ceil(sheet.getBoundingClientRect().height + bar.getBoundingClientRect().height) + AIR + SLACK;
   fitCardWindow(Math.min(wanted, ROOM()), grow);
 };
 

@@ -368,12 +368,13 @@ test("a word picked in a dictionary line is framed in that line alone", () => {
   assert.ok(titles(drawn).includes(markedIn("Deutsch")));
 });
 
-test("short mode locked says so in the panel and adds no locked areas", () => {
+test("short mode without a model shows the device's translation and the one line", () => {
   const state = SHORT();
-  state.panels[1] = { code: "de", name: "Deutsch", status: "needs-model", text: "" };
+  state.panels[1] = { code: "de", name: "Deutsch", status: "ready", text: "ins Fettnäpfchen treten", engine: "device" };
   const drawn = draw(state, { ...SETTINGS, endpoint: "" });
   assert.deepStrictEqual(titles(drawn), ["Deutsch"]);
-  assert.strictEqual(sectionNamed(drawn, "Deutsch").body, de.lockedEntry);
+  assert.strictEqual(sectionNamed(drawn, "Deutsch").body, "ins Fettnäpfchen treten");
+  assert.strictEqual(drawn.sheet.querySelectorAll(".locked-note").length, 1);
 });
 
 /* ---- the buttons of a row ---- */
@@ -799,7 +800,10 @@ test("one more example is offered on every row, and not past four", () => {
   state.more["verbs:0"].exampleStatus = "working";
   const working = sectionNamed(draw(state, SETTINGS, { onExample }), de.verbs).rows[0];
   assert.strictEqual(working.querySelector(".example.muted").textContent, de.exampleWorking);
-  assert.ok(!working.querySelector("[data-icon='example']"), "no second question while one is out");
+  const waiting = working.querySelector("[data-icon='example']");
+  assert.ok(waiting, "the button stays while one is out");
+  waiting.click();
+  assert.strictEqual(asked.length, 1, "and asks no second question");
 
   state.more["verbs:0"] = { more: "Ein längerer Absatz.", examples: [1, 2, 3, 4].map(example) };
   const full = sectionNamed(draw(state, SETTINGS, { onExample }), de.verbs).rows[0];

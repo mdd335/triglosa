@@ -114,11 +114,16 @@ export async function runText(text, { settings, translation, llm, onChange, wait
   const reader = settings.languages[0];
   tell();
 
+  /* A model that cannot be reached must not take the device's panels down
+     with it: the language stays unnamed and the reason is recorded. */
   const detected = await detectLanguage(text, {
     languages: settings.languages,
     reader,
     translation,
     llm,
+  }).catch((error) => {
+    blame(error);
+    return { code: "", name: "" };
   });
   state.source = detected;
 
@@ -172,37 +177,45 @@ export async function runText(text, { settings, translation, llm, onChange, wait
      worth the name, and nothing in the other panels to highlight — they hold
      lists, not sentences.
 
-     The device is not asked here. On rare words it guesses from the spelling:
-     procaz became "Prokaz", quebranto "Brechbruch", meter la pata "Die Pfote
-     in die Sache stecken". That is exactly the kind of error the definition
-     step was built against. */
+     The model is asked first whatever the translator setting says. The
+     device guesses rare words from their spelling: procaz became "Prokaz",
+     quebranto "Brechbruch", meter la pata "Die Pfote in die Sache stecken" —
+     exactly the kind of error the definition step was built against. But a
+     guess is still more than nothing, so where there is no model, or it did
+     not answer, the device translates the word plainly and the panel says
+     who did. */
   if (state.short) {
-    if (!llm) {
-      for (const panel of state.panels.slice(1)) panel.status = "needs-model";
-      state.busy = false;
-      tell();
-      return state;
-    }
-    const meaning = await defineWord(llm, { text, source: detected.code, reader });
+    const meaning = llm ? await defineWord(llm, { text, source: detected.code, reader }) : "";
     /* One after another, the upper panel first: it is two calls, not four,
        and this way the upper one is reliably filled first. */
     for (const [offset, code] of targets.entries()) {
       const panel = state.panels[offset + 1];
-      try {
-        panel.alternatives = await alternativesFor(llm, {
-          text,
-          source: detected.code,
-          target: code,
-          reader,
-          meaning,
-        });
-        panel.status = panel.alternatives.length ? "alternatives" : "no-answer";
-      } catch (error) {
-        /* Why it came to nothing, where that is known. The panel says the
-           fault's own sentence then — "nothing answers at this address" is
-           worth more to the reader than "no answer came back". */
-        panel.fault = blame(error);
-        panel.status = "no-answer";
+      if (llm) {
+        try {
+          panel.alternatives = await alternativesFor(llm, {
+            text,
+            source: detected.code,
+            target: code,
+            reader,
+            meaning,
+          });
+        } catch (error) {
+          panel.fault = blame(error);
+        }
+      }
+      if (panel.alternatives?.length) {
+        panel.status = "alternatives";
+      } else {
+        panel.alternatives = undefined;
+        const translated = named ? await translation?.translate(detected.code, code, text) : "";
+        panel.text = translated || "";
+        panel.engine = translated ? "device" : undefined;
+        panel.fallback = !!translated && !!llm;
+        panel.status = translated
+          ? "ready"
+          : llm
+          ? "no-answer"
+          : (await translation?.running?.()) ? "missing" : "no-device";
       }
       tell();
     }

@@ -10,7 +10,7 @@
 
 import { MAX_PANELS } from "./panels.js";
 import { SUPPORTED, isSupported } from "./languages/index.js";
-import { DEFAULT_HOTKEY, isHotkey } from "./hotkey.js";
+import { defaultHotkey, isHotkey } from "./hotkey.js";
 
 /* The languages explanations can be written in. Both are also learnable, so
    they appear in the other list too. */
@@ -110,7 +110,7 @@ export const DEFAULTS = {
      Clearing the field is a decision too, and it is kept: a settings file
      that says hotkey is null holds no combination, and the default does not
      creep back in on the next start. */
-  hotkey: DEFAULT_HOTKEY,
+  hotkey: defaultHotkey(),
   /* The reading window goes away when the focus leaves it, the way a menu
      does — on by default, and the reader's to switch off for a window that
      should stay standing beside something else. */

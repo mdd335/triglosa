@@ -424,11 +424,17 @@ function moreButton(text, holder, ask) {
    in a sentence does not want a paragraph first.
 
    Four is the ceiling, and then the button goes: a reader who wants more
-   than four sentences about one word wants a dictionary. */
+   than four sentences about one word wants a dictionary.
+
+   While one is being written the button stays where it is and does nothing:
+   a button that vanishes under the pointer on every press and comes back a
+   second later looks like something broke. */
 function exampleButton(text, holder, ask) {
-  if (!ask || holder?.exampleStatus === "working") return null;
-  if (!roomForExample(holder?.examples)) return null;
-  return button(text.addExample, () => ask(), "example");
+  if (!ask || !roomForExample(holder?.examples)) return null;
+  const working = holder?.exampleStatus === "working";
+  const node = button(text.addExample, () => { if (!working) ask(); }, "example");
+  if (working) node.setAttribute("aria-busy", "true");
+  return node;
 }
 
 /* Short mode: the panels hold a dictionary entry instead of a sentence. Each
@@ -675,9 +681,6 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
     } else if (entry.status === "unknown-source") {
       body.textContent = text.onlyKnownLanguages;
       body.classList.add("muted");
-    } else if (entry.status === "needs-model") {
-      body.textContent = text.lockedEntry;
-      body.classList.add("muted");
     } else if (entry.status === "alternatives") {
       /* A dictionary entry is still a translation, so it stays in the sheet a
          sentence would have been in — `entries` keeps the field the list of
@@ -771,10 +774,11 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
      difficult words in, and the other panels hold lists rather than
      sentences. A word picked out of the reading or out of one of those lines
      is still worth asking about, and that area is drawn here like anywhere
-     else. Locked, the panels have already
-     said that a dictionary entry needs a model, so nothing is added to that. */
+     else. Locked, the panels hold the device's plain translation, and the
+     one line says what a model adds. */
   if (state.short) {
-    if (state.selection && !locked) appendMarked();
+    if (locked) sheet.append(lockedNote(text));
+    else if (state.selection) appendMarked();
     return heading;
   }
 

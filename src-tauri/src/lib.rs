@@ -141,6 +141,10 @@ fn start_translation_helper(app: tauri::AppHandle) {
 }
 
 fn start_helper(app: &tauri::AppHandle) {
+    /* The helper is Swift and exists on macOS alone. */
+    if !cfg!(target_os = "macos") {
+        return;
+    }
     let started = app
         .shell()
         .sidecar("translator")
@@ -497,7 +501,25 @@ fn launch_anki() -> Result<(), String> {
             .map_err(|e| e.to_string())
             .and_then(|s| if s.success() { Ok(()) } else { Err("Anki did not start.".into()) })
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        /* Where Anki's own installer puts it: for the user alone, or for
+           everybody. Started detached, and not brought to the front. */
+        let places = [
+            std::env::var("LOCALAPPDATA").map(|dir| format!("{dir}\\Programs\\Anki\\anki.exe")),
+            std::env::var("ProgramFiles").map(|dir| format!("{dir}\\Anki\\anki.exe")),
+        ];
+        let program = places
+            .into_iter()
+            .flatten()
+            .find(|path| std::path::Path::new(path).exists())
+            .ok_or_else(|| "Anki is not installed.".to_string())?;
+        std::process::Command::new(program)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     Err("Starting Anki is not implemented on this platform.".into())
 }
 
@@ -567,7 +589,8 @@ fn show_window(app: &tauri::AppHandle) {
             *height.0.lock().unwrap() = f64::from(outer.height) / window.scale_factor().unwrap_or(1.0);
         }
         let _ = window.show();
-        let _ = window.set_focus();
+        let target = window.clone();
+        let _ = window.run_on_main_thread(move || overlay::bring_to_front(&target));
         if let Some(shown) = window.try_state::<ShownAt>() {
             *shown.0.lock().unwrap() = Some(std::time::Instant::now());
         }
@@ -758,9 +781,10 @@ fn settings_window(app: &tauri::AppHandle, about: bool) -> Result<(), String> {
     .visible(false)
     .build()
     .map_err(|error| error.to_string())?;
-    overlay::over_full_screen(&window);
+    overlay::over_full_screen(&window, overlay::Spaces::Active);
     let _ = window.show();
-    let _ = window.set_focus();
+    let target = window.clone();
+    let _ = window.run_on_main_thread(move || overlay::bring_to_front(&target));
 
     let handle = app.clone();
     window.on_window_event(move |event| {
@@ -793,7 +817,7 @@ fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
         return Ok(());
     }
 
-    let window =
+    let builder =
         tauri::WebviewWindowBuilder::new(app, "card", tauri::WebviewUrl::App("card.html".into()))
             .title(title)
             /* Near what a card actually comes to, because the page measures
@@ -801,21 +825,23 @@ fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
                number far from it would be a visible jump on the way. */
             .inner_size(460.0, 400.0)
             .min_inner_size(380.0, 220.0)
-            .resizable(true)
-            /* The page runs the full height and draws the title line itself,
-               so the wand can stand in it the way the gear stands in the
-               reading window's. The three buttons stay: this window is closed
-               the way everybody knows. */
-            .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true)
-            .build()
-            .map_err(|error| error.to_string())?;
-    overlay::over_full_screen(&window);
+            .resizable(true);
+    /* The page runs the full height and draws the title line itself, so the
+       wand can stand in it the way the gear stands in the reading window's.
+       The three buttons stay: this window is closed the way everybody knows.
+       Windows has no overlaid title bar, and keeps its own. */
+    #[cfg(target_os = "macos")]
+    let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
+    let window = builder.build().map_err(|error| error.to_string())?;
+    overlay::over_full_screen(&window, overlay::Spaces::Active);
     Ok(())
 }
 
+/* Async, as every command that builds a window has to be: a synchronous one
+   runs on the main thread, and on Windows building a web view there waits
+   for the very thread it is holding. */
 #[tauri::command]
-fn open_card_window(app: tauri::AppHandle, title: String, card: String) -> Result<(), String> {
+async fn open_card_window(app: tauri::AppHandle, title: String, card: String) -> Result<(), String> {
     if let Some(state) = app.try_state::<PendingCard>() {
         *state.0.lock().unwrap() = Some(card);
     }
@@ -850,7 +876,7 @@ fn close_settings_window(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn open_settings_window(app: tauri::AppHandle, title: String) -> Result<(), String> {
+async fn open_settings_window(app: tauri::AppHandle, title: String) -> Result<(), String> {
     if let Some(state) = app.try_state::<SettingsName>() {
         *state.0.lock().unwrap() = title;
     }
@@ -909,6 +935,11 @@ fn capture_and_show(app: &tauri::AppHandle, wait: std::time::Duration) {
     std::thread::spawn(move || {
         std::thread::sleep(wait);
         let found = capture::read();
+        #[cfg(debug_assertions)]
+        match &found {
+            Ok(selection) => eprintln!("capture: {} chars by {}", selection.text.chars().count(), selection.route),
+            Err(reason) => eprintln!("capture failed: {reason}"),
+        }
         match found {
             Ok(selection) => {
                 let _ = app.emit("capture", selection);
@@ -1033,12 +1064,31 @@ fn apply_tray(
         .try_state::<Presence>()
         .map(|presence| presence.icon.lock().unwrap().as_str() != "dock")
         .unwrap_or(true);
-    TrayIconBuilder::with_id("main")
-        /* A template of its own: the app icon is a coloured square, and a
-           template is drawn from its alpha alone, so it came out as a filled
-           block. Decoded at compile time, so no image feature is needed. */
-        .icon(tauri::include_image!("icons/tray.png"))
-        .icon_as_template(true)
+    let builder = TrayIconBuilder::with_id("main");
+    /* A template of its own: the app icon is a coloured square, and a
+       template is drawn from its alpha alone, so it came out as a filled
+       block. Decoded at compile time, so no image feature is needed. */
+    #[cfg(not(target_os = "windows"))]
+    let builder = builder.icon(tauri::include_image!("icons/tray.png")).icon_as_template(true);
+    /* Windows draws no templates: a black symbol would vanish on a dark
+       taskbar, and the notification area is full of coloured ones anyway. A
+       left click shows the window and a right click opens the menu, which is
+       what every symbol there does. */
+    #[cfg(target_os = "windows")]
+    let builder = builder
+        .icon(tauri::include_image!("icons/32x32.png"))
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
+                ask_to_show(tray.app_handle(), false);
+            }
+        });
+    builder
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => ask_to_show(app, false),
@@ -1143,8 +1193,19 @@ pub fn run() {
                window builds as soon as it knows which language to name it
                in. */
             if let Some(window) = app.get_webview_window("main") {
-                overlay::over_full_screen(&window);
+                overlay::over_full_screen(&window, overlay::Spaces::All);
                 overlay::without_window_buttons(&window);
+                /* On Windows the system's title bar would stand above the
+                   page's own line with its three buttons: the frame goes and
+                   the page's line is the title bar. No taskbar button either,
+                   for a window that puts itself away — the notification area
+                   is the way back, as the menu bar is on a Mac. */
+                #[cfg(target_os = "windows")]
+                {
+                    let _ = window.set_decorations(false);
+                    let _ = window.set_shadow(true);
+                    let _ = window.set_skip_taskbar(true);
+                }
                 /* The size and the place the reader left it at. Set before
                    the window is ever looked at, so it does not open at one
                    size and jump to another. */
@@ -1295,20 +1356,26 @@ mod tests {
         use tauri_plugin_global_shortcut::Shortcut;
 
         let preset = std::fs::read_to_string("../src/hotkey.js").expect("hotkey.js");
-        let line = preset
-            .lines()
-            .find(|line| line.contains("DEFAULT_HOTKEY"))
-            .expect("a default is written down");
-        let accelerator = line
-            .split("accelerator: \"")
-            .nth(1)
-            .and_then(|rest| rest.split('"').next())
-            .expect("with an accelerator in it");
+        let written = |name: &str| {
+            let line = preset
+                .lines()
+                .find(|line| line.starts_with(&format!("export const {name} =")))
+                .expect("a default is written down");
+            line.split("accelerator: \"")
+                .nth(1)
+                .and_then(|rest| rest.split('"').next())
+                .expect("with an accelerator in it")
+                .to_string()
+        };
 
-        assert_eq!(accelerator, "Control+Alt+KeyE");
-        assert!(
-            Shortcut::from_str(accelerator).is_ok(),
-            "{accelerator} is not a combination this shell can register",
-        );
+        /* One per system: Ctrl+Alt is AltGr on Windows. */
+        for (name, expected) in [("DEFAULT_HOTKEY", "Control+Alt+KeyE"), ("WINDOWS_HOTKEY", "Super+Shift+KeyE")] {
+            let accelerator = written(name);
+            assert_eq!(accelerator, expected);
+            assert!(
+                Shortcut::from_str(&accelerator).is_ok(),
+                "{accelerator} is not a combination this shell can register",
+            );
+        }
     }
 }
