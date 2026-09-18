@@ -311,20 +311,24 @@ mod platform {
         Ok(Selection { text: copied, source, route: "clipboard".into() })
     }
 
-    /* The program in front once the window has hidden itself, and only where
-       that is still this app, the window the text came from. */
-    fn front_after_hiding(source: i32) -> bool {
-        let own = std::process::id();
-        let deadline = Instant::now() + Duration::from_millis(600);
-        while Instant::now() < deadline {
-            let front = unsafe { GetForegroundWindow() };
-            if !front.is_invalid() && process_of(front) != own {
-                std::thread::sleep(Duration::from_millis(120));
-                return true;
-            }
-            std::thread::sleep(Duration::from_millis(25));
+    /* The text goes where the reader was last working: they may have
+       clicked into another program's field since the text was read, and a
+       pinned window stays standing in front while they do. Only where no such
+       program is known is it the one the text came from. Brought in front
+       and waited for, since this app is in front while its button is being
+       pressed. */
+    fn front_for_writing(source: i32) -> bool {
+        let last = LAST_FRONT.load(Ordering::Relaxed) as i32;
+        let target = if last != 0 && unsafe { IsWindow(Some(handle_of(last))) }.as_bool() {
+            last
+        } else {
+            source
+        };
+        if target != 0 && unsafe { GetForegroundWindow() } == handle_of(target) {
+            std::thread::sleep(Duration::from_millis(120));
+            return true;
         }
-        raise(source)
+        raise(target)
     }
 
     fn raise(source: i32) -> bool {
@@ -419,7 +423,7 @@ mod platform {
         if text.trim().is_empty() {
             return Err("empty".into());
         }
-        if !front_after_hiding(source) {
+        if !front_for_writing(source) {
             return Err("focus".into());
         }
         let saved = clipboard_read();
@@ -554,9 +558,72 @@ mod platform {
         SEEN.store(clipboard_count(), Ordering::Relaxed);
     }
 
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFTypeRef;
+        static kCGWindowLayer: CFStringRef;
+        static kCGWindowOwnerPID: CFStringRef;
+        static kCGWindowAlpha: CFStringRef;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFArrayGetCount(array: CFTypeRef) -> CFIndex;
+        fn CFArrayGetValueAtIndex(array: CFTypeRef, index: CFIndex) -> CFTypeRef;
+        fn CFDictionaryGetValue(dictionary: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
+        fn CFNumberGetValue(number: CFTypeRef, kind: i32, value: *mut c_void) -> u8;
+    }
+
+    /* The program the reader was last working in, other than this app —
+       where a translation is written. It owns the frontmost ordinary window
+       on screen: a click into a program brings its window to the top of the
+       ordinary ones, and a pinned window floats above them without taking
+       that place. Asked at the moment of writing; the system's own "front
+       application", asked from a thread of this app's, lagged behind and
+       named the program before. */
+    fn last_front() -> i32 {
+        const ON_SCREEN_ONLY: u32 = 1 << 0;
+        const WITHOUT_DESKTOP: u32 = 1 << 4;
+        const SINT32: i32 = 3;
+        const DOUBLE: i32 = 13;
+        let own = std::process::id() as i32;
+        let list = unsafe { CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | WITHOUT_DESKTOP, 0) };
+        if list.is_null() {
+            return 0;
+        }
+        let mut found = 0;
+        for index in 0..unsafe { CFArrayGetCount(list) } {
+            let window = unsafe { CFArrayGetValueAtIndex(list, index) };
+            let number = |key: CFStringRef| unsafe {
+                let value = CFDictionaryGetValue(window, key);
+                let mut out: i32 = -1;
+                if !value.is_null() {
+                    CFNumberGetValue(value, SINT32, &mut out as *mut i32 as *mut c_void);
+                }
+                out
+            };
+            let alpha = unsafe {
+                let value = CFDictionaryGetValue(window, kCGWindowAlpha);
+                let mut out: f64 = 1.0;
+                if !value.is_null() {
+                    CFNumberGetValue(value, DOUBLE, &mut out as *mut f64 as *mut c_void);
+                }
+                out
+            };
+            let pid = number(unsafe { kCGWindowOwnerPID });
+            if number(unsafe { kCGWindowLayer }) == 0 && alpha > 0.0 && pid > 0 && pid != own {
+                found = pid;
+                break;
+            }
+        }
+        unsafe { CFRelease(list) };
+        found
+    }
+
+    pub fn watch_front() {}
+
     /* The menu bar's menu leaves the program in front where it is, so a menu
        entry reads the way the shortcut does. */
-    pub fn watch_front() {}
     pub fn read_from_menu() -> Result<Selection, String> {
         read()
     }
@@ -896,26 +963,22 @@ mod platform {
         })
     }
 
-    /* The program that takes the front once the window has hidden itself —
-       macOS normally hands it back to whatever the reader was last in, which
-       is where they want the text: they may have clicked into another field
-       since the text was read. Only where nothing but this app holds the
-       focus after a moment is the program the text came from raised. */
-    fn front_after_hiding(source: i32) -> bool {
-        let own = std::process::id() as i32;
-        let deadline = Instant::now() + Duration::from_millis(600);
-        while Instant::now() < deadline {
-            if let Some(element) = focused_element() {
-                let focused = pid_of(element);
-                unsafe { CFRelease(element) };
-                if focused > 0 && focused != own {
-                    std::thread::sleep(Duration::from_millis(120));
-                    return true;
-                }
+    /* The text goes where the reader was last working: they may have
+       clicked into another program's field since the text was read, and a
+       pinned window stays standing in front while they do. Only where no such
+       program is known is it the one the text came from. */
+    fn front_for_writing(source: i32) -> bool {
+        let last = last_front();
+        let target = if last > 0 { last } else { source };
+        if let Some(element) = focused_element() {
+            let focused = pid_of(element);
+            unsafe { CFRelease(element) };
+            if focused > 0 && focused == target {
+                std::thread::sleep(Duration::from_millis(120));
+                return true;
             }
-            std::thread::sleep(Duration::from_millis(25));
         }
-        raise(source)
+        raise(target)
     }
 
     /* Bring a program back to the front and wait until it actually is there.
@@ -964,7 +1027,7 @@ mod platform {
         if text.trim().is_empty() {
             return Err("empty".into());
         }
-        if !front_after_hiding(source) {
+        if !front_for_writing(source) {
             return Err("focus".into());
         }
 

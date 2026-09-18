@@ -6,6 +6,7 @@ import {
   FIRST_LANGUAGES,
   ankiConfigured,
   choosableLanguages,
+  firstStartLanguages,
   collapsePairs,
   offersCard,
   explanationsAvailable,
@@ -47,11 +48,31 @@ test("never more languages than there are panels", () => {
 });
 
 test("the first language has to be one explanations can be written in", () => {
-  /* Spanish first would mean explanations in Spanish, which nothing is
-     calibrated or translated for. */
-  assert.deepStrictEqual(normalizeSettings({ languages: ["es", "de"] }).languages, DEFAULTS.languages);
-  assert.deepStrictEqual(normalizeSettings({ languages: ["en", "ru"] }).languages, ["en", "ru"]);
-  assert.deepStrictEqual(FIRST_LANGUAGES, ["de", "en"]);
+  /* Arabic first would mean an interface read from right to left, which the
+     window is not built for yet. */
+  assert.deepStrictEqual(normalizeSettings({ languages: ["ar", "de"] }).languages, DEFAULTS.languages);
+  assert.deepStrictEqual(normalizeSettings({ languages: ["es", "de"] }).languages, ["es", "de"]);
+  assert.deepStrictEqual(normalizeSettings({ languages: ["ru", "en", "ar"] }).languages, ["ru", "en", "ar"]);
+  assert.deepStrictEqual(FIRST_LANGUAGES, ["de", "en", "es", "fr", "it", "pt", "ru"]);
+});
+
+test("a first start reads in the system's language where it is a first language", () => {
+  assert.deepStrictEqual(firstStartLanguages(["de-DE", "en-DE"]), ["de", "en"]);
+  assert.deepStrictEqual(firstStartLanguages(["en-GB", "de-DE"]), ["en", "es"], "English keeps Spanish beside it");
+  /* The first of the system's list that is a first language, not the first
+     of the list: somebody with Dutch and then German reads German. */
+  assert.deepStrictEqual(firstStartLanguages(["nl-NL", "de-AT"]), ["de", "en"]);
+  assert.deepStrictEqual(firstStartLanguages(["ja-JP"]), ["en", "es"]);
+  assert.deepStrictEqual(firstStartLanguages(["pt-BR"]), ["pt", "en"]);
+  assert.deepStrictEqual(firstStartLanguages(["ar-SA", "fr-FR"]), ["fr", "en"], "Arabic is no first language yet");
+  assert.deepStrictEqual(firstStartLanguages(undefined), DEFAULTS.languages);
+  assert.deepStrictEqual(firstStartLanguages(["de_DE"]), ["de", "en"], "either separator");
+});
+
+test("the system's language is only what a missing choice falls back to", () => {
+  const system = { systemLanguages: ["de-DE"] };
+  assert.deepStrictEqual(normalizeSettings(undefined, system).languages, ["de", "en"]);
+  assert.deepStrictEqual(normalizeSettings({ languages: ["en", "fr"] }, system).languages, ["en", "fr"]);
 });
 
 test("one language alone is not enough to show anything", () => {
@@ -286,10 +307,17 @@ test("the underlines are on unless switched off", () => {
   assert.strictEqual(normalizeSettings({ underline: "no" }).underline, true);
 });
 
-test("the window closes on a focus change and the app sits in the menu bar unless told otherwise", () => {
-  assert.strictEqual(normalizeSettings({}).closeOnBlur, true);
-  assert.strictEqual(normalizeSettings({ closeOnBlur: false }).closeOnBlur, false);
+test("the window is not pinned and the app sits in the menu bar unless told otherwise", () => {
+  assert.strictEqual(normalizeSettings({}).pinned, false);
+  assert.strictEqual(normalizeSettings({ pinned: true }).pinned, true);
+  assert.strictEqual(normalizeSettings({ closeOnBlur: false }).pinned, true);
+  assert.strictEqual(normalizeSettings({ closeOnBlur: true }).pinned, false);
+  assert.strictEqual(normalizeSettings({ closeOnBlur: false, pinned: false }).pinned, false);
+  assert.strictEqual("closeOnBlur" in normalizeSettings({ closeOnBlur: false }), false);
   assert.strictEqual(normalizeSettings({}).fitWindow, true);
+  assert.strictEqual(normalizeSettings({}).search, "system");
+  assert.strictEqual(normalizeSettings({ search: "ecosia" }).search, "ecosia");
+  assert.strictEqual(normalizeSettings({ search: "altavista" }).search, "system");
   assert.strictEqual(normalizeSettings({ fitWindow: false }).fitWindow, false);
   assert.strictEqual(normalizeSettings({ fitWindow: "no" }).fitWindow, true);
   assert.strictEqual(normalizeSettings({}).appIcon, "menubar");

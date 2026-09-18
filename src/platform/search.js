@@ -15,6 +15,25 @@ export const SEARCH_URLS = {
   perplexity: "https://www.perplexity.ai/search?q=",
 };
 
+/* What the settings offer, named as each service names itself. */
+export const SEARCH_NAMES = {
+  google: "Google",
+  bing: "Bing",
+  duckduckgo: "DuckDuckGo",
+  ecosia: "Ecosia",
+  startpage: "Startpage",
+  qwant: "Qwant",
+  brave: "Brave Search",
+  yahoo: "Yahoo",
+  perplexity: "Perplexity",
+};
+
+/* The setting's choice: one of the services above, or "system" for the one
+   the Mac is set to. Windows has no such setting — every browser keeps its
+   own — so "system" there is DuckDuckGo. */
+export const SYSTEM_SEARCH = "system";
+export const WINDOWS_SEARCH = "duckduckgo";
+
 /* The default when nothing else is known. Getting nothing back means "no
    deviating setting", and the system default is Google — so unlike the
    translation probe, this answer is remembered: the fallback is correct, not

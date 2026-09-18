@@ -48,6 +48,7 @@ import { detectByStopwords, detectLanguage } from "../../src/detect.js";
 import { SUPPORTED as SUPPORTED_CODES } from "../../src/languages/index.js";
 import { SEARCH_URLS, searchLink, searchUrlFor } from "../../src/platform/search.js";
 import { createAnkiBackend, readAddResult } from "../../src/platform/anki.js";
+import { languagesFromReport } from "../../src/platform/env.js";
 
 /* Answers an Anki request from a table of canned results. The backend takes
    its transport rather than a fetch: inside the app the question goes through
@@ -419,6 +420,18 @@ test("the search button follows the system's own setting", () => {
      default. */
   assert.strictEqual(searchUrlFor(""), SEARCH_URLS.google);
   assert.strictEqual(searchUrlFor(report("com.something")), SEARCH_URLS.google);
+});
+
+test("a chosen search engine wins, and Windows stands in with DuckDuckGo", async () => {
+  const { searchUrl } = await import("../../src/platform/env.js");
+  assert.strictEqual(await searchUrl("bing"), SEARCH_URLS.bing);
+  globalThis.TRIGLOSA_SYSTEM = "windows";
+  try {
+    assert.strictEqual(await searchUrl("system"), SEARCH_URLS.duckduckgo);
+    assert.strictEqual(await searchUrl("ecosia"), SEARCH_URLS.ecosia);
+  } finally {
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
 });
 
 test("the term is escaped into the link", () => {
@@ -810,4 +823,11 @@ test("a pixel or two is not a resize", () => {
   assert.strictEqual(fitTo(502, 500, false), null);
   assert.strictEqual(fitTo(498, 500, false), null);
   assert.strictEqual(fitTo(503, 500, true), 503);
+});
+
+test("the Mac's language list is read the way defaults prints it", () => {
+  /* A tag with a hyphen comes quoted, a bare code does not. */
+  const report = '(\n    "de-DE",\n    en,\n    "fr-CA"\n)\n';
+  assert.deepStrictEqual(languagesFromReport(report), ["de-DE", "en", "fr-CA"]);
+  assert.deepStrictEqual(languagesFromReport(""), []);
 });

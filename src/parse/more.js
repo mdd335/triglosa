@@ -113,18 +113,25 @@ function fields(line) {
    these two it is — and that is decided where one of them is touched and the
    other is not at all, or where one leads by two. A sentence carrying none of
    either reads as neither. Nothing here knows a word of any language: both
-   lists come from the packs. */
-const DECISIVE = 2;
+   lists come from the packs.
 
-function readsAs(line, a, b) {
+   A note is asked the same question with more to go on and a lower bar — see
+   noteInTextLanguage in ask.js: between Spanish, Italian and Portuguese the
+   function words are shared so widely ("una", "del", "o") that two words'
+   lead left four notes in ten undecided, and the everyday words tell them
+   apart. */
+const DECISIVE = 2;
+const SENTENCE = { fields: ["functionWords", "auxiliaries", "conjunctions"], decisive: DECISIVE };
+
+export function readsAs(line, a, b, { fields, decisive } = SENTENCE) {
   const found = stripDiacritics(String(line || "")).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
   const score = (code) => {
-    const words = wordSet(code, "functionWords", "auxiliaries", "conjunctions");
+    const words = wordSet(code, ...fields);
     return found.reduce((n, word) => n + (words.has(word) ? 1 : 0), 0);
   };
   const first = score(a);
   const second = score(b);
-  const wins = (mine, theirs) => (mine && !theirs) || mine - theirs >= DECISIVE;
+  const wins = (mine, theirs) => (mine && !theirs) || mine - theirs >= decisive;
   if (wins(first, second)) return a;
   if (wins(second, first)) return b;
   return "";

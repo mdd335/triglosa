@@ -109,10 +109,12 @@ export function stripQuotes(s) {
        closed it in the next: "<Zuständigkeit", "können>". */
     .replace(/^<(?=[^\s<>])|(?<=[^\s<>])>$/g, "")
     .trim()
-    .replace(/^["„“‘’']+/, "")
+    .replace(/^["„“‘’'«‹]+/, "")
     /* A closing quote whose opening one stands inside the field belongs to
-       it: Widerstandsgruppe „Weiße Rose". */
-    .replace(/^([^"„“‘’']*?)["“”‘’']+$/, "$1")
+       it: Widerstandsgruppe „Weiße Rose". Guillemets count too — a French,
+       Italian or Russian reader's answers come in them, with a space inside
+       in French. */
+    .replace(/^([^"„“‘’'«‹]*?)["“”‘’'»›]+$/, "$1")
     .trim();
 }
 

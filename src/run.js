@@ -9,7 +9,7 @@
    list and the verb *forms* — not the verb *annotation*, which takes about two
    and a half times as long. */
 
-import { detectLanguage } from "./detect.js";
+import { detectLanguage, chosenLanguage } from "./detect.js";
 import { faultOf } from "./faults.js";
 import { showsSection } from "./settings.js";
 import { panelLanguages } from "./panels.js";
@@ -99,7 +99,7 @@ function untangle(state) {
   }
 }
 
-export async function runText(text, { settings, translation, llm, onChange, waitTurn }) {
+export async function runText(text, { settings, translation, llm, onChange, waitTurn, language = "", guesses = [] }) {
   const state = emptyState();
   const blame = (error) => {
     const found = faultOf(error);
@@ -114,18 +114,28 @@ export async function runText(text, { settings, translation, llm, onChange, wait
   const reader = settings.languages[0];
   tell();
 
-  /* A model that cannot be reached must not take the device's panels down
+  /* A language the reader named is not detected again: they corrected what
+     detection found, and asking it once more would find the same.
+
+     A model that cannot be reached must not take the device's panels down
      with it: the language stays unnamed and the reason is recorded. */
-  const detected = await detectLanguage(text, {
-    languages: settings.languages,
-    reader,
-    translation,
-    llm,
-  }).catch((error) => {
-    blame(error);
-    return { code: "", name: "" };
-  });
+  const detected = language
+    ? { ...chosenLanguage(language, reader), guesses }
+    : await detectLanguage(text, {
+      languages: settings.languages,
+      reader,
+      translation,
+      llm,
+    }).catch((error) => {
+      blame(error);
+      return { code: "", name: "" };
+    });
   state.source = detected;
+  /* The language the questions name. For a language without a pack that is
+     its code where the reader chose it, so the model is told it is Persian;
+     where detection only found a name, the name is handed on instead. */
+  const asked = detected.iso || detected.code || "";
+  const askedName = asked ? "" : detected.name;
 
   /* Through the same function either way. A text in a language nobody could
      name used to build its panels by hand out of every configured language,
@@ -134,6 +144,7 @@ export async function runText(text, { settings, translation, llm, onChange, wait
   const codes = panelLanguages(detected.code, settings.languages);
   state.panels = codes.map((code, index) => ({
     code,
+    ...(index === 0 && detected.iso && !code ? { iso: detected.iso } : {}),
     name: index === 0
       ? (detected.name || displayName(code, reader) || code)
       : displayName(code, reader) || code,
@@ -185,7 +196,7 @@ export async function runText(text, { settings, translation, llm, onChange, wait
      not answer, the device translates the word plainly and the panel says
      who did. */
   if (state.short) {
-    const meaning = llm ? await defineWord(llm, { text, source: detected.code, reader }) : "";
+    const meaning = llm ? await defineWord(llm, { text, source: asked, reader }) : "";
     /* One after another, the upper panel first: it is two calls, not four,
        and this way the upper one is reliably filled first. */
     for (const [offset, code] of targets.entries()) {
@@ -194,7 +205,7 @@ export async function runText(text, { settings, translation, llm, onChange, wait
         try {
           panel.alternatives = await alternativesFor(llm, {
             text,
-            source: detected.code,
+            source: asked,
             target: code,
             reader,
             meaning,
@@ -368,8 +379,8 @@ export async function runText(text, { settings, translation, llm, onChange, wait
     ? Promise.resolve()
     : wordsFor(llm, {
     text,
-    source: detected.code,
-    sourceName: named ? "" : detected.name,
+    source: asked,
+    sourceName: askedName,
     languages: settings.languages,
     levels: settings.levels,
   })
@@ -398,8 +409,8 @@ export async function runText(text, { settings, translation, llm, onChange, wait
       const assignment = await alignWords(llm, {
         text,
         list: state.words,
-        source: detected.code,
-        sourceName: named ? "" : detected.name,
+        source: asked,
+        sourceName: askedName,
         a: targets[0],
         b: targets[1] || "",
         aText: aText(),

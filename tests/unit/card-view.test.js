@@ -392,12 +392,15 @@ test("the word side's language is chosen in its heading, and the card takes the 
   const seen = [];
   const wandSlot = document.createElement("span");
   const { host } = show(card, { wandSlot, improve: async (current) => { seen.push(current.termLanguage); return null; } });
-  const choice = host.querySelector(".card-field-head select.name");
+  const choice = host.querySelector(".card-field-head .language-choice select");
   assert.ok(choice, "a choice stands where the language name stood");
+  assert.strictEqual(host.querySelector(".card-field-head .language-name").textContent, "Englisch");
+  assert.strictEqual(choice.getAttribute("aria-label"), labels("de").cardLanguage);
   assert.deepStrictEqual([...choice.options].map((o) => o.textContent), ["Englisch", "Spanisch"]);
   assert.strictEqual(choice.value, "en");
   choice.value = "es";
   choice.dispatchEvent(new window.Event("change"));
+  assert.strictEqual(host.querySelector(".card-field-head .language-name").textContent, "Spanisch", "the name follows the choice");
   wandSlot.querySelector("button").click();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepStrictEqual(seen, ["es"], "the wand works on the language shown");

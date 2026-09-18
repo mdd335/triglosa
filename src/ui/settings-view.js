@@ -25,7 +25,7 @@ import {
   collapsePairs,
   neededPairs,
 } from "../settings.js";
-import { displayName } from "../languages/index.js";
+import { displayName, languageLabel } from "../languages/index.js";
 import { createLlmBackend } from "../platform/llm.js";
 import {
   HELPER_URL,
@@ -57,6 +57,7 @@ import { faultOf } from "../faults.js";
 import { CAPTURE_CODE_URL, HELP_URL, ISSUES_URL, MODEL_HELP_URL, PROJECT_URL, checkForUpdate } from "../updates.js";
 import { faultText, labels } from "./labels.js";
 import { keyHint } from "../platform/keychain.js";
+import { SEARCH_NAMES, SYSTEM_SEARCH, WINDOWS_SEARCH } from "../platform/search.js";
 import { element, field, group, reportOn, select, secretInput, textInput } from "./elements.js";
 
 /* Asked once for the whole session rather than once per rendering. Changing a
@@ -80,7 +81,10 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   const text = labels(reader);
   const view = element("div", "settings");
 
-  const named = (code) => ({ value: code, label: displayName(code, reader) || code });
+  const named = (code) => ({ value: code, label: languageLabel(code, reader) || code });
+  /* In the order of the names the reader sees, not of the codes. */
+  const alphabetical = (codes) =>
+    codes.map(named).sort((a, b) => a.label.localeCompare(b.label, reader));
 
   /* The list is ordered, and the order carries meaning: first the language
      explanations are written in, then the ones being learned.
@@ -129,12 +133,12 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
 
   view.append(group(text.groupLanguages));
 
-  const first = select(FIRST_LANGUAGES.map(named), settings.languages[0]);
+  const first = select(alphabetical(FIRST_LANGUAGES), settings.languages[0]);
   first.classList.add("short");
   first.addEventListener("change", () => change(0, first.value));
   view.append(field({ label: text.firstLanguage, control: first }));
 
-  const second = select(choosableLanguages(settings.languages[0]).map(named), settings.languages[1]);
+  const second = select(alphabetical(choosableLanguages(settings.languages[0])), settings.languages[1]);
   second.classList.add("short");
   second.addEventListener("change", () => change(1, second.value));
   view.append(field({
@@ -143,9 +147,8 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   }));
 
   const thirdOptions = [{ value: "", label: text.noThird }].concat(
-    choosableLanguages(settings.languages[0])
-      .filter((code) => code !== settings.languages[1])
-      .map(named),
+    alphabetical(choosableLanguages(settings.languages[0])
+      .filter((code) => code !== settings.languages[1])),
   );
   const third = select(thirdOptions, settings.languages[2] || "");
   third.classList.add("short");
@@ -400,14 +403,19 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
     hint: text.underlineHint,
     control: switchFor(settings.underline, text, (on) => onChange({ ...settings, underline: on })),
   }));
+  /* On a Mac the system's own engine comes first; Windows has none, and its
+     stand-in is shown as what it is. */
+  const engines = Object.entries(SEARCH_NAMES).map(([value, label]) => ({ value, label }));
+  const searchChoices = onWindows() ? engines : [{ value: SYSTEM_SEARCH, label: text.searchSystem }, ...engines];
+  const search = select(searchChoices,
+    onWindows() && settings.search === SYSTEM_SEARCH ? WINDOWS_SEARCH : settings.search);
+  search.classList.add("short");
+  search.addEventListener("change", () => onChange({ ...settings, search: search.value }));
+  view.append(field({ label: text.searchEngine, hint: text.searchHint, control: search }));
 
   /* ---- the window ---- */
 
   view.append(group(text.groupWindow));
-  view.append(field({
-    label: text.closeOnBlur,
-    control: switchFor(settings.closeOnBlur, text, (on) => onChange({ ...settings, closeOnBlur: on })),
-  }));
   view.append(field({
     label: text.fitWindow,
     control: switchFor(settings.fitWindow, text, (on) => onChange({ ...settings, fitWindow: on })),

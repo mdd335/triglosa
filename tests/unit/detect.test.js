@@ -3,7 +3,7 @@ import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { MIN_WORDS, detectByStopwords, detectLanguage } from "../../src/detect.js";
+import { MIN_WORDS, chosenLanguage, detectByStopwords, detectLanguage, keepsChosenLanguage } from "../../src/detect.js";
 import { SUPPORTED } from "../../src/languages/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -113,10 +113,37 @@ test("a supported language answered by its name is still that language", async (
   const other = await detectLanguage("xx", {
     languages: ["de", "en"], reader: "de", translation: null, llm: { chat: async () => "Niederländisch" },
   });
-  assert.deepStrictEqual(other, { code: "", name: "Niederländisch" });
+  assert.deepStrictEqual(other, { code: "", name: "Niederländisch", guesses: [] });
 });
 
 test("French with no article in front of its nouns is not taken for Spanish", () => {
   const fr = "Merci pour ton aide, la réunion a été reportée à demain.";
   assert.notStrictEqual(detectByStopwords(fr, ["de", "en", "es", "fr"]), "es");
+});
+
+test("what the recognizer thought likeliest travels with the answer", async () => {
+  const translation = {
+    detect: async (text, candidates, preferred, onGuesses) => {
+      onGuesses(["pt", "es", "ca"]);
+      return "";
+    },
+  };
+  const found = await detectLanguage("sobremesa", {
+    languages: ["de", "es", "en"], reader: "de", translation, llm: { chat: async () => "pt" },
+  });
+  assert.strictEqual(found.code, "pt");
+  assert.deepStrictEqual(found.guesses, ["pt", "es", "ca"]);
+});
+
+test("a language the reader chose keeps its code apart where the app has no pack for it", () => {
+  assert.deepStrictEqual(chosenLanguage("es", "de"), { code: "es", name: "Spanisch" });
+  assert.deepStrictEqual(chosenLanguage("fa", "de"), { code: "", iso: "fa", name: "Persisch" });
+});
+
+test("a chosen language goes on with an edited text unless the function words are sure of another", () => {
+  const hungarian = "Szeged az ország déli részén fekszik, a Tisza partján, és sokan szeretik.";
+  assert.ok(keepsChosenLanguage(hungarian, "hu"), "nothing to say about Hungarian: the choice holds");
+  const english = "The committee had spent months reviewing the proposal, yet the final vote was postponed again.";
+  assert.ok(!keepsChosenLanguage(english, "hu"), "replaced by an English text: it no longer holds");
+  assert.ok(keepsChosenLanguage(english, "en"));
 });

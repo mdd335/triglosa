@@ -12,7 +12,7 @@
 
 import { onWindows } from "../system.js";
 import { runText } from "../run.js";
-import { detectLanguage } from "../detect.js";
+import { detectLanguage, keepsChosenLanguage } from "../detect.js";
 import { freeCard } from "../card.js";
 import { addExample, explainMarked, explainMore } from "../ask.js";
 import { otherPanels } from "../panels.js";
@@ -24,11 +24,11 @@ import { hotkeyLabel, menuAccelerator } from "../hotkey.js";
 import { applyPresence, applyTray, fitReadingWindow, hideWindow, onAppearAsked, onFreshAsked, unveilWindow, onSettingsChanged, onWindowShown, openCard, openSettings, showWindow } from "../platform/windows.js";
 import { onCapture, onCardCapture, registerShortcuts } from "../platform/shortcut.js";
 import { searchLink } from "../platform/search.js";
-import { loadSettings } from "../platform/store.js";
+import { loadSettings, saveSettings } from "../platform/store.js";
 import { loadApiKey } from "../platform/keychain.js";
 import { faultOf } from "../faults.js";
 import { faultText, labels, windowTitle } from "./labels.js";
-import { MARKED, renderReading } from "./reading-view.js";
+import { MARKED, renderHeading, renderReading } from "./reading-view.js";
 import { labelsInside } from "./elements.js";
 import { watchGlance } from "./glance-view.js";
 import { roomForExample, withExamples } from "../examples.js";
@@ -62,6 +62,14 @@ const FORWARD = chevron("M6 3.5 10.5 8 6 12.5");
    stands on every other window. */
 const FRESH = chevron("M8 3v10M3 8h10");
 const CLOSE = chevron("M4 4l8 8M12 4l-8 8");
+/* A pushpin, before the cross because it decides what the cross is for:
+   pinned, the window stays above every other one until it is put away. Its
+   body fills in while it is pinned. */
+const PIN = `<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
+        stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+     <path class="pin-body" d="M5.5 2.5h5M6.6 2.5v3.8L4.5 9.5h7L9.4 6.3V2.5"/>
+     <path d="M8 9.5v4"/>
+   </svg>`;
 
 const GEAR = `<svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true">
   ${[0, 45, 90, 135, 180, 225, 270, 315]
@@ -73,12 +81,13 @@ const GEAR = `<svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor
 const root = document.getElementById("app");
 root.innerHTML = `
   <div class="topline" data-tauri-drag-region>
-    <span class="name" id="heading"></span>
+    <div class="heading" id="heading"></div>
     <div class="window-actions">
       <button id="back" class="icon">${BACK}<span class="pill-label"></span></button>
       <button id="forward" class="icon">${FORWARD}<span class="pill-label"></span></button>
       <button id="fresh" class="icon">${FRESH}<span class="pill-label"></span></button>
       <button id="open-settings" class="icon">${GEAR}<span class="pill-label"></span></button>
+      <button id="pin" class="icon">${PIN}<span class="pill-label"></span></button>
       <button id="close" class="icon">${CLOSE}<span class="pill-label"></span></button>
     </div>
   </div>
@@ -89,6 +98,7 @@ root.innerHTML = `
 const settingsButton = root.querySelector("#open-settings");
 const freshButton = root.querySelector("#fresh");
 const closeButton = root.querySelector("#close");
+const pinButton = root.querySelector("#pin");
 const backButton = root.querySelector("#back");
 const forwardButton = root.querySelector("#forward");
 const heading = root.querySelector("#heading");
@@ -222,6 +232,7 @@ function forget(entry) {
 async function goTo(index) {
   if (index < 0 || index >= history.length || index === place) return;
   place = index;
+  edited = null;
   const entry = history[index];
   draft = entry.draft;
   source = entry.source;
@@ -275,6 +286,7 @@ function applyLanguage() {
     node.querySelector(".pill-label").textContent = name;
     node.setAttribute("aria-label", name);
   }
+  showPin();
   /* The menu bar symbol is named in the same language as everything else,
      and it is the only piece of interface outside the two windows. */
   applyMenu();
@@ -333,25 +345,25 @@ function makeTools() {
     reader: settings.languages[0],
     copy: copyText,
     open: openUrl,
-    /* Into whichever program comes forward once the window is gone — the
-       reader may have clicked into another field since the text was read, or
-       typed the text here. The window goes away first — while it is in front,
-       it is the program a keystroke would reach — and comes back if the
-       writing failed, or the reason for it would be announced to an empty
-       screen. Where no program comes forward on its own, the one the text was
-       read out of is raised instead. */
+    /* Into the program the reader was last working in — they may have
+       clicked into another field since the text was read, or typed the text
+       here — and only where none is known into the one it was read out of;
+       the shell brings that program in front. The window goes away first
+       unless it is pinned, and comes back if the writing failed, or the
+       reason for it would be announced to an empty screen. */
     insert: granted
       ? async (value) => {
-          await hideWindow();
+          const pinned = settings.pinned;
+          if (!pinned) await hideWindow();
           try {
             await insertText(source, value);
           } catch (error) {
-            await showWindow();
+            if (!pinned) await showWindow();
             throw new Error(text.insertNoWay(error.message || String(error)));
           }
         }
       : null,
-    search: async (term) => openUrl(searchLink(await searchUrl(), term)),
+    search: async (term) => openUrl(searchLink(await searchUrl(settings.search), term)),
     /* Opens the card in a window of its own and files nothing. What happens
        to it afterwards is that window's business — copied out field by field,
        copied as one line, or handed to Anki where the reader set that up. */
@@ -367,7 +379,7 @@ function makeTools() {
 }
 
 let tools = { reader: settings.languages[0], copy: copyText, open: openUrl,
-              search: async (term) => openUrl(searchLink(await searchUrl(), term)),
+              search: async (term) => openUrl(searchLink(await searchUrl(settings.search), term)),
               card: null, cardFor: () => false, insert: null };
 
 /* What the line under the sheet says while a reading is on screen: the one
@@ -394,7 +406,10 @@ function draw() {
   /* The drawing answers with what the line above the sheet says — the
      original's heading, which lives up there because that line carries the
      window's buttons and they may not scroll away with the text. */
-  heading.textContent = drawReading() || "";
+  drawReading();
+  renderHeading(heading, current, {
+    text, settings, editing, recent: recentChoices, onLanguage: current?.panels?.length ? chooseLanguage : null,
+  });
   applyHistory();
   watchHeight();
   glance.refresh();
@@ -494,6 +509,7 @@ function focusDraft() {
 /* A blank sheet: the plus, the menu's entry for it, or a selection that could
    not be had. What was read before is one chevron away. */
 function startFresh() {
+  edited = null;
   place = history.length;
   source = 0;
   draft = "";
@@ -505,6 +521,7 @@ function startFresh() {
 }
 
 function startEditing() {
+  edited = chosen.get(showing()?.draft) || null;
   draft = current?.panels[0]?.text ?? draft;
   editing = true;
   draw();
@@ -584,6 +601,12 @@ async function translate() {
     return;
   }
 
+  /* An edited text is the same text with a word changed, as a rule: the
+     language the reader chose for it goes on with it, unless the function
+     words are sure it is now another. */
+  if (edited && !chosen.has(body) && keepsChosenLanguage(body, edited.code)) rememberChoice(body, edited);
+  edited = null;
+
   draft = body;
   editing = false;
   current = null;
@@ -595,8 +618,50 @@ async function translate() {
   remember(entry);
   draw();
   toTop();
-  say(text.detecting);
+  say(chosen.has(body) ? "" : text.detecting);
+  await read(entry);
+}
 
+/* The languages the reader said a text is in, by text, for as long as the app
+   runs: selected again, it is read in that language and not detected anew.
+   In memory only, like the readings themselves, and only the latest few. */
+const chosen = new Map();
+const MOST_CHOSEN = 50;
+/* The languages picked by hand, latest first: the top of the list, for the
+   next text in the same language that detection gets wrong again. */
+let recentChoices = [];
+const MOST_RECENT = 5;
+/* The choice of the reading being edited, carried to the edited text. */
+let edited = null;
+
+function rememberChoice(text, choice) {
+  chosen.delete(text);
+  chosen.set(text, choice);
+  while (chosen.size > MOST_CHOSEN) chosen.delete(chosen.keys().next().value);
+}
+
+/* The reader says the original is in another language. The reading is made
+   again in it, in the place of the one that was wrong: every panel, row and
+   marking hung on the language, so nothing of the old one carries over. A
+   run of the old one still under way fills an entry nobody is shown. */
+async function chooseLanguage(code) {
+  const old = showing();
+  if (!old || editing) return;
+  rememberChoice(old.draft, { code, guesses: old.state?.source?.guesses || [] });
+  recentChoices = [code, ...recentChoices.filter((c) => c !== code)].slice(0, MOST_RECENT);
+  const entry = { draft: old.draft, source: old.source, state: null, key: readingKey(settings) };
+  history[history.indexOf(old)] = entry;
+  draft = old.draft;
+  current = null;
+  draw();
+  toTop();
+  say("");
+  await read(entry);
+}
+
+/* One reading, start to finish, into its entry. */
+async function read(entry) {
+  const choice = chosen.get(entry.draft);
   const { translation, llm } = await backends();
   currentLlm = llm;
   tools = await makeTools();
@@ -604,11 +669,13 @@ async function translate() {
 
   reading = true;
   try {
-    await runText(body, {
+    await runText(entry.draft, {
       settings,
       translation,
       llm,
       waitTurn: quietTurn,
+      language: choice?.code || "",
+      guesses: choice?.guesses || [],
       onChange(state) {
         if (showing() === entry && !editing) sayFor(state);
         if (!state.panels.length) return;
@@ -735,6 +802,11 @@ function settleExample(marked, example, status, picked) {
   }
 }
 
+/* The language a question about a panel's words names. A language without a
+   pack that the reader chose keeps its code apart from the panel's, which
+   says only what the app can do with it. */
+const askedLanguage = (panel) => panel.code || panel.iso || "";
+
 /* What a row is asked about, and where its answer is kept: the picked word on
    itself, so the synonym trail finds it again; a verb or a term with the
    reading, by section and place, where a run still filling in cannot replace
@@ -748,7 +820,7 @@ function askingFor({ kind, index, item }, shown) {
     return {
       holder: item,
       ask: {
-        term: item.text, base: item.infinitive, text: from || "", source: panel.code,
+        term: item.text, base: item.infinitive, text: from || "", source: askedLanguage(panel),
         meaning: item.meaning, note: item.note,
         /* A word reached through a synonym does not stand in the text. */
         inText: !item.back && !!from,
@@ -759,9 +831,9 @@ function askingFor({ kind, index, item }, shown) {
   if (!panel) return null;
   const holder = ((shown.more ||= {})[`${kind}:${index}`] ||= {});
   const ask = kind === "verbs"
-    ? { term: item.form, base: item.infinitive, text: panel.text, source: panel.code, meaning: item.meaning,
+    ? { term: item.form, base: item.infinitive, text: panel.text, source: askedLanguage(panel), meaning: item.meaning,
         note: [item.infinitive, item.person, item.tense].filter(Boolean).join(", ") }
-    : { term: item.text, text: panel.text, source: panel.code, meaning: item.meaning, note: item.note };
+    : { term: item.text, text: panel.text, source: askedLanguage(panel), meaning: item.meaning, note: item.note };
   return { holder, ask };
 }
 
@@ -889,7 +961,7 @@ async function lookUp(word, previous) {
     const marked = await waitedOn(() => explainMarked(currentLlm, {
       term: word,
       text: panel.text,
-      source: panel.code,
+      source: askedLanguage(panel),
       reader: settings.languages[0],
       others,
       /* It does not stand in the text — it came out of another word's
@@ -997,7 +1069,7 @@ async function pick(choice) {
     const marked = await waitedOn(() => explainMarked(currentLlm, {
       term,
       text: from,
-      source: panel.code,
+      source: askedLanguage(panel),
       reader: settings.languages[0],
       others,
       /* In short mode the other panels hold a list of translations rather
@@ -1043,6 +1115,22 @@ freshButton.addEventListener("click", () => { startFresh(); say(""); });
 /* The same as Escape and as the close button every other window has: the
    window goes away, the app stays. */
 closeButton.addEventListener("click", () => { forgetPointer(); hideWindow(); });
+
+/* The pin says what a click on it will do, and shows what it is. */
+function showPin() {
+  const name = settings.pinned ? text.unpinWindow : text.pinWindow;
+  pinButton.querySelector(".pill-label").textContent = name;
+  pinButton.setAttribute("aria-label", name);
+  pinButton.setAttribute("aria-pressed", String(settings.pinned));
+}
+/* Kept in the settings file so it outlasts the app. Written over what the
+   file holds now, not over this window's copy, and the settings window
+   leaves it alone in turn (settings-window.js). */
+pinButton.addEventListener("click", async () => {
+  settings = await saveSettings({ ...(await loadSettings()), pinned: !settings.pinned });
+  showPin();
+  applyPresence(settings);
+});
 /* What every program on this system opens its settings with, and the key a
    window lying over somebody else's full screen has to answer to. Escape puts
    it away rather than ending anything: a reading still being worked out goes
@@ -1106,6 +1194,7 @@ await onCapture({
   async onText(selection) {
     if (selection.route === "copied") copiedOnce = true;
     source = selection.source || 0;
+    edited = null;
     draft = selection.text;
     editing = false;
     current = null;

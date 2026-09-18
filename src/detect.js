@@ -20,7 +20,7 @@
    function words give nothing away, and that runs in short mode anyway. */
 
 import { cleanLine, stripDiacritics, stripQuotes } from "./text.js";
-import { SUPPORTED, displayName, wordSet } from "./languages/index.js";
+import { SUPPORTED, displayName, isSupported, languageLabel, wordSet } from "./languages/index.js";
 import { detectPrompt } from "./prompts/detect.js";
 
 export const MIN_WORDS = 8;
@@ -82,15 +82,43 @@ export function detectByStopwords(text, candidates) {
    name for display and nothing else is known about it. */
 export async function detectLanguage(text, { languages, reader, translation, llm }) {
   const local = detectByStopwords(text, SUPPORTED);
-  if (local) return { code: local, name: displayName(local, reader) };
+  if (local) return { code: local, name: displayName(local, reader), guesses: [] };
 
+  /* What the recognizer thought likeliest, kept for a reader who corrects
+     the answer: it is the first place to look for the language it missed. */
+  let guesses = [];
   if (translation) {
     /* The reader's own languages break a tie the recognizer cannot. */
-    const device = await translation.detect(text, SUPPORTED, languages || []);
-    if (device) return { code: device, name: displayName(device, reader) };
+    const device = await translation.detect(text, SUPPORTED, languages || [], (found) => { guesses = found; });
+    if (device) return { code: device, name: displayName(device, reader), guesses };
   }
 
-  if (!llm) return { code: "", name: "" };
+  if (!llm) return { code: "", name: "", guesses };
+  return { ...(await detectByModel(text, { languages, reader, llm })), guesses };
+}
+
+/* What the reader said the text is in, in the shape detection answers with.
+   A language without a pack keeps its code apart (`iso`): `code` says what
+   the app can do with a language, and that is still nothing, but the
+   questions to the model can name it. */
+export function chosenLanguage(language, reader) {
+  const iso = String(language || "").toLowerCase();
+  if (isSupported(iso)) return { code: iso, name: displayName(iso, reader) };
+  return { code: "", iso, name: languageLabel(iso, reader) };
+}
+
+/* Whether the language a reader chose for a text still holds for an edited
+   version of it. It does, unless the function words are sure of another of
+   the eight: they were never wrong in any measurement, where the recognizer
+   names a language it does not know as its neighbour with full confidence.
+   Silence keeps the choice — a text in Hungarian gives them nothing to say. */
+export function keepsChosenLanguage(text, code) {
+  const found = detectByStopwords(text, SUPPORTED);
+  return !found || found === code;
+}
+
+/* The third stage on its own. */
+export async function detectByModel(text, { languages, reader, llm }) {
   /* A long text says everything it needs to in its first characters, and the
      answer is one word either way. */
   const sample = text.length > 600 ? text.slice(0, 600) : text;

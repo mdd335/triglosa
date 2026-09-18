@@ -205,6 +205,26 @@ test("an English reader gets the same decision in their own words", () => {
   );
 });
 
+test("every first language strips its own hedges, Cyrillic too", () => {
+  assert.strictEqual(
+    asGuess("вероятно: Impuesto sobre el Valor Añadido", "Firmó el IVA.", "IVA", "ru"),
+    "вероятно: Impuesto sobre el Valor Añadido",
+  );
+  assert.strictEqual(
+    asGuess("Может означать: value added tax", "El precio incluye IVA.", "IVA", "ru"),
+    "может означать: value added tax",
+  );
+  assert.strictEqual(
+    asGuess("peut-être : taxe sur la valeur ajoutée", "El precio incluye IVA.", "IVA", "fr"),
+    "pourrait signifier: taxe sur la valeur ajoutée",
+  );
+  /* A hedge is a word of its own, not the start of one. */
+  assert.strictEqual(
+    asGuess("Probablementeism Valor", "El precio incluye IVA.", "IVA", "es").endsWith("Probablementeism Valor"),
+    true,
+  );
+});
+
 test("a phrase keeps only its first equivalent", () => {
   /* "ferrocarril subterráneo" turned into "U-Bahn, unterirdische Eisenbahn"
      in one run of three. Mechanical, without semantics. */

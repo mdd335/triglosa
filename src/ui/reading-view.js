@@ -10,7 +10,8 @@
 import { fragmentsForPanel, selectionForPanel } from "../highlights.js";
 import { explanationsAvailable, showsSection } from "../settings.js";
 import { entryCard, markedCard, readingCard, termCard, verbCard } from "../card.js";
-import { bareInfinitive, citationForm, displayName, languagePack, writingDirection } from "../languages/index.js";
+import { bareInfinitive, citationForm, languageLabel, languagePack, writingDirection } from "../languages/index.js";
+import { languageChoice } from "./language-choice.js";
 import { faultText, labels } from "./labels.js";
 import { actions, button, element, lockedNote, pane, reportOn } from "./elements.js";
 import { markPanel, markGroups } from "./marking.js";
@@ -131,7 +132,7 @@ function markSource(body, state, index, settings, codes) {
      the paragraph runs, and left to guess it gets a sentence starting with a
      quotation mark wrong. The interface around the panel is never
      right-to-left: the first language is German or English. */
-  body.dir = writingDirection(state.panels[index].code);
+  body.dir = writingDirection(state.panels[index].code || state.panels[index].iso);
   /* Which panel this is, for the hover: the panels are rebuilt at any time,
      and what lies under the pointer is found again by it. */
   body.dataset.panel = String(index);
@@ -155,6 +156,40 @@ function markSource(body, state, index, settings, codes) {
    stands there, so it goes as soon as the text is being changed: what the
    heading said a moment ago is not necessarily true of what is being typed
    now. */
+/* A panel's language as its heading names it: by its code where the app
+   knows one — a language the reader chose has one even without a pack —
+   and otherwise by the name the run found. */
+function panelName(entry, reader) {
+  return (entry.code && languageLabel(entry.code, reader))
+    || (entry.iso && languageLabel(entry.iso, reader))
+    || entry.name || entry.code;
+}
+
+/* The line above the sheet, with the language as something to choose where
+   the window can act on a choice. Rebuilt only when what it says changes: it
+   is drawn again with every answer that arrives, and a list the reader has
+   open, or a name they are typing, would go with it. */
+export function renderHeading(node, state, { text, settings, editing, onLanguage, recent = [] }) {
+  const reader = settings.languages[0];
+  const first = state?.panels?.[0];
+  const name = !editing && first ? panelName(first, reader) || text.unknownLanguage : "";
+  const current = first ? (first.code || first.iso || "") : "";
+  const guesses = state?.source?.guesses || [];
+  const key = JSON.stringify([text.original, text.sourceLanguage, name, current, recent, guesses, settings.languages, !!onLanguage]);
+  if (node.dataset.key === key) return;
+  node.dataset.key = key;
+  if (!name) {
+    node.replaceChildren(element("span", "name", text.original));
+    return;
+  }
+  node.replaceChildren(
+    element("span", "name", `${text.original} ·`),
+    onLanguage
+      ? languageChoice({ name, current, recent, guesses, languages: settings.languages, reader, text, onChoose: onLanguage })
+      : element("span", "name", name),
+  );
+}
+
 function originalHeading(text, language, editing) {
   const name = editing ? "" : language;
   return name ? `${text.original} · ${name}` : text.original;
@@ -603,8 +638,7 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
      panels still headed in the old one. The name a run does carry is worth
      keeping for exactly one case: a language the app does not support, where
      the model supplied the name and there is no code to ask about. */
-  const named = (entry) =>
-    (entry.code && displayName(entry.code, settings.languages[0])) || entry.name || entry.code;
+  const named = (entry) => panelName(entry, settings.languages[0]);
 
   const heading = originalHeading(text, named(state.panels[0]), edit.editing);
   const codes = state.panels.map((entry) => entry.code).filter(Boolean);

@@ -26,7 +26,8 @@ globalThis.document = dom.window.document;
 globalThis.MouseEvent = dom.window.MouseEvent;
 globalThis.Node = dom.window.Node;
 
-const { MARKED, renderReading } = await import("../../src/ui/reading-view.js");
+const { MARKED, renderHeading, renderReading } = await import("../../src/ui/reading-view.js");
+const { languageFromName, languageGroups } = await import("../../src/ui/language-choice.js");
 const { labels } = await import("../../src/ui/labels.js");
 
 const de = labels("de");
@@ -888,4 +889,141 @@ test("a word without a class says nothing about one", () => {
     words: [{ text: "acuerdo", meaning: "Abkommen", note: "Vertragsrecht.", spot: "acuerdo" }],
   }));
   assert.strictEqual(sectionNamed(drawn, de.terms).rows[0].querySelector(".grammar"), null);
+});
+
+
+/* ---- the language in the heading, and choosing another ---- */
+
+function heading(state, { editing = false, onLanguage = () => {}, settings = SETTINGS } = {}) {
+  const node = document.createElement("div");
+  renderHeading(node, state, { text: de, settings, editing, onLanguage });
+  return node;
+}
+
+const optionsOf = (node) => [...node.querySelector("select").children]
+  .map((child) => (child.tagName === "HR" ? "—" : child.value));
+
+test("the heading's language is a list: the recognizer's guesses, the reader's languages, the rest, another", () => {
+  const state = reading({ source: { code: "es", name: "Spanisch", guesses: ["pt", "es", "ca"] } });
+  const node = heading(state);
+  assert.strictEqual(node.querySelector(".language-name").textContent, "Spanisch");
+  assert.strictEqual(node.querySelector("select").getAttribute("aria-label"), de.sourceLanguage);
+  assert.strictEqual(node.querySelector("select").value, "es");
+  assert.deepStrictEqual(optionsOf(node),
+    ["pt", "es", "ca", "—", "de", "en", "—", "ar", "fr", "it", "ru", "—", "other"]);
+});
+
+test("without guesses the reader's languages come first", () => {
+  const node = heading(reading());
+  assert.deepStrictEqual(optionsOf(node).slice(0, 4), ["de", "es", "en", "—"]);
+});
+
+test("picking a language hands its code on, and the one standing there is no pick", () => {
+  const picked = [];
+  const node = heading(reading(), { onLanguage: (code) => picked.push(code) });
+  const list = node.querySelector("select");
+  list.value = "es";
+  list.dispatchEvent(new window.Event("change"));
+  list.value = "pt";
+  list.dispatchEvent(new window.Event("change"));
+  assert.deepStrictEqual(picked, ["pt"]);
+  assert.strictEqual(list.value, "es", "the list shows what stands until the reading changes");
+});
+
+test("another language turns the name into a field, and a name typed there is taken", () => {
+  const picked = [];
+  const node = heading(reading(), { onLanguage: (code) => picked.push(code) });
+  const list = node.querySelector("select");
+  list.value = "other";
+  list.dispatchEvent(new window.Event("change"));
+  const field = node.querySelector(".language-search");
+  assert.ok(field, "the field is there");
+  assert.strictEqual(field.placeholder, de.findLanguage);
+  assert.ok(node.querySelectorAll("datalist option").length > 150, "every language with a name");
+  field.value = "persisch";
+  field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  assert.deepStrictEqual(picked, ["fa"]);
+});
+
+test("Escape in that field goes back to the list and not out of the window", () => {
+  const node = heading(reading());
+  let escaped = false;
+  node.addEventListener("keydown", () => { escaped = true; });
+  const list = node.querySelector("select");
+  list.value = "other";
+  list.dispatchEvent(new window.Event("change"));
+  node.querySelector(".language-search")
+    .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  assert.ok(!escaped, "the window never hears it");
+  assert.ok(node.querySelector("select"), "the list is back");
+});
+
+test("a language the reader chose without a pack is named and chosen in the list", () => {
+  const state = reading({
+    panels: [
+      { code: "", iso: "fa", name: "Persisch", status: "ready", text: "کتاب" },
+      { code: "de", name: "Deutsch", status: "ready", text: "Buch" },
+    ],
+  });
+  const node = heading(state);
+  assert.strictEqual(node.querySelector(".language-name").textContent, "Persisch");
+  assert.strictEqual(node.querySelector("select").value, "fa");
+  assert.strictEqual(optionsOf(node)[0], "fa");
+});
+
+test("a language nobody could name is called unknown in the reader's words, and can be chosen", () => {
+  const state = reading({
+    panels: [
+      { code: "", name: "", status: "ready", text: "ialah gagasan" },
+      { code: "de", name: "Deutsch", status: "ready", text: "eine Vorstellung" },
+    ],
+  });
+  const node = heading(state);
+  assert.strictEqual(node.querySelector(".language-name").textContent, de.unknownLanguage);
+  assert.strictEqual(node.querySelector("select").value, "");
+});
+
+test("drawn again with nothing changed, the heading keeps its nodes — an open list stays open", () => {
+  const node = document.createElement("div");
+  const state = reading();
+  const options = { text: de, settings: SETTINGS, editing: false, onLanguage: () => {} };
+  renderHeading(node, state, options);
+  const before = node.querySelector("select");
+  renderHeading(node, { ...state, busy: true }, options);
+  assert.strictEqual(node.querySelector("select"), before);
+});
+
+test("while the original is being written in, the heading is the word Original alone", () => {
+  const node = heading(reading(), { editing: true });
+  assert.strictEqual(node.textContent, de.original);
+  assert.ok(!node.querySelector("select"));
+});
+
+test("a typed name is found in any case, and a code is taken as itself", () => {
+  assert.strictEqual(languageFromName("Katalanisch", "de"), "ca");
+  assert.strictEqual(languageFromName("  PERSISCH ", "de"), "fa");
+  assert.strictEqual(languageFromName("fa", "de"), "fa");
+  assert.strictEqual(languageFromName("Klingonisch", "de"), "");
+});
+
+test("the language standing there goes in front where no group holds it", () => {
+  assert.deepStrictEqual(languageGroups({ current: "fa", languages: ["de", "en"], reader: "de" })[0], ["fa"]);
+});
+
+test("languages chosen by hand before stand at the top of the list", () => {
+  const node = document.createElement("div");
+  renderHeading(node, reading({ source: { code: "es", guesses: ["pt", "es"] } }), {
+    text: de, settings: SETTINGS, editing: false, onLanguage: () => {}, recent: ["hu", "pt"],
+  });
+  assert.deepStrictEqual(optionsOf(node).slice(0, 6), ["hu", "pt", "—", "es", "—", "de"]);
+});
+
+test("a list opened with the pointer shows no ground once its menu is closed; a key brings it back", () => {
+  const node = heading(reading());
+  const holder = node.querySelector(".language-choice");
+  const list = node.querySelector("select");
+  list.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true }));
+  assert.ok(holder.classList.contains("by-pointer"));
+  list.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  assert.ok(!holder.classList.contains("by-pointer"));
 });

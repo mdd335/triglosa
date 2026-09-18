@@ -99,7 +99,30 @@ export function isSupported(code) {
    seven of the eight are, so the question has an answer for every language
    and for none of the callers a special case. */
 export function writingDirection(code) {
-  return languagePack(code).direction === "rtl" ? "rtl" : "ltr";
+  if (isSupported(code) || !code) return languagePack(code).direction === "rtl" ? "rtl" : "ltr";
+  /* A language without a pack that the reader named: the platform knows
+     which way Persian or Hebrew runs. */
+  try {
+    const locale = new Intl.Locale(code);
+    const info = locale.getTextInfo ? locale.getTextInfo() : locale.textInfo;
+    return info?.direction === "rtl" ? "rtl" : "ltr";
+  } catch {
+    return "ltr";
+  }
+}
+
+/* The name a prompt gives a language. A pack's own where there is one; for a
+   language without a pack whose code is known — one the reader named — the
+   platform's English name, so that a question about a Persian word says
+   Persian. Nothing known is the generic pack's "an unknown language". */
+export function englishName(code) {
+  if (isSupported(code) || !code) return languagePack(code).englishName;
+  try {
+    const name = new Intl.DisplayNames(["en"], { type: "language" }).of(code);
+    return name && name !== code ? name : GENERIC.englishName;
+  } catch {
+    return GENERIC.englishName;
+  }
 }
 
 /* The name of a language in the interface language, from the platform's own
@@ -107,12 +130,30 @@ export function writingDirection(code) {
    maintaining by hand. Falls back to the English name where Intl has no
    entry. */
 export function displayName(code, inLanguage) {
+  /* No code, no name: the generic pack's "an unknown language" is written
+     for prompts, in English, and a heading has a word of its own for it. */
+  if (!code) return "";
   const pack = languagePack(code);
   try {
     const names = new Intl.DisplayNames([inLanguage || "en"], { type: "language" });
     return names.of(pack.code || code) || pack.englishName;
   } catch {
     return pack.englishName;
+  }
+}
+
+/* The same name where it stands on its own — a menu entry, a heading, a
+   field's title — with a capital at the front. Intl gives the form that
+   stands inside a sentence, which in French, Spanish, Italian, Portuguese and
+   Russian is lower case: right in "pas encore téléchargé : russe", wrong as a
+   menu entry reading "russe". */
+export function languageLabel(code, inLanguage) {
+  const name = displayName(code, inLanguage);
+  if (!name) return name;
+  try {
+    return name.charAt(0).toLocaleUpperCase(inLanguage || "en") + name.slice(1);
+  } catch {
+    return name.charAt(0).toUpperCase() + name.slice(1);
   }
 }
 

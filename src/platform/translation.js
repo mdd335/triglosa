@@ -119,6 +119,26 @@ export function readDetection(answer, candidates, preferred = []) {
   return own && own.confidence >= PREFERRED_FLOOR ? own.code : "";
 }
 
+/* The languages the recognizer thought likeliest, for a reader who is
+   correcting it: the first few it gave any real weight to, most likely
+   first, whether the app has a pack for them or not. Nothing to read is no
+   guess at all. */
+export const GUESS_FLOOR = 0.01;
+export const MOST_GUESSES = 3;
+
+export function readGuesses(answer) {
+  const guesses = [];
+  for (const line of String(answer || "").trim().split("\n")) {
+    const match = line.trim().match(/^([a-z]{2,3})(?:-[a-zA-Z]+)?\s+([0-9.]+)$/);
+    if (!match) continue;
+    const confidence = parseFloat(match[2]);
+    if (confidence >= GUESS_FLOOR && !guesses.some((g) => g.code === match[1])) {
+      guesses.push({ code: match[1], confidence });
+    }
+  }
+  return guesses.sort((a, b) => b.confidence - a.confidence).slice(0, MOST_GUESSES).map((g) => g.code);
+}
+
 const trimSlash = (s) => String(s || "").replace(/\/+$/, "");
 
 /* Windows has no translation on the device. What stands in for it answers
@@ -274,10 +294,12 @@ export function createTranslationBackend({ helperUrl, system = currentSystem() }
 
     /* The second of the three detection stages. Costs about 40 ms including
        the process start, against 1.4 s for a model round trip. */
-    async detect(text, candidates, preferred) {
+    async detect(text, candidates, preferred, onGuesses) {
       if (!(await running())) return "";
       try {
-        return readDetection(await ask("/detect", { body: text }), candidates, preferred);
+        const answer = await ask("/detect", { body: text });
+        if (onGuesses) onGuesses(readGuesses(answer));
+        return readDetection(answer, candidates, preferred);
       } catch {
         return "";
       }

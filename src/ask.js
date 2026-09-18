@@ -8,14 +8,15 @@
    Nothing here decides what to ask for. That is run.js. */
 
 import { cleanLine, orderByTextPosition, wordCount } from "./text.js";
-import { languagePack } from "./languages/index.js";
+import { englishName, languagePack } from "./languages/index.js";
 import { formInText, longestRunInText } from "./match/positions.js";
 import { contentWordCount, isBasicWord, isLoanword } from "./vocabulary.js";
 import { VERB_CANDIDATES, mergeSameVerb, parseVerbForms, parseVerbTable, selectVerbForms, withoutBasicVerbs } from "./parse/verbs.js";
-import { MAX_WORDS, isPassage, parseMarkedWord, parsePassage, asksForWordClass, parseWordClass, parseWords } from "./parse/words.js";
+import { MAX_WORDS, firstFieldLine, isPassage, parseMarkedWord, parsePassage, asksForWordClass, parseWordClass, parseWords, withoutNestedTerms } from "./parse/words.js";
 import { asksForSynonyms } from "./parse/synonyms.js";
 import { abbreviationParts, looksLikeAbbreviation, parseAbbreviation, withoutSecondMeaning } from "./parse/abbreviations.js";
 import { parseAlign } from "./parse/align.js";
+import { startsUnknown } from "./strings.js";
 import {
   findVerbsPrompt,
   annotateVerbsPrompt,
@@ -32,6 +33,7 @@ import {
   explainMoreInput,
   explainMorePrompt,
   meaningPrompt,
+  writtenIn,
   passagePrompt,
   passageSpotPrompt,
   spotPrompt,
@@ -53,11 +55,10 @@ import { parseAlternatives } from "./parse/alternatives.js";
 import { headwordPrompt, improveCardPrompt, improveCardInput } from "./prompts/card.js";
 import { parseImprovedCard } from "./parse/card.js";
 import { parseHeadword } from "./parse/headword.js";
-import { parseExample, parseMore } from "./parse/more.js";
+import { parseExample, parseMore, readsAs } from "./parse/more.js";
 import { glanceInput, glancePrompt, glanceWideInput, glanceWidePrompt } from "./prompts/glance.js";
 import { parseGlance, parseGlanceWide } from "./parse/glance.js";
 
-const englishName = (code) => languagePack(code).englishName;
 
 /* A whole text through the model — first or as the stand-in, whichever the
    reader chose. */
@@ -87,7 +88,7 @@ export async function defineWord(llm, { text, source, reader }) {
       user: text,
       maxTokens: 90,
     }));
-    if (!answer || new RegExp(`^${unknown}\\b`, "i").test(answer)) return "";
+    if (!answer || startsUnknown(answer)) return "";
     return answer;
   } catch {
     return "";
@@ -218,6 +219,44 @@ async function classifyTerms(llm, { list, text, source }) {
 
 const MAX_TERM_WORDS = 3;
 
+/* A note written in the text's language rather than the reader's. Between
+   close languages the cloud model does it although the question names the
+   reader's language twice and the input once more: a Spanish reader got
+   Italian notes for Italian slang in a quarter of the cases, whatever the
+   wording (the twentieth run). It is caught here, by the packs' function
+   words and everyday words, and asked again once: measured over 313 notes
+   between the three, it caught 27, about five of them wrongly — a wrong
+   catch costs one question and nothing else, since the second answer is kept
+   only where it reads better. A note that carries none reads as neither and
+   is let through; a second answer as wrong as the first stands —
+   a note in the neighbouring language is still more than none. */
+const NOTE = {
+  fields: ["functionWords", "auxiliaries", "conjunctions", "basicWords", "basicVerbs"],
+  decisive: 1,
+};
+
+function noteInTextLanguage(note, source, reader) {
+  return !!note && source !== reader && readsAs(note, source, reader, NOTE) === source;
+}
+
+/* Asks once more where the first answer's notes are in the text's language,
+   and keeps whichever answer has fewer of them — the first on a tie. The
+   second question is asked warmer — at the usual temperature the same input
+   came back word for word, Italian again — and ends on a line naming the
+   reader's language once more (writtenIn). Only the second: on the first
+   question that line cost the local model its base forms, which it then
+   copied from the text (kündigte for kündigen, 5 of 45). */
+const AGAIN = { temperature: 0.7, remind: true };
+
+async function askedInReaderLanguage(ask, notesOf, source, reader) {
+  const wrong = (raw) => notesOf(raw).filter((note) => noteInTextLanguage(note, source, reader)).length;
+  const first = await ask();
+  const missed = wrong(first);
+  if (!missed) return first;
+  const second = await ask(AGAIN).catch(() => "");
+  return second && wrong(second) < missed ? second : first;
+}
+
 /* The difficult words of a text.
 
    Invented words are dropped — highlighting works from the exact spot in the
@@ -227,14 +266,18 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
   /* A language the app does not support has no pack and no English name; the
      name the detection found stands in for it. */
   const name = sourceName || englishName(source);
-  const raw = await llm.chat({
+  const raw = await askedInReaderLanguage((again = {}) => llm.chat({
+    temperature: again.temperature,
     system: wordsPrompt({ code: source, name, languages, levels, retry }),
-    user: `Text (${name}): ${text}`,
+    user: [
+      `Text (${name}): ${text}`,
+      ...(again.remind ? [writtenIn(englishName(languages[0]), "<meaning> and <note>")] : []),
+    ].join("\n"),
     maxTokens: 800,
-  });
+  }), (answer) => parseWords(answer).map((word) => word.note), source, languages[0]);
 
   const dropped = [];
-  let list = parseWords(raw)
+  let list = withoutNestedTerms(parseWords(raw)
     .filter((word) => {
       word.spot = longestRunInText(text, word.text, [source]);
       let reason = "";
@@ -246,7 +289,7 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
       else if (contentWordCount(word.text, [source]) > MAX_TERM_WORDS) reason = "a piece of a sentence";
       if (reason) dropped.push(`${word.text} (${reason})`);
       return !reason;
-    })
+    }))
     .map((word) => ({ ...word, meaning: withoutSecondMeaning(word.meaning, word.text) }))
     .slice(0, MAX_WORDS);
 
@@ -350,7 +393,12 @@ export async function explainMarked(
     : Promise.resolve("");
 
   const [meaningRaw, thirdRaw, grammarRaw, wholeRaw, kindRaw] = await Promise.all([
-    llm.chat({ system: meaningPrompt({ source: englishName(source), reader: englishName(reader), inText }), user: meaningInput, maxTokens: 160 }),
+    askedInReaderLanguage((again = {}) => llm.chat({
+      temperature: again.temperature,
+      system: meaningPrompt({ source: englishName(source), reader: englishName(reader), inText }),
+      user: again.remind ? [meaningInput, writtenIn(englishName(reader), "<meaning> and <note>")].join("\n") : meaningInput,
+      maxTokens: 160,
+    }), (answer) => [firstFieldLine(answer).split("|").slice(2).join("|").trim()], source, reader),
     extra,
     grammar,
     whole,

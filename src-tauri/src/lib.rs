@@ -76,19 +76,20 @@ struct ShownAt(Mutex<Option<std::time::Instant>>);
 const SETTLING_AFTER_SHOW: std::time::Duration = std::time::Duration::from_millis(400);
 
 /* How the running app presents itself, from the reader's settings: whether
-   the reading window goes away when the focus leaves it, and whether there is
-   a Dock icon, a menu bar symbol or both. Read from the settings file at
+   the reading window is pinned — kept above every other window rather than
+   put away when the focus leaves it — and whether there is a Dock icon, a
+   menu bar symbol or both. Read from the settings file at
    start, before any window is shown, and told again by the window whenever
    the settings change. */
 struct Presence {
-    close_on_blur: std::sync::atomic::AtomicBool,
+    pinned: std::sync::atomic::AtomicBool,
     icon: Mutex<String>,
 }
 
 impl Default for Presence {
     fn default() -> Self {
         Self {
-            close_on_blur: std::sync::atomic::AtomicBool::new(true),
+            pinned: std::sync::atomic::AtomicBool::new(false),
             icon: Mutex::new("menubar".into()),
         }
     }
@@ -98,20 +99,35 @@ impl Default for Presence {
    nothing or something this version does not know. */
 fn presence_from(contents: &str) -> (bool, String) {
     let value: serde_json::Value = serde_json::from_str(contents).unwrap_or_default();
-    let close = value.get("closeOnBlur").and_then(|v| v.as_bool()) != Some(false);
+    /* A file the window has not written since the pin came is read the way
+       the window reads it: not closing on a focus change is pinned. */
+    let pinned = match value.get("pinned").and_then(|v| v.as_bool()) {
+        Some(pinned) => pinned,
+        None => value.get("closeOnBlur").and_then(|v| v.as_bool()) == Some(false),
+    };
     let icon = match value.get("appIcon").and_then(|v| v.as_str()) {
         Some(icon @ ("dock" | "both")) => icon.to_string(),
         _ => "menubar".to_string(),
     };
-    (close, icon)
+    (pinned, icon)
 }
 
-fn apply_presence_to(app: &tauri::AppHandle, close_on_blur: bool, icon: &str) {
+fn is_pinned(app: &tauri::AppHandle) -> bool {
+    app.try_state::<Presence>()
+        .map(|presence| presence.pinned.load(std::sync::atomic::Ordering::Relaxed))
+        .unwrap_or(false)
+}
+
+fn apply_presence_to(app: &tauri::AppHandle, pinned: bool, icon: &str) {
     let Some(presence) = app.try_state::<Presence>() else { return };
-    presence
-        .close_on_blur
-        .store(close_on_blur, std::sync::atomic::Ordering::Relaxed);
+    presence.pinned.store(pinned, std::sync::atomic::Ordering::Relaxed);
     *presence.icon.lock().unwrap() = icon.to_string();
+    /* Every window this app has, not only the reading one: the settings and
+       a card are opened from a pinned window, and at the ordinary level they
+       would open underneath it. */
+    for window in app.webview_windows().values() {
+        let _ = window.set_always_on_top(pinned);
+    }
     /* A Dock icon means an ordinary app, a menu bar symbol alone an accessory
        one — the policy is what puts the icon in the Dock. */
     #[cfg(target_os = "macos")]
@@ -136,8 +152,8 @@ fn apply_presence_to(app: &tauri::AppHandle, close_on_blur: bool, icon: &str) {
 }
 
 #[tauri::command]
-fn apply_presence(app: tauri::AppHandle, close_on_blur: bool, icon: String) {
-    apply_presence_to(&app, close_on_blur, &icon);
+fn apply_presence(app: tauri::AppHandle, pinned: bool, icon: String) {
+    apply_presence_to(&app, pinned, &icon);
 }
 
 /* Safe to call at any time: an old handle is dropped first, and a helper that
@@ -232,7 +248,7 @@ struct WindowPlace {
    is not a size the reader chose — it is a window on its way to being
    minimised, or a screen that was not there yet — and remembering it would
    open the app in a slot the next start cannot even honour. */
-const SMALLEST: (f64, f64) = (520.0, 80.0);
+const SMALLEST: (f64, f64) = (390.0, 90.0);
 
 fn window_file(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let directory = app.path().app_config_dir().map_err(|e| e.to_string())?;
@@ -407,6 +423,25 @@ fn preferred_search_report() -> String {
     {
         std::process::Command::new("defaults")
             .args(["read", "NSGlobalDomain", "NSPreferredWebServices"])
+            .output()
+            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+            .unwrap_or_default()
+    }
+    #[cfg(not(target_os = "macos"))]
+    String::new()
+}
+
+/* The languages the reader set for the system, first one first — what a
+   first start takes its first language from. On the Mac from the global
+   domain, because the web view answers with the app's own localisation
+   rather than the reader's; on Windows the web view's own list is right, so
+   nothing is asked here. Returned raw; the JS side reads the codes out. */
+#[tauri::command]
+fn system_languages_report() -> String {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("defaults")
+            .args(["read", "NSGlobalDomain", "AppleLanguages"])
             .output()
             .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
             .unwrap_or_default()
@@ -793,6 +828,7 @@ fn settings_window(app: &tauri::AppHandle, about: bool) -> Result<(), String> {
     .inner_size(560.0, 720.0)
     .min_inner_size(460.0, 380.0)
     .resizable(true)
+    .always_on_top(is_pinned(app))
     /* Built hidden and then brought forward, the way an existing one is.
        Shown as it was built, from the menu bar, the window stood behind the
        program in front — an accessory app is not active — and was found
@@ -848,6 +884,7 @@ fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
             .inner_size(460.0, 400.0)
             .min_inner_size(380.0, 220.0)
             .resizable(true)
+            .always_on_top(is_pinned(app))
             /* Built hidden and then brought forward, like the settings: shown
                as it was built, from the card shortcut, it stood behind the
                program in front. */
@@ -1161,6 +1198,8 @@ fn apply_tray(
     #[cfg(target_os = "windows")]
     let builder = builder
         .icon(tauri::include_image!("icons/32x32.png"))
+        /* The name under the pointer, as every other symbol there has. */
+        .tooltip("Triglosa")
         .show_menu_on_left_click(false)
         .on_tray_icon_event(|tray, event| {
             if let tauri::tray::TrayIconEvent::Click {
@@ -1217,7 +1256,15 @@ fn apply_tray(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    /* First, so that a second copy goes before it has built anything: it
+       hands over, and the running app shows its window the way the menu's
+       entry does. */
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        ask_to_show(app, false);
+    }));
+    builder
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -1241,6 +1288,7 @@ pub fn run() {
             anki_request,
             launch_anki,
             preferred_search_report,
+            system_languages_report,
             read_selection,
             insert_text,
             accessibility_granted,
@@ -1274,8 +1322,8 @@ pub fn run() {
             if let Ok(contents) = settings_file(app.handle()).and_then(|path| {
                 fs::read_to_string(path).map_err(|error| error.to_string())
             }) {
-                let (close_on_blur, icon) = presence_from(&contents);
-                apply_presence_to(app.handle(), close_on_blur, &icon);
+                let (pinned, icon) = presence_from(&contents);
+                apply_presence_to(app.handle(), pinned, &icon);
             }
             /* Closing the window hides it. The shortcut goes on working, and
                the menu bar symbol is the way back — see apply_tray, which the
@@ -1326,11 +1374,7 @@ pub fn run() {
                        opening the settings takes the focus off this one, and
                        macOS reports the loss before it reports the gain. */
                     WindowEvent::Focused(false) => {
-                        let closes = handle
-                            .try_state::<Presence>()
-                            .map(|presence| presence.close_on_blur.load(std::sync::atomic::Ordering::Relaxed))
-                            .unwrap_or(true);
-                        if !closes {
+                        if is_pinned(handle.app_handle()) {
                             return;
                         }
                         let window = handle.clone();
@@ -1400,9 +1444,11 @@ mod tests {
     #[test]
     fn presence_is_read_from_the_settings_with_its_defaults() {
         use super::presence_from;
-        assert_eq!(presence_from(""), (true, "menubar".to_string()));
-        assert_eq!(presence_from(r#"{"closeOnBlur":false,"appIcon":"both"}"#), (false, "both".to_string()));
-        assert_eq!(presence_from(r#"{"closeOnBlur":"no","appIcon":"taskbar"}"#), (true, "menubar".to_string()));
+        assert_eq!(presence_from(""), (false, "menubar".to_string()));
+        assert_eq!(presence_from(r#"{"pinned":true,"appIcon":"both"}"#), (true, "both".to_string()));
+        assert_eq!(presence_from(r#"{"closeOnBlur":false,"appIcon":"both"}"#), (true, "both".to_string()));
+        assert_eq!(presence_from(r#"{"closeOnBlur":false,"pinned":false}"#), (false, "menubar".to_string()));
+        assert_eq!(presence_from(r#"{"closeOnBlur":"no","appIcon":"taskbar"}"#), (false, "menubar".to_string()));
     }
 
     /* A window left with its bottom edge under the Dock comes back above it,

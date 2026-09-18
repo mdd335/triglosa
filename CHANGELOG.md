@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.4.0
+
+### New
+- Spanish, French, Italian, Portuguese and Russian can now be your own
+  language, and the interface follows it.
+- A text recognised as the wrong language can be put right: click the
+  language above the original and choose another, or type any other
+  language. The translation is made again, and the choice holds until
+  Triglosa quits, also when you edit the text.
+- A pin in the translation window keeps it open and in front of all other
+  windows. It replaces the setting that closed the window when clicking
+  elsewhere.
+- Choose which search engine is used for looking words up, in the settings under
+  Verbs and terms.
+
+### Fixed
+- Insert puts the translation into the program you last clicked into, not
+  back into the one the text came from.
+- Windows: starting Triglosa while it is already running opens its window
+  instead of a second copy.
+- Windows: the symbol in the notification area shows its name under the
+  pointer.
+
 ## 0.3.1
 
 ### New

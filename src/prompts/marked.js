@@ -33,6 +33,15 @@ import { languagePack } from "../languages/index.js";
    the word at all — and for a word that came through a synonym it was 63 %,
    which is worse *and* every one of them wrong. The reader has the text in
    front of them; what they clicked a word for is the word. */
+/* The reader's language said once more, as the last line of the input rather
+   than as one more rule — only when a question is asked again because its
+   note came back in the text's language (askedInReaderLanguage in ask.js).
+   Between close languages the cloud model does that although the rules name
+   the reader's language twice. See the twentieth run. */
+export function writtenIn(reader, fields) {
+  return `Write ${fields} in ${reader}.`;
+}
+
 export function meaningPrompt({ source, reader, inText = true }) {
   const own = source === reader;
   return [

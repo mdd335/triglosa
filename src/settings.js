@@ -11,10 +11,24 @@
 import { MAX_PANELS } from "./panels.js";
 import { SUPPORTED, isSupported } from "./languages/index.js";
 import { defaultHotkey, isHotkey } from "./hotkey.js";
+import { SEARCH_URLS, SYSTEM_SEARCH } from "./platform/search.js";
 
-/* The languages explanations can be written in. Both are also learnable, so
-   they appear in the other list too. */
-export const FIRST_LANGUAGES = ["de", "en"];
+/* The languages explanations can be written in, and so the interface: each
+   needs a table of its own in src/ui/labels/ and words for the parsers in
+   src/strings.js. All of them are also learnable, so they appear in the
+   other list too. Arabic is missing on purpose: an interface read from right
+   to left needs the whole window mirrored, and that is a step of its own. */
+export const FIRST_LANGUAGES = ["de", "en", "es", "fr", "it", "pt", "ru"];
+
+/* What a first start reads: the system's own language where it is one of
+   the first languages — the first of the system's list that is — with English
+   beside it, or English with Spanish where there is none to go by. */
+export function firstStartLanguages(systemLanguages) {
+  const first = (Array.isArray(systemLanguages) ? systemLanguages : [])
+    .map((tag) => String(tag || "").toLowerCase().split(/[-_]/)[0])
+    .find((code) => FIRST_LANGUAGES.includes(code));
+  return !first || first === "en" ? ["en", "es"] : [first, "en"];
+}
 
 /* Click-to-fill addresses for the settings window: the two local servers and
    the one cloud service the README recommends. Local servers and cloud
@@ -58,7 +72,8 @@ export const TRANSLATORS = ["model", "device"];
 
 export const DEFAULTS = {
   /* Ordered: the first is the language explanations are written in, the rest
-     are being learned. Two of them mean two panels, three mean three. */
+     are being learned. Two of them mean two panels, three mean three. A first
+     start takes the system's language instead — see firstStartLanguages. */
   languages: ["en", "es"],
   /* How far along the reader is in each language they are learning, on the
      scale the whole of Europe already uses. It decides what counts as hard,
@@ -117,9 +132,12 @@ export const DEFAULTS = {
   freshHotkey: null,
   cardHotkey: null,
   /* The reading window goes away when the focus leaves it, the way a menu
-     does — on by default, and the reader's to switch off for a window that
-     should stay standing beside something else. */
-  closeOnBlur: true,
+     does. Pinned, it stays standing above every other window, for a reader
+     who reads beside something else — the pin in the window's title line. */
+  pinned: false,
+  /* The search engine behind a row's web search: the system's, or one the
+     reader chose (src/platform/search.js). */
+  search: SYSTEM_SEARCH,
   /* The reading window as tall as what it holds. Off, it keeps the size the
      reader gave it, and remembers that size as it always does. */
   fitWindow: true,
@@ -134,7 +152,7 @@ const isPlainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
    Unknown keys are dropped, bad values fall back to the default. A settings
    file from a newer version, or one edited by hand, must not be able to
    break the app. */
-export function normalizeSettings(stored) {
+export function normalizeSettings(stored, { systemLanguages } = {}) {
   const raw = isPlainObject(stored) ? stored : {};
 
   const languages = [];
@@ -149,7 +167,7 @@ export function normalizeSettings(stored) {
 
   const show = isPlainObject(raw.show) ? raw.show : {};
   return {
-    languages: valid ? languages : DEFAULTS.languages,
+    languages: valid ? languages : firstStartLanguages(systemLanguages),
     levels: normalizeLevels(raw.levels),
     show: {
       verbs: showMode(show.verbs, DEFAULTS.show.verbs),
@@ -171,7 +189,10 @@ export function normalizeSettings(stored) {
     hotkey: normalizeHotkey(raw, "hotkey"),
     freshHotkey: normalizeHotkey(raw, "freshHotkey"),
     cardHotkey: normalizeHotkey(raw, "cardHotkey"),
-    closeOnBlur: raw.closeOnBlur !== false,
+    /* Whoever switched off closing on a focus change wanted the window to
+       stay: that is a pinned window now. */
+    pinned: typeof raw.pinned === "boolean" ? raw.pinned : raw.closeOnBlur === false,
+    search: SEARCH_URLS[raw.search] ? raw.search : SYSTEM_SEARCH,
     fitWindow: raw.fitWindow !== false,
     appIcon: APP_ICONS.includes(raw.appIcon) ? raw.appIcon : DEFAULTS.appIcon,
   };

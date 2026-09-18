@@ -6,13 +6,10 @@
 
 import { cleanLine, stripQuotes } from "../text.js";
 import { languagePack } from "../languages/index.js";
+import { saysNothing } from "../strings.js";
 
 export const MAX_ALTERNATIVES = 3;
 
-/* Where the model does not know a word it sometimes writes so into the list
-   instead of leaving the line out. Printed as a translation that is worse
-   than a shorter list. */
-const NOTHING = /^(unbekannt|unknown|desconocid[oa]|kein bekanntes wort|n\/a|keine|none|-+)$/i;
 
 /* A dictionary writes its headwords in lower case, and the model writes them
    as though each began a sentence — "Pagar", "Caja" for a lookup of "pagar".
@@ -49,7 +46,10 @@ export function parseAlternatives(raw, input, reader, target) {
     const key = text.trim().toLowerCase();
     /* The word itself is not a translation of itself, and the same word
        twice is one entry. */
-    if (!key || key === asked || seen.has(key) || NOTHING.test(key)) continue;
+    /* Where the model does not know a word it sometimes writes so into the
+       list instead of leaving the line out. Printed as a translation that is
+       worse than a shorter list. */
+    if (!key || key === asked || seen.has(key) || saysNothing(key)) continue;
     seen.add(key);
 
     const note = stripQuotes(cut === -1 ? "" : L.slice(cut + 1));

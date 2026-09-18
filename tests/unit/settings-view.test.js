@@ -71,6 +71,11 @@ for (const code of ["de", "en"]) {
       assert.deepStrictEqual([...icon.querySelectorAll("option")].map((option) => option.textContent),
         [text.appIcons.menubar, text.appIcons.both]);
       assert.ok(labelsShown.includes(text.glance), "the hover stays");
+      /* No search engine of the system's to follow: DuckDuckGo stands in. */
+      const search = [...view.querySelectorAll(".field")]
+        .find((node) => node.querySelector("label")?.textContent === text.searchEngine).querySelector("select");
+      assert.ok(![...search.options].some((option) => option.value === "system"));
+      assert.strictEqual(search.value, "duckduckgo");
       const shortcut = [...view.querySelectorAll(".field")]
         .find((node) => node.querySelector("label")?.textContent === text.hotkey);
       assert.strictEqual(shortcut.querySelector(".hint").textContent, text.hotkeyLeadSelected);
@@ -117,5 +122,33 @@ for (const code of ["de", "en"]) {
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.strictEqual(changes.at(-1).cardHotkey.accelerator, "Control+Alt+KeyK");
     view.remove();
+  });
+}
+
+test("the search engine is the Mac's own unless another is chosen", async () => {
+  const text = labels("en");
+  const draw = (stored) => {
+    const view = settingsView({ settings: normalizeSettings({ languages: ["en", "es"], ...stored }), apiKey: "" },
+      { onChange: () => {}, onKeyChange: () => {} });
+    return [...view.querySelectorAll(".field")]
+      .find((node) => node.querySelector("label")?.textContent === text.searchEngine).querySelector("select");
+  };
+  const search = draw({});
+  assert.strictEqual(search.options[0].value, "system");
+  assert.strictEqual(search.options[0].textContent, text.searchSystem);
+  assert.strictEqual(search.value, "system");
+  assert.strictEqual(draw({ search: "bing" }).value, "bing");
+});
+
+for (const code of ["de", "en", "fr"]) {
+  test(`the languages are offered in the alphabetical order of their names (${code})`, () => {
+    const settings = normalizeSettings({ languages: [code, code === "en" ? "es" : "en", "it"] });
+    const view = settingsView({ settings, apiKey: "" }, { onChange: () => {}, onKeyChange: () => {} });
+    const selects = [...view.querySelectorAll("select")].filter((node) => !node.classList.contains("level")).slice(0, 3);
+    for (const node of selects) {
+      const names = [...node.options].filter((option) => option.value).map((option) => option.textContent);
+      assert.ok(names.length > 1);
+      assert.deepStrictEqual(names, names.slice().sort((a, b) => a.localeCompare(b, code)));
+    }
   });
 }

@@ -10,7 +10,7 @@
    the app. */
 
 import { normalizeSettings } from "../settings.js";
-import { insideApp } from "./env.js";
+import { insideApp, systemLanguages } from "./env.js";
 
 const BROWSER_KEY = "triglosa.settings";
 
@@ -34,7 +34,9 @@ export async function loadSettings() {
   } catch {
     /* Unreadable settings mean the defaults, not a broken window. */
   }
-  return normalizeSettings(stored);
+  /* Only a first start asks the system: once there is a file, the
+     languages in it are the reader's. */
+  return normalizeSettings(stored, stored ? {} : { systemLanguages: await systemLanguages() });
 }
 
 export async function saveSettings(settings) {

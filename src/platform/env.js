@@ -72,14 +72,18 @@ export async function openLanguageSettings() {
   return true;
 }
 
-/* The search engine the system is set to, asked once and remembered. Getting
-   nothing back means "no deviating setting", and that answer is correct
-   rather than a failure — so unlike the translation probe it is kept. */
+/* The search engine a look-up opens: the one the reader chose in the
+   settings, or for "system" the one the Mac is set to — asked once and
+   remembered. Getting nothing back means "no deviating setting", and that
+   answer is correct rather than a failure — so unlike the translation probe
+   it is kept. */
 let searchBase = null;
 
-export async function searchUrl() {
+export async function searchUrl(choice) {
+  const { SEARCH_URLS, WINDOWS_SEARCH, searchUrlFor, DEFAULT_SEARCH } = await import("./search.js");
+  if (SEARCH_URLS[choice]) return SEARCH_URLS[choice];
+  if (onWindows()) return SEARCH_URLS[WINDOWS_SEARCH];
   if (searchBase) return searchBase;
-  const { searchUrlFor, DEFAULT_SEARCH } = await import("./search.js");
   if (!insideApp()) return (searchBase = DEFAULT_SEARCH);
   try {
     const { invoke } = await import("@tauri-apps/api/core");
@@ -88,6 +92,29 @@ export async function searchUrl() {
     searchBase = DEFAULT_SEARCH;
   }
   return searchBase;
+}
+
+/* The system's languages, first one first, as language tags. The Mac's list
+   comes from the shell as `defaults` prints it; everywhere else the web
+   view's own list is the system's. */
+export function languagesFromReport(report) {
+  return String(report || "")
+    .replace(/[()]/g, "")
+    .split(/[,\n]/)
+    .map((item) => item.trim().replace(/^"|"$/g, ""))
+    .filter(Boolean);
+}
+
+export async function systemLanguages() {
+  const own = Array.from(globalThis.navigator?.languages || []);
+  if (!insideApp() || onWindows()) return own;
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const listed = languagesFromReport(await invoke("system_languages_report"));
+    return listed.length ? listed : own;
+  } catch {
+    return own;
+  }
 }
 
 /* Copying is the one thing every box offers: whatever the reader came for,

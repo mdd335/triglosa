@@ -62,3 +62,9 @@ test("a capital is kept where it may be the spelling", () => {
   /* A script with no capitals gives nothing to go by. */
   assert.strictEqual(parseAlternatives("Impatiently | common", "بفارغ الصبر", "en", "en")[0].text, "Impatiently");
 });
+
+test("a list that says it has nothing is empty in every first language", () => {
+  for (const [raw, reader] of [["НЕИЗВЕСТНО\nнет", "ru"], ["aucune", "fr"], ["UNKNOWN", "it"], ["nenhuma", "pt"]]) {
+    assert.deepStrictEqual(parseAlternatives(raw, "soslayable", reader), [], raw);
+  }
+});

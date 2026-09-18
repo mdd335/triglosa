@@ -55,6 +55,10 @@ const PATHS = {
     /* The same plus as the longer explanation carries, in the same place:
        the two buttons stand side by side and both add something. */
     + '<path d="M12 9.5v5M9.5 12h5"/>',
+  /* A chevron up over a chevron down: a list to choose from, the way the
+     system draws a pop-up button. Two chevrons and not one, since a single
+     one in a heading means a fold. */
+  choose: '<path d="M5 6.2 8 3.4l3 2.8M5 9.8l3 2.8 3-2.8"/>',
   /* What a button shows for a moment once it has done its work. */
   done: '<path d="m3.5 8.4 3 3 6-6.8"/>',
 };

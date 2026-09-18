@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { MAX_WORDS, parseMarkedWord, parseVerbGrammar, parseWordClass, parseWords, usableSpot } from "../../src/parse/words.js";
+import { MAX_WORDS, parseMarkedWord, parseVerbGrammar, parseWordClass, parseWords, usableSpot, withoutNestedTerms } from "../../src/parse/words.js";
 import {
   MAX_SYNONYMS,
   MAX_SYNONYM_WORDS,
@@ -8,7 +8,7 @@ import {
   parseSynonyms,
 } from "../../src/parse/synonyms.js";
 import { isBaseForm, isPartOfTerm, trimToBaseForm } from "../../src/parse/terms.js";
-import { explainMarked } from "../../src/ask.js";
+import { explainMarked, wordsFor } from "../../src/ask.js";
 
 const RUN = ["de", "en", "es"];
 const syn = (raw, term) => parseSynonyms(raw, term, RUN);
@@ -681,4 +681,100 @@ test("a clicked word keeps its class unless it turned out to be a verb", () => {
     kindRaw: "noun | singular | masculine", lang: "de", codes: ["es", "de"],
   });
   assert.strictEqual(verb.wordClass, null);
+});
+
+test("the reader's language is said once more only when a note is asked again", async () => {
+  /* On the first question the line cost the local model its base forms; it
+     goes only into the second, asked because the note came back in the
+     text's language — and never into the synonym question, which answers in
+     the text's language. */
+  const asked = [];
+  const italian = "sgranare | desgranar | Verbo della vita contadina: separare i chicchi dal baccello.";
+  const llm = {
+    async chat({ system, user }) {
+      asked.push({ system, user });
+      return system.includes("<note>") ? italian : "";
+    },
+  };
+  await explainMarked(llm, {
+    term: "sgranare", text: "La nonna stava a sgranare i piselli.", source: "it", reader: "es", others: [], withoutSpot: true,
+  });
+  const meanings = asked.filter((call) => call.system.includes("<note>"));
+  assert.strictEqual(meanings.length, 2);
+  assert.ok(!meanings[0].user.includes("Write "), "not on the first question");
+  assert.ok(meanings[1].user.endsWith("Write <meaning> and <note> in Spanish."));
+  assert.ok(asked.filter((call) => !call.system.includes("<note>")).every((call) => !call.user.includes("Write ")));
+});
+
+test("a note in the text's language is asked again once, and the better answer kept", async () => {
+  const italian = "sgranare | desgranar | Verbo della vita contadina: separare i chicchi dal baccello.";
+  const spanish = "sgranare | desgranar | Verbo del campo: separar los granos de la vaina o de la mazorca.";
+  const run = async (answers) => {
+    let asked = 0;
+    const temperatures = [];
+    const llm = {
+      async chat({ system, temperature }) {
+        if (!system.includes("<note>")) return "";
+        temperatures.push(temperature);
+        return answers[Math.min(asked++, answers.length - 1)];
+      },
+    };
+    const marked = await explainMarked(llm, {
+      term: "sgranare",
+      text: "La nonna stava a sgranare i piselli sull'uscio.",
+      source: "it",
+      reader: "es",
+      others: [],
+      withoutSpot: true,
+    });
+    return { asked, temperatures, note: marked?.note || "" };
+  };
+  const fixed = await run([italian, spanish]);
+  assert.strictEqual(fixed.asked, 2);
+  assert.ok(fixed.temperatures[1] > 0.5, "asked warmer the second time, or the same answer comes back");
+  assert.ok(fixed.note.startsWith("Verbo del campo"));
+
+  const right = await run([spanish]);
+  assert.strictEqual(right.asked, 1, "a note in the reader's language is not asked again");
+
+  const stubborn = await run([italian, italian]);
+  assert.strictEqual(stubborn.asked, 2, "asked again once, not more");
+  assert.ok(stubborn.note.startsWith("Verbo della"), "and the first answer stands");
+});
+
+test("a term list with notes in the text's language is asked again once", async () => {
+  /* A note the cloud model really wrote for a Spanish reader. */
+  const text = "Raga stasera non ce la faccio, sono distrutto. Che sfiga.";
+  const italian = 'Raga | chicos | Vocativo colloquiale tra amici, forma abbreviata di "ragazzi"; registro giovanile.';
+  const spanish = 'Raga | chicos | Vocativo coloquial entre amigos, forma abreviada de "ragazzi"; registro juvenil.';
+  let asked = 0;
+  const llm = {
+    async chat({ system }) {
+      if (!system.includes("<note>")) return "";
+      return asked++ === 0 ? italian : spanish;
+    },
+  };
+  const list = await wordsFor(llm, { text, source: "it", languages: ["es", "it"], levels: {} });
+  assert.strictEqual(asked, 2);
+  assert.ok(list[0].note.startsWith("Vocativo coloquial"));
+});
+
+test("a term standing inside another one is dropped, the longer one stays", () => {
+  const list = [
+    { text: "URL", spot: "URL" },
+    { text: "query", spot: "query" },
+    { text: "start a query", spot: "start a query" },
+  ];
+  assert.deepStrictEqual(withoutNestedTerms(list).map((w) => w.text), ["URL", "start a query"]);
+});
+
+test("a nested term is found by its spot, and only as a word of its own", () => {
+  const list = [
+    { text: "tirar la toalla", spot: "tiramos la toalla" },
+    { text: "toalla", spot: "toalla" },
+    { text: "ensayo", spot: "ensayo" },
+    { text: "en", spot: "en" },
+    { text: "Ensayo", spot: "ensayo" },
+  ];
+  assert.deepStrictEqual(withoutNestedTerms(list).map((w) => w.text), ["tirar la toalla", "ensayo", "en"]);
 });

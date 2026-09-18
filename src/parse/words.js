@@ -1,13 +1,14 @@
 /* The list of difficult words, and the one word the reader clicked. */
 
-import { cleanLine, flattenField, stripQuotes, wordCount } from "../text.js";
+import { cleanLine, containsWord, flattenField, stripDiacritics, stripQuotes, wordCount } from "../text.js";
 import { looksLikeAbbreviation, parseAbbreviation, withoutSecondMeaning } from "./abbreviations.js";
 import { parseSynonyms } from "./synonyms.js";
 import { isBaseForm, isPartOfTerm, repeatsTerm, trimToBaseForm } from "./terms.js";
 import { grammarOf } from "./verbs.js";
 import { isFunctionWord } from "../vocabulary.js";
-import { languagePack } from "../languages/index.js";
+import { isSupported, languagePack } from "../languages/index.js";
 import { WORD_CLASSES } from "../prompts/marked.js";
+import { startsUnknown } from "../strings.js";
 
 export const MAX_WORDS = 3;
 /* How many words a picked term may have and still be read as a verb form.
@@ -23,6 +24,18 @@ export const MAX_PHRASE_WORDS = 6;
 /* Read in more generously than is shown: the filters trim afterwards, and
    something should be left over when they do. */
 const READ_AHEAD = 3;
+
+/* A term standing inside another one goes: "query" beside "start a query"
+   is the same spot twice, and a spot carries one colour. The longer one
+   stays — it holds the shorter one and says more. The same spot twice goes
+   too, the first one staying. Compared by the spot in the text, so a
+   dictionary form and the form the text holds are one term. */
+export function withoutNestedTerms(list) {
+  const key = (word) => stripDiacritics(String(word.spot || word.text || "")).toLowerCase().trim();
+  const keys = list.map(key);
+  return list.filter((_, i) => keys[i] && !keys.some((other, j) =>
+    j !== i && (other === keys[i] ? j < i : other.length > keys[i].length && containsWord(other, keys[i]))));
+}
 
 /* term | equivalent | explanation. Further pipes belong to the explanation,
    not to a fourth column. */
@@ -76,7 +89,7 @@ const NUMBERED = new Set(["noun", "proper noun", "pronoun"]);
 export function asksForWordClass(term, code) {
   /* A language with no pack has no function words to tell a phrase by, and
      no genders: nothing is shown rather than a guess. */
-  if (!code) return false;
+  if (!isSupported(code)) return false;
   const words = String(term || "").trim().split(/\s+/).filter(Boolean);
   if (!words.length || words.length > MAX_VERB_WORDS || looksLikeAbbreviation(term)) return false;
   return words.length === 1 || isFunctionWord(words[0], [code]);
@@ -195,7 +208,7 @@ export function parseMarkedWord({ meaningRaw, spotRaw, term, code, thirdRaw, gra
   } else {
     return null;
   }
-  if (!note || /^(unbekannt|unknown)\b/i.test(note)) return null;
+  if (!note || startsUnknown(note)) return null;
 
   /* A spot line without a pipe does not say which of the two panels is
      meant — better no highlight than one in the wrong panel. */

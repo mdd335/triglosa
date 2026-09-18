@@ -199,6 +199,98 @@ button.quiet { color: var(--ink-soft); }
    heading is `padding-bottom + 5.5`, so matching the sheet would mean no
    padding at all, and then the hover ground of a button touches the panel.
    So the buttons keep their air and the heading alone is moved down into it. */
+/* The heading's parts: the word "Original" and the language beside it. The
+   line moves down as a whole; the parts stand in it. */
+.topline .heading {
+  position: relative;
+  top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.topline .heading .name { top: 0; }
+
+/* The language, as the heading writes it until the pointer rests on it, and
+   then as the system's pop-up button: a ground and two chevrons. The list
+   itself is the system's, opened by a select that lies over the name and
+   shows nothing of its own. */
+.language-choice {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 3px 1px 4px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.language-choice .chevrons {
+  width: 11px;
+  height: 11px;
+  stroke-width: 1.6;
+  opacity: 0;
+}
+
+.language-choice:hover,
+.language-choice:not(.by-pointer):has(select:focus-visible) {
+  background: var(--lift);
+  color: var(--ink);
+}
+
+.language-choice:hover .chevrons,
+.language-choice:not(.by-pointer):has(select:focus-visible) .chevrons { opacity: 1; }
+
+.language-choice select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  appearance: none;
+}
+
+/* The list as it opens, drawn the way the settings window's lists are: its
+   face, size, padding and ground. macOS draws its own menu and takes nothing
+   from here; Windows draws it from the select, and without this in the
+   browser's default face with the names against its left edge — and in the
+   heading's capitals, which the select would otherwise inherit. */
+.language-choice select {
+  font: 400 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--field);
+  color: var(--ink);
+}
+
+.language-choice .pill-label { left: 0; right: auto; }
+.language-choice:hover .pill-label { opacity: 1; }
+
+/* "Other language…": the name becomes a field to type one into. */
+.language-choice.searching { padding: 0; background: none; }
+
+.language-search {
+  width: 170px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--control-line);
+  border-radius: 5px;
+  background: var(--field);
+  color: var(--ink);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .topline .name {
   position: relative;
   top: 6px;
@@ -486,6 +578,10 @@ button.quiet { color: var(--ink-soft); }
    its place is what says there is a way back at all. A button that is only
    showing what it just did is not one of those. */
 .icon:disabled { opacity: 0.4; }
+/* A pinned window's pin: filled in and in the full ink, whether or not the
+   pointer is on it. No colour — nothing else in the title line has one. */
+#pin[aria-pressed="true"] { color: var(--ink); }
+#pin[aria-pressed="true"] .pin-body { fill: currentColor; }
 .icon.reporting:disabled { opacity: 1; }
 
 /* The word the symbol stands for. It is there while the pointer is, and takes
@@ -1171,30 +1267,10 @@ button.quiet { color: var(--ink-soft); }
 
 /* The word side's language, where the card may be in more than one: the
    heading itself, chosen from, with a small chevron after it. */
-.card-language { position: relative; display: inline-flex; align-items: center; }
-.card-field-head select.name {
-  appearance: none;
-  -webkit-appearance: none;
-  border: none;
-  background: none;
-  padding: 0 14px 0 0;
-  margin: 0;
-  font-family: inherit;
-  cursor: pointer;
-}
-.card-language::after {
-  content: "";
-  position: absolute;
-  right: 3px;
-  top: 50%;
-  width: 5px;
-  height: 5px;
-  border-right: 1.5px solid var(--ink-faint);
-  border-bottom: 1.5px solid var(--ink-faint);
-  transform: translateY(-70%) rotate(45deg);
-  pointer-events: none;
-}
-.card-language:hover select.name { color: var(--ink-soft); }
+/* The word side's language is the same pop-up as the reading's heading, its
+   text kept in line with the other two fields' headings: the ground reaches
+   out to the left instead. */
+.card-field-head .language-choice { margin-left: -4px; }
 
 /* The three fields are written in, so they look like the box the original is
    written in and not like the sheets above it. */

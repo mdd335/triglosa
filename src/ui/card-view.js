@@ -14,7 +14,8 @@
    with nothing installed at all. */
 
 import { CARD_FIELDS, cardLine, hasCard } from "../card.js";
-import { displayName, writingDirection } from "../languages/index.js";
+import { languageLabel, writingDirection } from "../languages/index.js";
+import { popupChoice } from "./language-choice.js";
 import { button, element, reportOn, select } from "./elements.js";
 
 /* How far a field may grow before it scrolls after all, in lines and in the
@@ -29,11 +30,11 @@ const LINE = 19;
 function fieldTitle(role, card, text, reader) {
   if (role === "note") return text.cardNote;
   const code = role === "term" ? card.termLanguage : card.meaningLanguage;
-  return (code && displayName(code, reader)) || (role === "term" ? text.cardTerm : text.cardMeaning);
+  return (code && languageLabel(code, reader)) || (role === "term" ? text.cardTerm : text.cardMeaning);
 }
 
-/* The reader's own language is German or English, so only the word being
-   learned can run the other way. */
+/* The reader's own language is never read from right to left, so only the
+   word being learned can run the other way. */
 const fieldDirection = (role, card) =>
   role === "term" ? writingDirection(card.termLanguage) : "ltr";
 
@@ -49,17 +50,16 @@ const unmapped = (role, anki) =>
    afterwards — the wand, Anki — takes the language shown. */
 function languageChoice(card, { text, reader, box }) {
   const node = select(
-    card.choices.map((code) => ({ value: code, label: displayName(code, reader) })),
+    card.choices.map((code) => ({ value: code, label: languageLabel(code, reader) })),
     card.termLanguage,
   );
-  node.className = "name";
-  node.setAttribute("aria-label", text.cardLanguage);
+  const holder = element("span", "card-language");
+  const shown = popupChoice(holder, { name: languageLabel(card.termLanguage, reader), list: node, label: text.cardLanguage });
   node.addEventListener("change", () => {
     card.termLanguage = node.value;
+    shown.textContent = languageLabel(node.value, reader);
     box.dir = fieldDirection("term", card);
   });
-  const holder = element("span", "card-language");
-  holder.append(node);
   return holder;
 }
 

@@ -505,3 +505,32 @@ test("a text in the reader's own language is aligned with both translations", as
   const cat = state.glance.sentences[1].units.find((unit) => unit.gloss === "The cat");
   assert.strictEqual(state.panels[2].text.slice(cat.second.to[0].start, cat.second.to[0].end), "Кошка");
 });
+
+test("a language the reader chose is not detected again, and the questions name it", async () => {
+  const llm = model();
+  const { state } = await run({ settings: SETTINGS, translation: noDevice, llm, language: "fa", guesses: ["ar", "ur"] });
+
+  /* No twelve-token question: detection was not asked. */
+  assert.ok(!llm.asked.some((a) => a.maxTokens <= 12));
+  assert.strictEqual(state.source.code, "");
+  assert.strictEqual(state.source.iso, "fa");
+  assert.deepStrictEqual(state.source.guesses, ["ar", "ur"]);
+  assert.strictEqual(state.panels[0].code, "");
+  assert.strictEqual(state.panels[0].iso, "fa");
+  /* The terms question says Persian, not "an unknown language". */
+  const terms = llm.asked.find((a) => /^Text \(/.test(a.user));
+  assert.ok(terms, "the terms were asked");
+  assert.match(terms.user, /^Text \(Persian\)/);
+  /* Nothing a pack would answer: no verb question. */
+  assert.strictEqual(state.verbs, null);
+});
+
+test("a supported language the reader chose is that language, with its panels", async () => {
+  const llm = model();
+  const { state } = await run({ settings: SETTINGS, translation: noDevice, llm, language: "es" });
+
+  assert.ok(!llm.asked.some((a) => a.maxTokens <= 12));
+  assert.strictEqual(state.source.code, "es");
+  assert.deepStrictEqual(state.panels.map((p) => p.code), ["es", "de", "en"]);
+  assert.strictEqual(state.panels[0].iso, undefined);
+});

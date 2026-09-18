@@ -54,6 +54,9 @@ test("bullets and numbering in front of a line are dropped", () => {
 test("quotes are stripped even with whitespace behind them", () => {
   assert.strictEqual(stripQuotes('  "ensayo"  '), "ensayo");
   assert.strictEqual(stripQuotes("„Versuch“ "), "Versuch");
+  assert.strictEqual(stripQuotes("«\u00a0essai\u00a0»"), "essai");
+  assert.strictEqual(stripQuotes("«попытка»"), "попытка");
+  assert.strictEqual(stripQuotes("gruppo «Rosa Bianca»"), "gruppo «Rosa Bianca»");
   assert.strictEqual(stripQuotes("keine Anführung"), "keine Anführung");
   /* A quotation inside the field keeps both its marks. */
   assert.strictEqual(stripQuotes('Widerstandsgruppe „Weiße Rose"'), 'Widerstandsgruppe „Weiße Rose"');

@@ -199,11 +199,12 @@ export async function onWindowShown(handler) {
    than in the shell for that one reason. The settings entry is named here
    too and the shell keeps it, because the menu can be opened long after this
    window last said anything. */
-/* Whether the reading window goes away on a focus change, and where the app
-   shows an icon — told to the shell, which acts on both. */
-export async function applyPresence({ closeOnBlur, appIcon }) {
+/* Whether the reading window is pinned — kept above every other window
+   instead of going away on a focus change — and where the app shows an
+   icon; told to the shell, which acts on both. */
+export async function applyPresence({ pinned, appIcon }) {
   if (!insideApp()) return;
-  await shell("apply_presence", { closeOnBlur, icon: appIcon });
+  await shell("apply_presence", { pinned, icon: appIcon });
 }
 
 /* `shortcuts` names the combination beside each of the three entries a
