@@ -80,6 +80,10 @@ mod platform {
         Err(NO.into())
     }
     pub fn note_clipboard() {}
+    pub fn watch_front() {}
+    pub fn read_from_menu() -> Result<Selection, String> {
+        read()
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -98,7 +102,8 @@ mod platform {
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
     use windows::Win32::System::Ole::CF_UNICODETEXT;
     use windows::Win32::UI::Accessibility::{
-        CUIAutomation, IUIAutomation, IUIAutomationTextPattern, UIA_TextPatternId,
+        CUIAutomation, IUIAutomation, IUIAutomationTextPattern, SetWinEventHook, HWINEVENTHOOK,
+        UIA_TextPatternId,
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT,
@@ -106,8 +111,10 @@ mod platform {
         VK_RWIN, VK_SHIFT, VK_V,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetWindowThreadProcessId, IsWindow, SetForegroundWindow,
+        GetClassNameW, GetForegroundWindow, GetWindowThreadProcessId, IsWindow,
+        SetForegroundWindow, EVENT_SYSTEM_FOREGROUND, WINEVENT_OUTOFCONTEXT,
     };
+    use std::sync::atomic::AtomicIsize;
 
     pub fn trusted() -> bool {
         true
@@ -337,6 +344,77 @@ mod platform {
         false
     }
 
+    /* The program the reader was last working in. A click on the symbol in
+       the notification area puts the taskbar in front, so by the time a menu
+       entry asks for the selection the program holding it is no longer the
+       one in front. Windows says whenever the foreground changes; the last
+       program that is neither this app nor the taskbar is kept, and brought
+       back in front before a menu entry reads. */
+    static LAST_FRONT: AtomicIsize = AtomicIsize::new(0);
+
+    /* The taskbar, its overflow of symbols and the desktop: in front after a
+       click on them, and never where a selection is. */
+    const SHELL: [&str; 6] = [
+        "Shell_TrayWnd",
+        "Shell_SecondaryTrayWnd",
+        "NotifyIconOverflowWindow",
+        "TopLevelWindowForOverflowXamlIsland",
+        "Progman",
+        "WorkerW",
+    ];
+
+    fn is_shell(window: HWND) -> bool {
+        let mut name = [0u16; 64];
+        let length = unsafe { GetClassNameW(window, &mut name) };
+        let class = String::from_utf16_lossy(&name[..length.max(0) as usize]);
+        SHELL.contains(&class.as_str())
+    }
+
+    unsafe extern "system" fn on_front(
+        _hook: HWINEVENTHOOK,
+        _event: u32,
+        window: HWND,
+        _object: i32,
+        _child: i32,
+        _thread: u32,
+        _time: u32,
+    ) {
+        if window.is_invalid() || process_of(window) == std::process::id() || is_shell(window) {
+            return;
+        }
+        LAST_FRONT.store(window.0 as isize, Ordering::Relaxed);
+    }
+
+    /* Called once on the main thread, whose message loop the notices are
+       delivered through. */
+    pub fn watch_front() {
+        let front = unsafe { GetForegroundWindow() };
+        unsafe { on_front(HWINEVENTHOOK::default(), 0, front, 0, 0, 0, 0) };
+        let _ = unsafe {
+            SetWinEventHook(
+                EVENT_SYSTEM_FOREGROUND,
+                EVENT_SYSTEM_FOREGROUND,
+                None,
+                Some(on_front),
+                0,
+                0,
+                WINEVENT_OUTOFCONTEXT,
+            )
+        };
+    }
+
+    /* A menu entry's reading: the program last worked in brought back in
+       front first. Where Windows refuses that, nothing is read — the window
+       in front then is not the one holding the selection. */
+    pub fn read_from_menu() -> Result<Selection, String> {
+        let last = LAST_FRONT.load(Ordering::Relaxed);
+        let source = last as i32;
+        if last == 0 || !raise(source) {
+            return Err("focus".into());
+        }
+        read()
+    }
+
     pub fn write(source: i32, text: &str) -> Result<(), String> {
         if text.trim().is_empty() {
             return Err("empty".into());
@@ -474,6 +552,13 @@ mod platform {
 
     pub fn note_clipboard() {
         SEEN.store(clipboard_count(), Ordering::Relaxed);
+    }
+
+    /* The menu bar's menu leaves the program in front where it is, so a menu
+       entry reads the way the shortcut does. */
+    pub fn watch_front() {}
+    pub fn read_from_menu() -> Result<Selection, String> {
+        read()
     }
 
     #[link(name = "CoreGraphics", kind = "framework")]
@@ -910,4 +995,6 @@ mod platform {
     }
 }
 
-pub use platform::{note_clipboard, open_settings, read, request, trusted, write};
+pub use platform::{
+    note_clipboard, open_settings, read, read_from_menu, request, trusted, watch_front, write,
+};

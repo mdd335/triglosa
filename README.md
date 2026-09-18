@@ -69,8 +69,7 @@ xattr -dr com.apple.quarantine /Applications/Triglosa.app
 5. **Optional, Mac only: use selected text directly.** Translate selected text without
    copying it first, and insert translations straight into other programs.
    For this, Triglosa needs the macOS permission *Device Control and Data Access* (under Privacy & Security; called *Accessibility* up to macOS 26), which you
-   can grant in the settings. Triglosa uses it only for reading the selection and for inserting, and
-   only when you press the shortcut or click Insert.
+   can grant in the settings. Triglosa uses it only for reading the selected text and for inserting, and only when you ask it to.
 6. **Optional, Mac only: set up Apple's on-device translation as an alternative.** It is very fast and works
    offline, but is often imprecise. In the settings under *Translations*,
    download the language packs and choose who translates by default. If one of the
@@ -85,7 +84,7 @@ xattr -dr com.apple.quarantine /Applications/Triglosa.app
 - **Click any word** for its meaning, base form and related words, and ask for
   a longer explanation of it if you want one.
 - **Rest the pointer on a word** in a foreign language to see the translation. The matching words light up in every panel.
-- **Flashcards** from any word: edit the card, let the AI model improve it
+- **Flashcards** from any word, or from selected text with a shortcut you set in the settings: edit the card, let the AI model improve it
   with the wand at the top, then copy it, or send it directly to
   [Anki](https://apps.ankiweb.net) with the
   [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on (you can switch this on in the settings).

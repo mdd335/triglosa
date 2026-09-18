@@ -23,7 +23,7 @@ test("the Windows wording names no Mac and no Apple", () => {
   for (const code of ["de", "en"]) {
     const text = labels(code, "windows");
     for (const key of ["noDevice", "onlyKnownLanguages", "modelIntro", "lockedHow", "apiKeyHint", "hotkeyLead",
-      "hotkeyTakenSystem"]) {
+      "hotkeyTakenSystem", "translateKeys"]) {
       assert.doesNotMatch(String(text[key]), /Apple|macOS|⌘|Schlüsselbund|keychain/i, `${code}.${key}`);
     }
     assert.doesNotMatch(text.copyFirst("Win+Shift+E"), /⌘/);
@@ -32,4 +32,6 @@ test("the Windows wording names no Mac and no Apple", () => {
     assert.strictEqual(text.noAnswer, labels(code, "mac").noAnswer);
   }
   assert.match(labels("de", "mac").noDevice, /Apple/);
+  assert.match(labels("de", "mac").translateKeys, /⌘/);
+  assert.match(labels("en", "windows").translateKeys, /Ctrl\+Enter/);
 });

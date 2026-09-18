@@ -156,6 +156,25 @@ export function readingCard({ text, sourceLanguage, reader, alternatives }) {
   };
 }
 
+/* A card from the shortcut, or a blank one: whatever was selected, put on
+   the side of its language, as it stands. Written in the reader's own
+   language it is the meaning and the word is still to be found; anything
+   else is the word. `choices` are the languages the word side may be
+   switched between in the card window, and `free` is what tells that window
+   a card with empty fields is still a card. */
+export function freeCard({ text = "", detected = "", reader, choices = [], preset = "" }) {
+  const own = !!text && detected === reader;
+  return {
+    term: own ? "" : text,
+    termLanguage: preset,
+    meaning: own ? text : "",
+    meaningLanguage: reader,
+    note: "",
+    choices,
+    free: true,
+  };
+}
+
 /* One line, the fields separated by tabs — what Anki, Quizlet and most of
    the rest read when a deck is imported from a file. A field's own line
    breaks cannot survive as line breaks, or the line would become three, so

@@ -289,6 +289,9 @@ test("the underlines are on unless switched off", () => {
 test("the window closes on a focus change and the app sits in the menu bar unless told otherwise", () => {
   assert.strictEqual(normalizeSettings({}).closeOnBlur, true);
   assert.strictEqual(normalizeSettings({ closeOnBlur: false }).closeOnBlur, false);
+  assert.strictEqual(normalizeSettings({}).fitWindow, true);
+  assert.strictEqual(normalizeSettings({ fitWindow: false }).fitWindow, false);
+  assert.strictEqual(normalizeSettings({ fitWindow: "no" }).fitWindow, true);
   assert.strictEqual(normalizeSettings({}).appIcon, "menubar");
   assert.strictEqual(normalizeSettings({ appIcon: "both" }).appIcon, "both");
   assert.strictEqual(normalizeSettings({ appIcon: "taskbar" }).appIcon, "menubar");
@@ -296,4 +299,28 @@ test("the window closes on a focus change and the app sits in the menu bar unles
 
 test("a first start reads English with Spanish and no third language", () => {
   assert.deepStrictEqual(normalizeSettings({}).languages, ["en", "es"]);
+});
+
+test("the two further shortcuts start empty, and are kept or cleared like the first", async () => {
+  const { HOTKEYS } = await import("../../src/settings.js");
+  assert.deepStrictEqual(HOTKEYS, ["hotkey", "freshHotkey", "cardHotkey"]);
+  const first = normalizeSettings({});
+  assert.strictEqual(first.freshHotkey, null);
+  assert.strictEqual(first.cardHotkey, null);
+  const kept = { accelerator: "Control+Alt+KeyK", label: "⌃⌥K" };
+  assert.deepStrictEqual(normalizeSettings({ cardHotkey: kept }).cardHotkey, kept);
+  assert.strictEqual(normalizeSettings({ cardHotkey: "junk" }).cardHotkey, null);
+  assert.deepStrictEqual(normalizeSettings({ freshHotkey: null }).hotkey, DEFAULT_HOTKEY, "the first keeps its preset");
+});
+
+test("a card from the shortcut is offered in the learned languages, starting where the settings narrow it", async () => {
+  const { cardLanguages } = await import("../../src/settings.js");
+  const three = { languages: ["de", "en", "es"] };
+  assert.deepStrictEqual(cardLanguages(three, "de"), { choices: ["en", "es"], preset: "en" }, "own language: the first learned");
+  assert.deepStrictEqual(cardLanguages(three, "es"), { choices: ["en", "es"], preset: "es" }, "a learned language: that one");
+  assert.deepStrictEqual(cardLanguages({ ...three, cards: { mode: "third" } }, "de").preset, "es");
+  assert.deepStrictEqual(cardLanguages({ ...three, cards: { mode: "second" } }, "").preset, "en");
+  assert.deepStrictEqual(cardLanguages(three, "fr"), { choices: ["en", "es", "fr"], preset: "fr" }, "what the text is in joins");
+  assert.deepStrictEqual(cardLanguages({ languages: ["en", "es"], cards: { mode: "third" } }, ""), { choices: ["es"], preset: "es" },
+    "no third language: the second");
 });

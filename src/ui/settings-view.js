@@ -18,6 +18,7 @@ import {
   LEVELS,
   APP_ICONS,
   CARD_MODES,
+  HOTKEYS,
   SHOW_MODES,
   TRANSLATORS,
   choosableLanguages,
@@ -48,7 +49,7 @@ import {
   requestAccessibility,
   takenShortcuts,
 } from "../platform/capture.js";
-import { registerShortcut } from "../platform/shortcut.js";
+import { registerShortcuts } from "../platform/shortcut.js";
 import { ANKICONNECT_CODE, createAnkiBackend } from "../platform/anki.js";
 import { CARD_FIELDS, guessFieldMap } from "../card.js";
 import { hotkeyFrom, hotkeyLabel, shortcutTaken } from "../hotkey.js";
@@ -400,108 +401,61 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
     control: switchFor(settings.underline, text, (on) => onChange({ ...settings, underline: on })),
   }));
 
-  /* ---- the shortcut ---- */
+  /* ---- the window ---- */
 
-  view.append(group(text.groupControl));
-
-  /* What is written down is the physical key rather than the character on
-     it, so the combination survives a change of keyboard layout — see
-     hotkey.js. Every change here is registered straight away; the window
-     says so when the shell would not take it. */
-  const shortcut = textInput("", text.hotkeyEmpty);
-  shortcut.readOnly = true;
-  shortcut.value = hotkeyLabel(settings.hotkey, keyboard.layout);
-  const conflict = element("p", "hint");
-
-  /* The shortcut has to be let go of while it is being recorded. It is held
-     system-wide, which means it is caught before this window ever sees the
-     key — pressing the combination that is already set did nothing at all,
-     and looked like a field that refuses certain keys. */
-  let recorded = false;
-  /* Nothing is accepted until the shell has actually let go. Started and not
-     waited for, the first press after a click could still be swallowed by the
-     combination this field is trying to replace. */
-  let released = null;
-  shortcut.addEventListener("focus", () => {
-    recorded = false;
-    shortcut.value = "";
-    shortcut.placeholder = text.hotkeyRecording;
-    conflict.textContent = "";
-    released = registerShortcut(null);
-  });
-  shortcut.addEventListener("blur", () => {
-    shortcut.value = hotkeyLabel(settings.hotkey, keyboard.layout);
-    shortcut.placeholder = text.hotkeyEmpty;
-    /* Only where nothing was recorded: a new combination is registered by
-       the window itself, and taking the old one back first would be a
-       moment of holding the wrong one. */
-    if (!recorded) registerShortcut(settings.hotkey);
-  });
-  shortcut.addEventListener("keydown", async (event) => {
-    /* Every key press while this field has focus belongs to the recording,
-       including the ones the window would otherwise act on. */
-    event.preventDefault();
-    const pressed = hotkeyFrom(event, keyboard.layout);
-    if (!pressed) return;
-    await released;
-
-    /* A combination somebody else holds is refused rather than stored. Taken
-       globally, ⌘C would stop the reader copying in every program they own,
-       and nothing about that failure would point back at this window. */
-    const taken = shortcutTaken(pressed, keyboard.taken);
-    if (taken) {
-      shortcut.value = hotkeyLabel(pressed, keyboard.layout);
-      conflict.textContent =
-        taken === "system" ? text.hotkeyTakenSystem : text.hotkeyTakenEverywhere;
-      return;
-    }
-    recorded = true;
-    shortcut.blur();
-    onChange({ ...settings, hotkey: pressed });
-  });
-  const shortcutRow = element("div", "with-presets");
-  shortcutRow.append(shortcut);
-  if (settings.hotkey) {
-    const clear = element("button", "quiet", text.hotkeyClear);
-    clear.addEventListener("click", () => onChange({ ...settings, hotkey: null }));
-    shortcutRow.append(clear);
-  }
-  const shortcutField = field({ label: text.hotkey, lead: text.hotkeyLead, control: shortcutRow, hint: text.hotkeyHint });
-  shortcutField.append(conflict);
-  view.append(shortcutField);
-  /* The line under the shortcut says what pressing it takes along, and that
-     depends on the permission below it. */
-  const shortcutLead = shortcutField.querySelector(".hint");
-  /* Windows asks no permission for reading a selection, so there is nothing
-     to explain and the shortcut always takes the selection along. */
-  if (onWindows()) shortcutLead.textContent = text.hotkeyLeadSelected;
-  else {
-    view.append(permissionField(text, (granted) => {
-      shortcutLead.textContent = granted ? text.hotkeyLeadSelected : text.hotkeyLead;
-    }));
-  }
-
+  view.append(group(text.groupWindow));
   view.append(field({
     label: text.closeOnBlur,
     control: switchFor(settings.closeOnBlur, text, (on) => onChange({ ...settings, closeOnBlur: on })),
   }));
-  const icons = select(APP_ICONS.map((value) => ({ value, label: text.appIcons[value] })), settings.appIcon);
+  view.append(field({
+    label: text.fitWindow,
+    control: switchFor(settings.fitWindow, text, (on) => onChange({ ...settings, fitWindow: on })),
+  }));
+  /* On a Mac the menu bar, the Dock or both. On Windows the symbol in the
+     notification area always stays, and the question is whether the open
+     window also has a taskbar button — the Dock's counterpart, "both". */
+  const iconChoices = onWindows() ? APP_ICONS.filter((value) => value !== "dock") : APP_ICONS;
+  const icons = select(
+    iconChoices.map((value) => ({ value, label: text.appIcons[value] })),
+    iconChoices.includes(settings.appIcon) ? settings.appIcon : "both",
+  );
   icons.classList.add("short");
   icons.addEventListener("change", () => onChange({ ...settings, appIcon: icons.value }));
-  /* A Mac question: the Dock and the menu bar. On Windows the symbol is in
-     the notification area, always. */
-  if (!onWindows()) view.append(field({ label: text.appIcon, control: icons }));
+  view.append(field({ label: text.appIcon, control: icons }));
 
-  /* Asked the first time this view is built, and the view redrawn once the
-     answers are in — the field would otherwise show a key by its American
-     name until something else happened to redraw it. */
+  /* ---- the shortcuts ---- */
+
+  view.append(group(text.groupShortcuts));
+  view.append(element("p", "hint group-hint", text.shortcutsLead));
+
+  /* One field per combination, what it does said under it like every other
+     row's hint. What pressing it takes along depends on the permission below
+     them, so the two that read a selection have a second line for when there
+     is none. */
+  const shortcuts = [
+    { key: "hotkey", label: text.hotkey, lead: text.hotkeyLead, selected: text.hotkeyLeadSelected },
+    { key: "freshHotkey", label: text.freshHotkey },
+    { key: "cardHotkey", label: text.cardHotkey, lead: text.cardHotkeyLead, selected: text.cardHotkeyLeadSelected },
+  ].map((one) => ({ ...one, ...shortcutField(one, { settings, text, onChange }) }));
+  for (const one of shortcuts) view.append(one.row);
+
+  /* Windows asks no permission for reading a selection, so there is nothing
+     to explain and the shortcuts always take the selection along. */
+  const leads = (granted) => {
+    for (const one of shortcuts) if (one.selected) one.lead.textContent = granted ? one.selected : one.lead0;
+  };
+  if (onWindows()) leads(true);
+  else view.append(permissionField(text, leads));
+
+  /* Asked the first time this view is built, and the fields written again
+     once the answers are in — a field would otherwise show a key by its
+     American name until something else happened to redraw it. */
   if (!keyboard.layout) {
     Promise.all([keyLabels(), takenShortcuts()]).then(([layout, taken]) => {
       if (!layout) return;
       keyboard = { layout, taken: taken || [] };
-      if (view.isConnected) {
-        shortcut.value = hotkeyLabel(settings.hotkey, keyboard.layout);
-      }
+      if (view.isConnected) for (const one of shortcuts) one.refresh();
     });
   }
 
@@ -528,6 +482,84 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
 
   return view;
 }
+
+/* One combination's field. What is written down is the physical key rather
+   than the character on it, so the combination survives a change of keyboard
+   layout — see hotkey.js. Every change here is registered straight away; the
+   window says so when the shell would not take it. */
+function shortcutField({ key, label, lead }, { settings, text, onChange }) {
+  const input = textInput("", text.hotkeyEmpty);
+  input.readOnly = true;
+  const shown = () => hotkeyLabel(settings[key], keyboard.layout);
+  input.value = shown();
+  const conflict = element("p", "hint");
+
+  /* The shortcuts have to be let go of while one is being recorded. They are
+     held system-wide, which means they are caught before this window ever
+     sees the key — pressing the combination that is already set did nothing
+     at all, and looked like a field that refuses certain keys. */
+  let recorded = false;
+  /* Nothing is accepted until the shell has actually let go. Started and not
+     waited for, the first press after a click could still be swallowed by the
+     combination this field is trying to replace. */
+  let released = null;
+  input.addEventListener("focus", () => {
+    recorded = false;
+    input.value = "";
+    input.placeholder = text.hotkeyRecording;
+    conflict.textContent = "";
+    released = registerShortcuts({});
+  });
+  input.addEventListener("blur", () => {
+    input.value = shown();
+    input.placeholder = text.hotkeyEmpty;
+    /* Only where nothing was recorded: a new combination is registered by
+       the window itself, and taking the old ones back first would be a
+       moment of holding the wrong one. */
+    if (!recorded) registerShortcuts(settings);
+  });
+  input.addEventListener("keydown", async (event) => {
+    /* Every key press while this field has focus belongs to the recording,
+       including the ones the window would otherwise act on. */
+    event.preventDefault();
+    const pressed = hotkeyFrom(event, keyboard.layout);
+    if (!pressed) return;
+    await released;
+
+    /* A combination somebody else holds is refused rather than stored. Taken
+       globally, ⌘C would stop the reader copying in every program they own,
+       and nothing about that failure would point back at this window. One of
+       this app's own other two is refused as well: the shell would hold only
+       one of them. */
+    const taken = shortcutTaken(pressed, keyboard.taken);
+    const mine = HOTKEYS.find((other) =>
+      other !== key && settings[other] && settings[other].accelerator === pressed.accelerator);
+    if (taken || mine) {
+      input.value = hotkeyLabel(pressed, keyboard.layout);
+      conflict.textContent = mine ? text.hotkeyTakenHere(HOTKEY_NAMES(text)[mine])
+        : taken === "system" ? text.hotkeyTakenSystem : text.hotkeyTakenEverywhere;
+      return;
+    }
+    recorded = true;
+    input.blur();
+    onChange({ ...settings, [key]: pressed });
+  });
+  const line = element("div", "with-presets");
+  line.append(input);
+  if (settings[key]) {
+    const clear = element("button", "quiet", text.hotkeyClear);
+    clear.addEventListener("click", () => onChange({ ...settings, [key]: null }));
+    line.append(clear);
+  }
+  const row = field({ label, hint: lead, control: line });
+  row.append(conflict);
+  const refresh = () => {
+    if (row.ownerDocument.activeElement !== input) input.value = shown();
+  };
+  return { row, lead0: lead, lead: row.querySelector(".hint"), refresh };
+}
+
+const HOTKEY_NAMES = (text) => ({ hotkey: text.hotkey, freshHotkey: text.freshHotkey, cardHotkey: text.cardHotkey });
 
 /* What an update check found, kept past a redraw: every change in this window
    rebuilds the view, and the answer would otherwise vanish with it. */

@@ -13,7 +13,7 @@
 import { loadSettings, saveSettings } from "../platform/store.js";
 import { loadApiKey, saveApiKey } from "../platform/keychain.js";
 import { closeSettings, onAboutAsked, settingsChanged } from "../platform/windows.js";
-import { labels } from "./labels.js";
+import { labels, windowTitle } from "./labels.js";
 import { settingsView } from "./settings-view.js";
 
 let settings = await loadSettings();
@@ -23,7 +23,7 @@ const root = document.getElementById("app");
 root.className = "settings-window";
 
 function draw() {
-  document.title = labels(settings.languages[0]).settings;
+  document.title = windowTitle(labels(settings.languages[0]).settings);
   root.replaceChildren(settingsView({ settings, apiKey }, {
     onChange: async (next) => {
       settings = await saveSettings(next);

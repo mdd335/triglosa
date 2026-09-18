@@ -206,9 +206,18 @@ export async function applyPresence({ closeOnBlur, appIcon }) {
   await shell("apply_presence", { closeOnBlur, icon: appIcon });
 }
 
-export async function applyTray(words, accelerator) {
+/* `shortcuts` names the combination beside each of the three entries a
+   shortcut sets off — capture, fresh, card — and leaves out what is unset. */
+export async function applyTray(words, shortcuts = {}) {
   if (!insideApp()) return false;
-  await shell("apply_tray", { words, accelerator: accelerator || null });
+  await shell("apply_tray", {
+    words,
+    shortcuts: {
+      capture: shortcuts.capture || null,
+      fresh: shortcuts.fresh || null,
+      card: shortcuts.card || null,
+    },
+  });
   return true;
 }
 

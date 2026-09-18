@@ -11,7 +11,7 @@ import { loadSettings } from "../platform/store.js";
 import { appFetch, copyText } from "../platform/env.js";
 import { loadApiKey } from "../platform/keychain.js";
 import { createLlmBackend } from "../platform/llm.js";
-import { improveCard } from "../ask.js";
+import { completeCard, improveCard } from "../ask.js";
 import { faultOf } from "../faults.js";
 import { isSupported } from "../languages/index.js";
 import { createAnkiBackend } from "../platform/anki.js";
@@ -89,9 +89,14 @@ async function improverFor(card, text) {
     { endpoint: settings.endpoint, apiKey: await loadApiKey(), model: settings.model },
     await appFetch(),
   );
+  /* A card with one side written — from the shortcut, or typed into a blank
+     one — gets the other side first, and is then improved like any card. */
   return async (current) => {
     try {
-      return await improveCard(llm, current, { level: levelFor(settings, current.termLanguage) });
+      const whole = await completeCard(llm, current);
+      const better = await improveCard(llm, whole, { level: levelFor(settings, whole.termLanguage) });
+      /* The side just found is kept even where the improving came to nothing. */
+      return better || (whole !== current ? whole : null);
     } catch (error) {
       throw new Error(faultText(settings.languages[0], faultOf(error)));
     }

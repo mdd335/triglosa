@@ -71,3 +71,19 @@ test("an answer without its hyphens still reads as two words and an explanation"
   assert.strictEqual(card.note, "Se le cae la baba. (Er ist hin und weg.)\n\nUmgangssprachlich.");
   assert.strictEqual(parseImprovedCard("caerse la baba\nhin und weg sein", { context: null }), null);
 });
+
+test("a card with one side written gets the other from the dictionary question first", async () => {
+  const { completeCard } = await import("../../src/ask.js");
+  const asked = [];
+  const llm = { async chat(question) {
+    asked.push(question.system);
+    if (/bilingual dictionary/.test(question.system)) return "perro | —\ncan | literary";
+    return "";
+  } };
+  const own = await completeCard(llm, { term: "", termLanguage: "es", meaning: "Hund", meaningLanguage: "de", note: "" });
+  assert.strictEqual(own.term, "perro", "the word side takes the first entry");
+  const both = { term: "perro", termLanguage: "es", meaning: "Hund", meaningLanguage: "de", note: "" };
+  assert.strictEqual(await completeCard(llm, both), both, "nothing to fill");
+  const blank = { term: "", termLanguage: "es", meaning: "", meaningLanguage: "de", note: "" };
+  assert.strictEqual(await completeCard(llm, blank), blank);
+});

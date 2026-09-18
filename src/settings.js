@@ -111,10 +111,18 @@ export const DEFAULTS = {
      that says hotkey is null holds no combination, and the default does not
      creep back in on the next start. */
   hotkey: defaultHotkey(),
+  /* Two more combinations, for a blank reading and for a flashcard out of
+     the selection. Empty until the reader sets them: the first one is the
+     app, these two are for somebody who already uses it. */
+  freshHotkey: null,
+  cardHotkey: null,
   /* The reading window goes away when the focus leaves it, the way a menu
      does — on by default, and the reader's to switch off for a window that
      should stay standing beside something else. */
   closeOnBlur: true,
+  /* The reading window as tall as what it holds. Off, it keeps the size the
+     reader gave it, and remembers that size as it always does. */
+  fitWindow: true,
   /* The menu bar symbol alone by default: a window lying over another
      program's full screen should not bring a Dock icon and a Space along. */
   appIcon: "menubar",
@@ -160,8 +168,11 @@ export function normalizeSettings(stored) {
        combination this app could not register — falls back to the default
        rather than to nothing, because nothing is a decision only the reader
        gets to make. */
-    hotkey: normalizeHotkey(raw),
+    hotkey: normalizeHotkey(raw, "hotkey"),
+    freshHotkey: normalizeHotkey(raw, "freshHotkey"),
+    cardHotkey: normalizeHotkey(raw, "cardHotkey"),
     closeOnBlur: raw.closeOnBlur !== false,
+    fitWindow: raw.fitWindow !== false,
     appIcon: APP_ICONS.includes(raw.appIcon) ? raw.appIcon : DEFAULTS.appIcon,
   };
 }
@@ -198,13 +209,17 @@ function normalizeCards(raw) {
   };
 }
 
-function normalizeHotkey(raw) {
-  if (isHotkey(raw.hotkey)) {
-    return { accelerator: raw.hotkey.accelerator, label: String(raw.hotkey.label || "") };
+function normalizeHotkey(raw, key) {
+  if (isHotkey(raw[key])) {
+    return { accelerator: raw[key].accelerator, label: String(raw[key].label || "") };
   }
-  if ("hotkey" in raw && raw.hotkey === null) return null;
-  return DEFAULTS.hotkey;
+  if (key in raw && raw[key] === null) return null;
+  return DEFAULTS[key];
 }
+
+/* The three combinations by what they do, in the order the settings show
+   them and the shell registers them. */
+export const HOTKEYS = ["hotkey", "freshHotkey", "cardHotkey"];
 
 /* Levels for languages nobody has selected are kept, not dropped: the point
    of remembering one is that it survives a detour through another language.
@@ -342,6 +357,23 @@ export function offersCard(settings, code) {
   if (code === clean.languages[1]) return mode === "second" || mode === "foreign";
   if (code === clean.languages[2]) return mode === "third" || mode === "foreign";
   return mode === "foreign";
+}
+
+/* Which languages a card made from the shortcut may be in, and which one it
+   starts at. The reader's learned languages are the choices, and a detected
+   language outside them joins them, since that is what the text is in.
+
+   The preset is the detected language where there is one. A text in the
+   reader's own language, or one nothing could name, starts at the language
+   the card setting narrows to — the third under "only the third" — and at
+   the first learned language otherwise. */
+export function cardLanguages(settings, detected = "") {
+  const clean = normalizeSettings(settings);
+  const learned = clean.languages.slice(1);
+  const foreign = isSupported(detected) && detected !== clean.languages[0] ? detected : "";
+  const choices = foreign && !learned.includes(foreign) ? learned.concat(foreign) : learned;
+  const narrowed = clean.cards.mode === "third" && clean.languages[2] ? clean.languages[2] : learned[0];
+  return { choices, preset: foreign || narrowed };
 }
 
 /* Configured, not merely switched on. A deck and a note type without a field

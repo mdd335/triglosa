@@ -549,6 +549,37 @@ export async function alignVerbs(llm, { text, verbs, source, a, b, aText, bText 
   return parseAlign(raw, verbs.map((verb) => verb.form), "Verb", [a, b].filter(Boolean), b ? 2 : 1);
 }
 
+/* The side of a card nobody wrote, filled before the card is improved: the
+   dictionary entry short mode asks for, where the written side is short
+   enough to be looked up, and a plain translation where it is not. The word
+   side takes the first entry, the meaning side all of them — which of the
+   meanings stays is the improving question's to decide. Answers the card
+   unchanged where both sides are written or nothing came back. */
+const LOOKED_UP_WORDS = 3;
+
+export async function completeCard(llm, card) {
+  const term = String(card.term || "").trim();
+  const meaning = String(card.meaning || "").trim();
+  if ((term && meaning) || (!term && !meaning)) return card;
+  const [text, source, target] = term
+    ? [term, card.termLanguage, card.meaningLanguage]
+    : [meaning, card.meaningLanguage, card.termLanguage];
+  let found = [];
+  if (wordCount(text) <= LOOKED_UP_WORDS) {
+    const definition = await defineWord(llm, { text, source, reader: card.meaningLanguage });
+    const entries = await alternativesFor(llm, {
+      text, source, target, reader: card.meaningLanguage, meaning: definition,
+    });
+    found = entries.map((entry) => entry.text).filter(Boolean);
+  }
+  if (!found.length) {
+    const translated = String(await translateText(llm, { text, target }) || "").trim();
+    if (translated) found = [translated];
+  }
+  if (!found.length) return card;
+  return term ? { ...card, meaning: found.join(", ") } : { ...card, term: found[0] };
+}
+
 /* A flashcard made general and given an explanation worth learning from, on
    the reader's request in the card window. Answers the three fields, or null
    where nothing usable came back — the card on screen then stays as it is. */

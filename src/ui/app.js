@@ -12,6 +12,8 @@
 
 import { onWindows } from "../system.js";
 import { runText } from "../run.js";
+import { detectLanguage } from "../detect.js";
+import { freeCard } from "../card.js";
 import { addExample, explainMarked, explainMore } from "../ask.js";
 import { otherPanels } from "../panels.js";
 import { HELPER_URL, createTranslationBackend } from "../platform/translation.js";
@@ -20,7 +22,7 @@ import { appFetch, copyText, ensureTranslationHelper, insideApp, openUrl, search
 import { accessibilityGranted, insertText, keyLabels } from "../platform/capture.js";
 import { hotkeyLabel, menuAccelerator } from "../hotkey.js";
 import { applyPresence, applyTray, fitReadingWindow, hideWindow, onAppearAsked, onFreshAsked, unveilWindow, onSettingsChanged, onWindowShown, openCard, openSettings, showWindow } from "../platform/windows.js";
-import { onCapture, registerShortcut } from "../platform/shortcut.js";
+import { onCapture, onCardCapture, registerShortcuts } from "../platform/shortcut.js";
 import { searchLink } from "../platform/search.js";
 import { loadSettings } from "../platform/store.js";
 import { loadApiKey } from "../platform/keychain.js";
@@ -30,7 +32,7 @@ import { MARKED, renderReading } from "./reading-view.js";
 import { labelsInside } from "./elements.js";
 import { watchGlance } from "./glance-view.js";
 import { roomForExample, withExamples } from "../examples.js";
-import { levelFor, neededPairs, offersCard } from "../settings.js";
+import { cardLanguages, levelFor, neededPairs, offersCard } from "../settings.js";
 import { keptReading, readingKey } from "../history.js";
 
 let settings = await loadSettings();
@@ -178,6 +180,8 @@ let draft = "";
    read yet — or the last attempt came to nothing, which looks the same and
    should. */
 let current = null;
+/* What the last fold left folded away, for the next reading (see fold). */
+let folds = new Set();
 let currentLlm = null;
 /* Whether a reading is being worked on. The warm-up asks, so that it never
    stands in front of the thing it exists to make faster. */
@@ -287,6 +291,8 @@ async function applyMenu() {
     show: text.trayShow,
     capture: granted ? text.trayCapture : text.trayCaptureCopied,
     fresh: text.newReading,
+    card: granted ? text.trayCard : text.trayCardCopied,
+    blankCard: text.trayCardBlank,
     settings: text.settings,
     updates: text.trayUpdates,
     help: text.trayHelp,
@@ -299,19 +305,23 @@ async function applyMenu() {
      entry, which is where the shortcut goes, named the way the settings name
      it. Handed over as an accelerator instead, it was drawn from the key's
      American name: Ctrl+Ä came out as Ctrl+'. */
+  const entries = { capture: settings.hotkey, fresh: settings.freshHotkey, card: settings.cardHotkey };
   if (onWindows()) {
-    const label = hotkeyLabel(settings.hotkey, layout);
-    if (label) words.capture += `\t${label}`;
-    applyTray(words, "");
+    for (const [entry, hotkey] of Object.entries(entries)) {
+      const label = hotkeyLabel(hotkey, layout);
+      if (label) words[entry] += `\t${label}`;
+    }
+    applyTray(words);
     return;
   }
-  applyTray(words, menuAccelerator(settings.hotkey, layout));
+  applyTray(words, Object.fromEntries(Object.entries(entries)
+    .map(([entry, hotkey]) => [entry, menuAccelerator(hotkey, layout)])));
 }
 
-/* The combination, handed to the shell. Done again after every change in the
-   settings, so the old one is never left holding on. */
+/* The combinations, handed to the shell. Done again after every change in the
+   settings, so an old one is never left holding on. */
 async function applyShortcut() {
-  const failed = await registerShortcut(settings.hotkey);
+  const failed = await registerShortcuts(settings);
   if (failed) say(text.hotkeyFailed(failed));
 }
 
@@ -413,7 +423,7 @@ const arriving = () =>
   !!current && (current.busy || current.markedStatus === "working" || current.markedStatus === "linking");
 
 function fitSoon() {
-  if (pointerDown) return;
+  if (pointerDown || !settings.fitWindow) return;
   /* One measurement per burst: a run lands several pieces within a few
      milliseconds, and every one of them redraws. */
   cancelAnimationFrame(fitting);
@@ -424,6 +434,7 @@ function fitSoon() {
    shortcut fits the window before it shows it. */
 function fitNow() {
   cancelAnimationFrame(fitting);
+  if (!settings.fitWindow) return settling = Promise.resolve(false);
   settling = fitReadingWindow(pageHeight(), false);
   return settling;
 }
@@ -607,7 +618,7 @@ async function translate() {
            and redrawing must not take it away. */
         const before = entry.state;
         entry.state = { ...state, selection: before?.selection, marked: before?.marked,
-                        markedStatus: before?.markedStatus, folded: before?.folded,
+                        markedStatus: before?.markedStatus, folded: before?.folded ?? new Set(folds),
                         more: before?.more };
         update(entry);
       },
@@ -684,14 +695,17 @@ sheet.addEventListener("mouseout", (event) => {
 });
 
 /* A translation, the verbs, the terms or the picked word folded away or
-   back. Kept with the reading, so the next one starts with everything open. Redrawn rather than
-   toggled, because the verbs and terms take their markings in the panels
-   with them. */
+   back. Kept with the reading, so one stepped back to is as it was left, and
+   in `folds`, which a new reading starts from — until the app quits. The
+   picked word is not carried over: a new pick opens it anyway. Redrawn
+   rather than toggled, because the verbs and terms take their markings in
+   the panels with them. */
 function fold(key) {
   if (!current) return;
   const folded = (current.folded ||= new Set());
   if (folded.has(key)) folded.delete(key);
   else folded.add(key);
+  folds = new Set([...folded].filter((name) => name !== MARKED));
   draw();
 }
 
@@ -944,6 +958,8 @@ async function pick(choice) {
   current.folded?.delete(MARKED);
   if (choice.dragging) {
     pointerDown = true;
+    /* What was selected elsewhere before is not what ⌘C should copy now. */
+    window.getSelection?.()?.removeAllRanges();
     /* A drag fires on every pointer move. Redrawing only when the range
        really changed keeps it from rebuilding the whole sheet dozens of
        times on the way. */
@@ -1037,6 +1053,10 @@ document.addEventListener("keydown", (event) => {
     openSettingsWindow();
     return;
   }
+  if (event.key.toLowerCase() === "c" && (event.metaKey || event.ctrlKey) && copyPicked()) {
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Escape") {
     /* A card on screen takes the key itself and stops it there, so this is
        reached only when there is none. */
@@ -1044,6 +1064,20 @@ document.addEventListener("keydown", (event) => {
     hideWindow();
   }
 });
+
+/* ⌘C on a word picked out of a panel. Picking is not the system's selection
+   — the panels take the pointer for themselves — so the system has nothing
+   to copy there. A selection of its own, in the field or in an explanation,
+   stays the system's. */
+function copyPicked() {
+  const term = current?.selection?.term;
+  if (!term) return false;
+  const active = document.activeElement;
+  if (active?.matches?.("textarea, input")) return false;
+  if (String(window.getSelection?.() || "")) return false;
+  copyText(term);
+  return true;
+}
 
 /* The other window holds the same settings, so a change there has to arrive
    here. Closing it counts as a change: the recorder lets go of the shortcut
@@ -1094,6 +1128,35 @@ await onCapture({
     say(text.captureFailed);
     await appear();
   },
+});
+
+/* The card shortcut, and the menu's card entry. What was selected goes on
+   the side of its language — found the way a reading finds it — and the
+   card window opens with it; with nothing selected, blank. The reading
+   window is not brought forward: the card is what was asked for. */
+async function openFreeCard(selected) {
+  const reader = settings.languages[0];
+  let detected = "";
+  if (selected) {
+    const { translation, llm } = await backends();
+    try {
+      detected = (await detectLanguage(selected, {
+        languages: settings.languages, reader, translation, llm,
+      })).code;
+    } catch {
+      /* Not named: the text goes on the word side, as any foreign word. */
+    }
+  }
+  const { choices, preset } = cardLanguages(settings, detected);
+  const card = freeCard({ text: selected, detected, reader, choices, preset });
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await openCard(windowTitle(text.cardCreate), { ...card, id });
+}
+
+await onCardCapture({
+  onText: (selection) => openFreeCard(String(selection.text || "").trim()),
+  onFailed: () => openFreeCard(""),
+  onBlank: () => openFreeCard(""),
 });
 
 /* The window shown once the page has drawn what it holds and the window has

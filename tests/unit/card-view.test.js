@@ -363,3 +363,42 @@ test("the wand stands in the title line where the window gives it one", () => {
   renderCard(host, card, options);
   assert.strictEqual(slot.querySelectorAll(".card-improve").length, 1, "a second card replaces it");
 });
+
+/* A card from the shortcut, or a blank one. */
+
+test("a blank card from the shortcut is still drawn, with the wand closed until there are two letters", () => {
+  const blank = { term: "", termLanguage: "es", meaning: "", meaningLanguage: "de", note: "", choices: ["es"], free: true };
+  const wandSlot = document.createElement("span");
+  const { host, boxes } = show(blank, { wandSlot, improve: async () => null });
+  assert.strictEqual(boxes.length, 3, "an empty card is a card to fill in");
+  const wand = wandSlot.querySelector("button");
+  assert.ok(wand.disabled, "nothing to work from yet");
+  boxes[1].value = "H";
+  boxes[1].dispatchEvent(new window.Event("input"));
+  assert.ok(wand.disabled, "one letter is not enough");
+  boxes[1].value = "Hund";
+  boxes[1].dispatchEvent(new window.Event("input"));
+  assert.ok(!wand.disabled, "either side will do");
+  assert.deepStrictEqual(headings(host), ["Spanisch", "Deutsch", de.cardNote], "one language to choose from is no choice");
+});
+
+test("an ordinary card that is not free stays undrawn when it is empty", () => {
+  const { boxes } = show({ ...CARD, term: "" });
+  assert.strictEqual(boxes.length, 0);
+});
+
+test("the word side's language is chosen in its heading, and the card takes the choice", async () => {
+  const card = { term: "", termLanguage: "en", meaning: "Hund", meaningLanguage: "de", note: "", choices: ["en", "es"], free: true };
+  const seen = [];
+  const wandSlot = document.createElement("span");
+  const { host } = show(card, { wandSlot, improve: async (current) => { seen.push(current.termLanguage); return null; } });
+  const choice = host.querySelector(".card-field-head select.name");
+  assert.ok(choice, "a choice stands where the language name stood");
+  assert.deepStrictEqual([...choice.options].map((o) => o.textContent), ["Englisch", "Spanisch"]);
+  assert.strictEqual(choice.value, "en");
+  choice.value = "es";
+  choice.dispatchEvent(new window.Event("change"));
+  wandSlot.querySelector("button").click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepStrictEqual(seen, ["es"], "the wand works on the language shown");
+});

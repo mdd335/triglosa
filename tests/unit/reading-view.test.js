@@ -534,6 +534,26 @@ test("while the original is being written in, no language is claimed for it", ()
   assert.strictEqual(heading, de.original);
   assert.ok(sheet.querySelector("#draft"), "the field is the original box");
   assert.strictEqual(sheet.querySelector("#translate").dataset.icon, "translate");
+  assert.strictEqual(sheet.querySelector("#translate").getAttribute("aria-label"), de.translateKeys);
+});
+
+test("⌘ or Ctrl with Enter in the field translates, Enter alone does not", () => {
+  const sheet = document.createElement("div");
+  let sent = 0;
+  renderReading(sheet, reading(), {
+    settings: SETTINGS,
+    tools: TOOLS,
+    edit: { editing: true, draft: "Ayer", onDraft() {}, onEdit() {}, onTranslate() { sent += 1; } },
+    onPick() {},
+    onLookUp() {},
+    onBack() {},
+  });
+  const field = sheet.querySelector("#draft");
+  const press = (options) => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", ...options }));
+  press({});
+  press({ metaKey: true });
+  press({ ctrlKey: true });
+  assert.strictEqual(sent, 2);
 });
 
 /* ---- the direction a panel is read in ---- */

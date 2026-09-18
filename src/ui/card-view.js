@@ -15,7 +15,7 @@
 
 import { CARD_FIELDS, cardLine, hasCard } from "../card.js";
 import { displayName, writingDirection } from "../languages/index.js";
-import { button, element, reportOn } from "./elements.js";
+import { button, element, reportOn, select } from "./elements.js";
 
 /* How far a field may grow before it scrolls after all, in lines and in the
    line height the stylesheet gives it. */
@@ -43,12 +43,31 @@ const fieldDirection = (role, card) =>
 const unmapped = (role, anki) =>
   role === "note" && anki && anki.configured && !anki.fields.note;
 
+/* The word side's heading, where the card may be in more than one language:
+   the language names to choose from, in the heading's own place and look.
+   The choice is written into the card, so everything reading the card
+   afterwards — the wand, Anki — takes the language shown. */
+function languageChoice(card, { text, reader, box }) {
+  const node = select(
+    card.choices.map((code) => ({ value: code, label: displayName(code, reader) })),
+    card.termLanguage,
+  );
+  node.className = "name";
+  node.setAttribute("aria-label", text.cardLanguage);
+  node.addEventListener("change", () => {
+    card.termLanguage = node.value;
+    box.dir = fieldDirection("term", card);
+  });
+  const holder = element("span", "card-language");
+  holder.append(node);
+  return holder;
+}
+
 /* One field: its heading, a copy button at the right end of that line, and
    the box underneath. */
 function cardField(role, card, { text, reader, anki, onCopy }) {
   const wrap = element("div", "card-field");
   const head = element("div", "card-field-head");
-  head.append(element("span", "name", fieldTitle(role, card, text, reader)));
 
   const box = element("textarea");
   box.className = "card-box";
@@ -81,6 +100,10 @@ function cardField(role, card, { text, reader, anki, onCopy }) {
   };
   box.addEventListener("input", grow);
 
+  const choosing = role === "term" && Array.isArray(card.choices) && card.choices.length > 1;
+  head.append(choosing
+    ? languageChoice(card, { text, reader, box })
+    : element("span", "name", fieldTitle(role, card, text, reader)));
   head.append(button(text.cardCopyField, (node) =>
     reportOn(node, () => onCopy(box.value), text.copied), "copy"));
   wrap.append(head);
@@ -145,7 +168,7 @@ function ankiButton(current, { text, anki, say }) {
 export function renderCard(host, card, { text, reader, anki, copy, improve, wandSlot }) {
   host.textContent = "";
   wandSlot?.replaceChildren();
-  if (!hasCard(card)) return null;
+  if (!card || (!hasCard(card) && !card.free)) return null;
 
   const sheet = element("div", "card-sheet");
 
@@ -208,8 +231,16 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, wand
    The fields are closed for writing while the model works. A correction typed
    into a field in those seconds would be overwritten by the answer, and a
    reader cannot be expected to know that. */
+/* The wand wants something to work from: two letters on either side. A
+   blank card from the shortcut has nothing yet, and a wand that answers an
+   empty card with an error only says what the reader can see. */
+const MIN_LETTERS = 2;
+export const enoughToImprove = (card) =>
+  ["term", "meaning"].some((role) => (String(card[role] || "").match(/\p{L}/gu) || []).length >= MIN_LETTERS);
+
 function improveButton({ text, boxes, grown, edited, improve, say }) {
   let before = null;
+  let working = false;
   const put = (values) => {
     CARD_FIELDS.forEach((role, index) => {
       boxes[role].value = values[role] || "";
@@ -229,6 +260,7 @@ function improveButton({ text, boxes, grown, edited, improve, say }) {
       : button(text.cardImprove, async (node) => {
           const current = edited();
           say(text.cardImproving, false);
+          working = true;
           node.disabled = true;
           for (const role of CARD_FIELDS) boxes[role].readOnly = true;
           try {
@@ -246,12 +278,20 @@ function improveButton({ text, boxes, grown, edited, improve, say }) {
                gets here; anything else says at least that nothing changed. */
             say((error && error.message) || text.cardImproveNothing, true);
           } finally {
-            node.disabled = false;
+            working = false;
+            node.disabled = !enoughToImprove(edited());
             for (const role of CARD_FIELDS) boxes[role].readOnly = false;
           }
         }, "improve");
+    if (!before) node.disabled = !enoughToImprove(edited());
     holder.replaceChildren(node);
   };
   draw();
+  for (const role of ["term", "meaning"]) {
+    boxes[role].addEventListener("input", () => {
+      const node = holder.querySelector("button");
+      if (node && !before && !working) node.disabled = !enoughToImprove(edited());
+    });
+  }
   return holder;
 }

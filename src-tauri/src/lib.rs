@@ -39,7 +39,7 @@ struct SettingsName(Mutex<String>);
 
 impl Default for SettingsName {
     fn default() -> Self {
-        SettingsName(Mutex::new("Settings".into()))
+        SettingsName(Mutex::new("Triglosa · Settings".into()))
     }
 }
 
@@ -65,10 +65,10 @@ struct ReadingHeight(Mutex<f64>);
    that finished in the meantime, a section that changed height — lands
    then, and a window that visibly grows as it appears is the thing the page
    fits it beforehand to avoid. */
-/* The entry the shortcut is written beside and the combination, kept so the
-   menu can be finished again when its symbol comes back (apply_presence). */
+/* The entries a shortcut is written beside and their combinations, kept so
+   the menu can be finished again when its symbol comes back (apply_presence). */
 #[derive(Default)]
-struct TrayShortcut(Mutex<Option<(String, String)>>);
+struct TrayShortcut(Mutex<Vec<(String, String)>>);
 
 #[derive(Default)]
 struct ShownAt(Mutex<Option<std::time::Instant>>);
@@ -120,8 +120,17 @@ fn apply_presence_to(app: &tauri::AppHandle, close_on_blur: bool, icon: &str) {
     } else {
         tauri::ActivationPolicy::Regular
     });
+    /* On Windows the symbol in the notification area always stays: a hidden
+       window has no taskbar button, so the symbol is the way back. What the
+       reader chooses is whether the open window also has a taskbar button —
+       "both", as the Dock is on a Mac. Windows shows it only while the window
+       is visible, which is the ordinary way a program sits in the taskbar. */
+    #[cfg(target_os = "windows")]
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_skip_taskbar(icon == "menubar");
+    }
     if let Some(tray) = app.tray_by_id("main") {
-        let _ = tray.set_visible(icon != "dock");
+        let _ = tray.set_visible(cfg!(target_os = "windows") || icon != "dock");
         finish_tray_menu(app, &tray);
     }
 }
@@ -318,17 +327,24 @@ fn fit_on_screen(window: &tauri::WebviewWindow) {
     };
     let work = monitor.work_area();
     let area = (work.position.x, work.position.y, work.size.width, work.size.height);
-    let (corner, size) = fit_within((at.x, at.y), (outer.width, outer.height), area);
-    if size != (outer.width, outer.height) {
+    /* What can be seen of the frame is what has to fit. */
+    let (left, top, right, bottom) = overlay::invisible_border(window);
+    let seen_at = (at.x + left, at.y + top);
+    let seen = (
+        outer.width.saturating_sub((left + right) as u32),
+        outer.height.saturating_sub((top + bottom) as u32),
+    );
+    let (corner, size) = fit_within(seen_at, seen, area);
+    if size != seen {
         /* The frame is measured outside and set inside; the difference is
            whatever the frame itself takes. */
         let _ = window.set_size(tauri::PhysicalSize::new(
-            size.0 - (outer.width - inner.width),
-            size.1 - (outer.height - inner.height),
+            (size.0 + (left + right) as u32).saturating_sub(outer.width - inner.width),
+            (size.1 + (top + bottom) as u32).saturating_sub(outer.height - inner.height),
         ));
     }
-    if corner != (at.x, at.y) {
-        let _ = window.set_position(tauri::PhysicalPosition::new(corner.0, corner.1));
+    if corner != seen_at {
+        let _ = window.set_position(tauri::PhysicalPosition::new(corner.0 - left, corner.1 - top));
     }
 }
 
@@ -679,7 +695,10 @@ fn fit_now(window: &tauri::WebviewWindow, height: f64, grow: bool) -> bool {
     let scale = window.scale_factor().unwrap_or(1.0);
     let chrome = f64::from(outer.height.saturating_sub(inner.height)) / scale;
     let work = monitor.work_area();
-    let room = f64::from(work.position.y + work.size.height as i32 - at.y) / scale;
+    /* Down to where the frame stops being seen: the invisible border below
+       it may lie past the screen's free part. */
+    let (_, _, _, below) = overlay::invisible_border(window);
+    let room = f64::from(work.position.y + work.size.height as i32 - at.y + below) / scale;
     let mut now = state.0.lock().unwrap();
     if *now <= 0.0 {
         *now = f64::from(outer.height) / scale;
@@ -760,7 +779,7 @@ fn settings_window(app: &tauri::AppHandle, about: bool) -> Result<(), String> {
     let title = app
         .try_state::<SettingsName>()
         .map(|state| state.0.lock().unwrap().clone())
-        .unwrap_or_else(|| "Settings".into());
+        .unwrap_or_else(|| "Triglosa · Settings".into());
 
     let window = tauri::WebviewWindowBuilder::new(
         app,
@@ -811,7 +830,10 @@ fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
         let _ = window.set_title(&title);
         let _ = window.unminimize();
         let _ = window.show();
-        let _ = window.set_focus();
+        /* In front even where another program is: the card shortcut opens
+           this window straight out of whatever the reader was working in. */
+        let target = window.clone();
+        let _ = window.run_on_main_thread(move || overlay::bring_to_front(&target));
         /* The page is already past asking, so it has to be told. */
         let _ = app.emit_to("card", "card-changed", ());
         return Ok(());
@@ -825,7 +847,11 @@ fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
                number far from it would be a visible jump on the way. */
             .inner_size(460.0, 400.0)
             .min_inner_size(380.0, 220.0)
-            .resizable(true);
+            .resizable(true)
+            /* Built hidden and then brought forward, like the settings: shown
+               as it was built, from the card shortcut, it stood behind the
+               program in front. */
+            .visible(false);
     /* The page runs the full height and draws the title line itself, so the
        wand can stand in it the way the gear stands in the reading window's.
        The three buttons stay: this window is closed the way everybody knows.
@@ -834,6 +860,9 @@ fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
     let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
     let window = builder.build().map_err(|error| error.to_string())?;
     overlay::over_full_screen(&window, overlay::Spaces::Active);
+    let _ = window.show();
+    let target = window.clone();
+    let _ = window.run_on_main_thread(move || overlay::bring_to_front(&target));
     Ok(())
 }
 
@@ -883,58 +912,86 @@ async fn open_settings_window(app: tauri::AppHandle, title: String) -> Result<()
     settings_window(&app, false)
 }
 
-/* Taking hold of the shortcut, and giving it up again.
+/* The three combinations, by what they set off. */
+#[derive(serde::Deserialize, Default)]
+struct Shortcuts {
+    capture: Option<String>,
+    fresh: Option<String>,
+    card: Option<String>,
+}
 
-   Everything is unregistered first, so changing the combination in the
-   settings cannot leave the old one behind. Passing nothing is how the reader
-   who cleared the field is honoured — the app then holds no combination at
-   all.
+/* Taking hold of the shortcuts, and giving them up again.
+
+   Everything is unregistered first, so changing a combination in the
+   settings cannot leave the old one behind. A field left empty is how the
+   reader who cleared it is honoured — that combination is then not held.
 
    What macOS does not offer is a reliable answer to "is this already taken":
    registering a combination another program holds usually succeeds here.
-   Where it does fail, the message is handed up and the window says so. */
+   Where one does fail the others are still taken, and the first failure is
+   handed up for the window to say. */
 #[tauri::command]
-fn set_shortcut(app: tauri::AppHandle, accelerator: Option<String>) -> Result<(), String> {
+fn set_shortcut(app: tauri::AppHandle, shortcuts: Shortcuts) -> Result<(), String> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
     let manager = app.global_shortcut();
     let _ = manager.unregister_all();
 
-    let Some(accelerator) = accelerator.filter(|value| !value.trim().is_empty()) else {
-        return Ok(());
-    };
-    let shortcut: Shortcut = accelerator
-        .parse()
-        .map_err(|_| format!("{accelerator} is not a combination this system can take."))?;
+    let wanted: [(Option<String>, fn(&tauri::AppHandle)); 3] = [
+        /* The order matters and is the opposite of what it looks like: the
+           selection is read while the other program is still in front.
+           Showing the window first would make this app the focused one, and
+           the focused element would then be our own input field. And the
+           window is shown by the page, not here: the page first draws what
+           arrived and fits the window to it while it is still hidden, so it
+           appears at its size instead of animating into it in front of the
+           reader. Shown from here after a moment all the same, in case the
+           page never answers. */
+        (shortcuts.capture, |app| capture_and_show(app, false)),
+        (shortcuts.fresh, |app| ask_to_show(app, true)),
+        (shortcuts.card, |app| capture_for_card(app, false)),
+    ];
+    let mut failed = None;
+    for (accelerator, act) in wanted {
+        let Some(accelerator) = accelerator.filter(|value| !value.trim().is_empty()) else {
+            continue;
+        };
+        let taken = accelerator
+            .parse::<Shortcut>()
+            .map_err(|_| format!("{accelerator} is not a combination this system can take."))
+            .and_then(|shortcut| {
+                manager
+                    .on_shortcut(shortcut, move |app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            act(app);
+                        }
+                    })
+                    .map_err(|error| error.to_string())
+            });
+        if let Err(reason) = taken {
+            failed.get_or_insert(reason);
+        }
+    }
+    failed.map_or(Ok(()), Err)
+}
 
-    manager
-        .on_shortcut(shortcut, move |app, _shortcut, event| {
-            if event.state() != ShortcutState::Pressed {
-                return;
-            }
-            /* The order matters and is the opposite of what it looks like:
-               the selection is read while the other program is still in
-               front. Showing the window first would make this app the
-               focused one, and the focused element would then be our own
-               input field. */
-            /* And the window is shown by the page, not here: the page first
-               draws what arrived and fits the window to it while it is still
-               hidden, so it appears at its size instead of animating into it
-               in front of the reader. Shown from here after a moment all the
-               same, in case the page never answers. */
-            capture_and_show(app, std::time::Duration::ZERO);
-        })
-        .map_err(|error| error.to_string())
+/* The selection, read the way the shortcut reads it or the way a menu entry
+   has to: after the menu is gone, so ⌘C reaches the program underneath it,
+   and on Windows with that program brought back in front first. */
+fn selection_for(from_menu: bool) -> Result<capture::Selection, String> {
+    if !from_menu {
+        return capture::read();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    capture::read_from_menu()
 }
 
 /* The selection taken out of the program in front, then the window. What the
-   shortcut does, and what the menu bar's entry does after `wait`: the menu
-   has to be gone before ⌘C reaches the program underneath it. */
-fn capture_and_show(app: &tauri::AppHandle, wait: std::time::Duration) {
+   shortcut does, and what the menu's entry does. */
+fn capture_and_show(app: &tauri::AppHandle, from_menu: bool) {
     let app = app.clone();
     std::thread::spawn(move || {
-        std::thread::sleep(wait);
-        let found = capture::read();
+        let found = selection_for(from_menu);
         #[cfg(debug_assertions)]
         match &found {
             Ok(selection) => eprintln!("capture: {} chars by {}", selection.text.chars().count(), selection.route),
@@ -959,6 +1016,21 @@ fn capture_and_show(app: &tauri::AppHandle, wait: std::time::Duration) {
     });
 }
 
+/* The selection taken out of the program in front for a flashcard: the page
+   of the reading window decides which side of the card it goes on, and opens
+   the card window — blank where nothing came. The reading window itself stays
+   where it is. */
+fn capture_for_card(app: &tauri::AppHandle, from_menu: bool) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let found = selection_for(from_menu);
+        let _ = match found {
+            Ok(selection) => app.emit_to("main", "capture-card", selection),
+            Err(reason) => app.emit_to("main", "capture-card-failed", reason),
+        };
+    });
+}
+
 /* The menu bar symbol. It exists because closing the window no longer quits:
    without a visible anchor the app would go on running with no way back to it
    and no way out of it.
@@ -972,10 +1044,11 @@ fn capture_and_show(app: &tauri::AppHandle, wait: std::time::Duration) {
 /* What muda cannot draw, done to the menu once it stands: the name as a
    section heading, and the shortcut beside its entry. */
 fn finish_tray_menu(app: &tauri::AppHandle, tray: &tauri::tray::TrayIcon) {
-    let shortcut = app
+    let shortcuts = app
         .try_state::<TrayShortcut>()
-        .and_then(|state| state.0.lock().unwrap().clone());
-    overlay::finish_tray_menu(tray, shortcut);
+        .map(|state| state.0.lock().unwrap().clone())
+        .unwrap_or_default();
+    overlay::finish_tray_menu(tray, shortcuts);
 }
 
 #[derive(serde::Deserialize)]
@@ -983,6 +1056,9 @@ struct TrayWords {
     show: String,
     capture: String,
     fresh: String,
+    card: String,
+    #[serde(rename = "blankCard")]
+    blank_card: String,
     settings: String,
     updates: String,
     help: String,
@@ -1000,13 +1076,15 @@ const ISSUES_URL: &str = "https://github.com/mdd335/triglosa/issues";
 fn apply_tray(
     app: tauri::AppHandle,
     words: TrayWords,
-    accelerator: Option<String>,
+    shortcuts: Shortcuts,
 ) -> Result<(), String> {
     /* The window is hidden as often as it is closed, so its settings have to
        be reachable from out here too — otherwise the only way to them is to
        bring back a window in order to leave it again. */
     if let Some(state) = app.try_state::<SettingsName>() {
-        *state.0.lock().unwrap() = words.settings.clone();
+        /* As a title, the way the page's windowTitle writes one: the menu
+           entry is the bare word, the window it opens is not. */
+        *state.0.lock().unwrap() = format!("Triglosa · {}", words.settings);
     }
     let item = |id: &str, text: &str| {
         MenuItem::with_id(&app, id, text, true, None::<&str>).map_err(|error| error.to_string())
@@ -1017,26 +1095,32 @@ fn apply_tray(
     let name = MenuItem::with_id(&app, "name", "Triglosa", false, None::<&str>)
         .map_err(|error| error.to_string())?;
     let open = item("show", &words.show)?;
-    /* The shortcut beside the entry that does what it does, so it is learned
+    /* Each shortcut beside the entry that does what it does, so it is learned
        in passing. A combination the menu cannot write is left off rather than
        taking the whole menu with it. */
     /* A combination on a key with a character — ⌘Ü, ⌃⌥E — is written beside
        the entry by AppKit once the menu stands: muda reads only the keys of an
        American keyboard and drops anything else without a word. One on a named
        key (Space, F5) goes through muda, which knows those. */
-    let accelerator = accelerator.filter(|value| !value.is_empty());
-    let written = accelerator.as_deref().is_some_and(overlay::is_character_combination);
+    let mut later = Vec::new();
+    let mut entry = |id: &str, text: &str, accelerator: Option<String>| {
+        let accelerator = accelerator.filter(|value| !value.is_empty());
+        if let Some(value) = accelerator.as_deref() {
+            if overlay::is_character_combination(value) {
+                later.push((text.to_string(), value.to_string()));
+            } else if let Ok(entry) = MenuItem::with_id(&app, id, text, true, Some(value)) {
+                return Ok(entry);
+            }
+        }
+        item(id, text)
+    };
+    let selected = entry("capture", &words.capture, shortcuts.capture)?;
+    let blank = entry("fresh", &words.fresh, shortcuts.fresh)?;
+    let card = entry("card", &words.card, shortcuts.card)?;
+    let blank_card = item("blank-card", &words.blank_card)?;
     if let Some(state) = app.try_state::<TrayShortcut>() {
-        *state.0.lock().unwrap() = accelerator
-            .clone()
-            .filter(|_| written)
-            .map(|value| (words.capture.clone(), value));
+        *state.0.lock().unwrap() = later;
     }
-    let selected = accelerator
-        .filter(|_| !written)
-        .and_then(|value| MenuItem::with_id(&app, "capture", &words.capture, true, Some(value)).ok())
-        .map_or_else(|| item("capture", &words.capture), Ok)?;
-    let blank = item("fresh", &words.fresh)?;
     let configure = item("settings", &words.settings)?;
     let updates = item("updates", &words.updates)?;
     let help = item("help", &words.help)?;
@@ -1044,11 +1128,11 @@ fn apply_tray(
     let again = item("restart", &words.restart)?;
     let leave = item("quit", &words.quit)?;
     let line = || PredefinedMenuItem::separator(&app).map_err(|error| error.to_string());
-    let (second, third) = (line()?, line()?);
+    let (second, cards, third) = (line()?, line()?, line()?);
     let menu = Menu::with_items(
         &app,
         &[
-            &name, &open, &selected, &blank, &second, &configure, &updates, &help,
+            &name, &open, &selected, &blank, &cards, &card, &blank_card, &second, &configure, &updates, &help,
             &problem, &third, &again, &leave,
         ],
     )
@@ -1062,7 +1146,7 @@ fn apply_tray(
 
     let visible = app
         .try_state::<Presence>()
-        .map(|presence| presence.icon.lock().unwrap().as_str() != "dock")
+        .map(|presence| cfg!(target_os = "windows") || presence.icon.lock().unwrap().as_str() != "dock")
         .unwrap_or(true);
     let builder = TrayIconBuilder::with_id("main");
     /* A template of its own: the app icon is a coloured square, and a
@@ -1092,8 +1176,12 @@ fn apply_tray(
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => ask_to_show(app, false),
-            "capture" => capture_and_show(app, std::time::Duration::from_millis(150)),
+            "capture" => capture_and_show(app, true),
             "fresh" => ask_to_show(app, true),
+            "card" => capture_for_card(app, true),
+            "blank-card" => {
+                let _ = app.emit_to("main", "card-blank", ());
+            }
             "settings" | "updates" => {
                 /* After the menu has closed: while it is still tracking, the
                    app is not made active and the window lands behind the
@@ -1174,6 +1262,7 @@ pub fn run() {
         ])
         .setup(|app| {
             capture::note_clipboard();
+            capture::watch_front();
             start_helper(app.handle());
             /* No dock icon: the menu bar symbol is already the anchor, and an
                app that is not in the dock activates without carrying a Space
@@ -1197,14 +1286,12 @@ pub fn run() {
                 overlay::without_window_buttons(&window);
                 /* On Windows the system's title bar would stand above the
                    page's own line with its three buttons: the frame goes and
-                   the page's line is the title bar. No taskbar button either,
-                   for a window that puts itself away — the notification area
-                   is the way back, as the menu bar is on a Mac. */
+                   the page's line is the title bar. Whether it has a taskbar
+                   button is the reader's choice (apply_presence_to). */
                 #[cfg(target_os = "windows")]
                 {
                     let _ = window.set_decorations(false);
                     let _ = window.set_shadow(true);
-                    let _ = window.set_skip_taskbar(true);
                 }
                 /* The size and the place the reader left it at. Set before
                    the window is ever looked at, so it does not open at one

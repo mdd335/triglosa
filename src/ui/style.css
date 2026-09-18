@@ -1169,6 +1169,33 @@ button.quiet { color: var(--ink-soft); }
   color: var(--ink-faint);
 }
 
+/* The word side's language, where the card may be in more than one: the
+   heading itself, chosen from, with a small chevron after it. */
+.card-language { position: relative; display: inline-flex; align-items: center; }
+.card-field-head select.name {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: none;
+  padding: 0 14px 0 0;
+  margin: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+.card-language::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  border-right: 1.5px solid var(--ink-faint);
+  border-bottom: 1.5px solid var(--ink-faint);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+.card-language:hover select.name { color: var(--ink-soft); }
+
 /* The three fields are written in, so they look like the box the original is
    written in and not like the sheets above it. */
 .card-box {

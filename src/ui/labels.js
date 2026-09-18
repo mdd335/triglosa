@@ -4,6 +4,7 @@ const TABLE = {
   de: {
     placeholder: "Text einfügen oder eintippen",
     translate: "Übersetzen",
+    translateKeys: "Übersetzen (⌘↩)",
     edit: "Editieren",
     settings: "Einstellungen",
     original: "Original",
@@ -36,6 +37,7 @@ const TABLE = {
     conjugation: "Konjugation (extern)",
     card: "Lernkarte",
     cardCreate: "Lernkarte erstellen",
+    cardLanguage: "Sprache der Lernkarte",
     added: "Angelegt",
     synonymBack: "Voriges Wort",
     synonymForward: "Nächstes Wort",
@@ -121,7 +123,8 @@ const TABLE = {
     groupSections: "Verben und Begriffe",
     groupModel: "KI-Modell",
     groupTranslation: "Übersetzungen",
-    groupControl: "Bedienung",
+    groupWindow: "Fenster",
+    groupShortcuts: "Tastenkürzel",
     groupCards: "Lernkarten",
     groupAbout: "Über Triglosa",
     aboutVersion: (version) => `Version ${version}`,
@@ -234,7 +237,7 @@ const TABLE = {
     moreWorking: "Wird ausführlicher erklärt …",
     addExample: "Beispielsatz hinzufügen",
     exampleWorking: "Beispielsatz wird geschrieben …",
-    devicePairs: "Apples Übersetzung auf dem Gerät nutzen (optional)",
+    devicePairs: "Apples Übersetzung auf dem Gerät nutzen",
     pairsChecking: "Wird geprüft …",
     pairsAllInstalled: "Alle Sprachpakete für deine Sprachen sind installiert.",
     pairsNoDevice:
@@ -253,15 +256,26 @@ const TABLE = {
     pairArrow: (from, to) => `${from} → ${to}`,
 
     closeOnBlur: "Übersetzungsfenster schließen, wenn woanders hingeklickt wird",
+    fitWindow: "Fensterhöhe automatisch an den Inhalt anpassen",
     appIcon: "Symbol, während Triglosa läuft",
     appIcons: { menubar: "in der Menüleiste", dock: "im Dock", both: "in Menüleiste und Dock" },
-    hotkey: "Tastenkürzel zum Starten der Übersetzung",
+    shortcutsLead:
+      "Passiert beim Drücken einer Kombination hier im Fenster nichts, ist die Kombination schon vergeben. Wähle dann eine andere.",
+    hotkey: "Übersetzung starten",
     hotkeyEmpty: "keines gesetzt",
     hotkeyRecording: "Kombination drücken …",
     hotkeyClear: "Löschen",
-    hotkeyLead: "Übersetzt Text aus jedem Programm: Text kopieren (⌘C), dann das Kürzel drücken.",
-    hotkeyLeadSelected: "Übersetzt den markierten Text in jedem Programm.",
-    hotkeyHint: "Passiert beim Drücken des Kürzels nichts, ist die Kombination schon vergeben. Wähle dann eine andere.",
+    hotkeyLead:
+      "Übersetzt Text aus jedem Programm: Text kopieren (⌘C), dann das Kürzel drücken. Öffnet die letzte Übersetzung, wenn nichts Neues kopiert ist.",
+    hotkeyLeadSelected:
+      "Übersetzt den markierten Text in jedem Programm. Öffnet die letzte Übersetzung, wenn kein Text markiert ist.",
+    freshHotkey: "Neue Übersetzung",
+    cardHotkey: "Lernkarte erstellen",
+    cardHotkeyLead:
+      "Erstellt eine Lernkarte aus dem kopierten Text (⌘C). Öffnet ein leeres Fenster zur Lernkartenerstellung, wenn nichts Neues kopiert ist.",
+    cardHotkeyLeadSelected:
+      "Erstellt eine Lernkarte basierend auf dem markierten Text. Öffnet ein leeres Fenster zur Lernkartenerstellung, wenn kein Text markiert ist.",
+    hotkeyTakenHere: (name) => `Diese Kombination ist schon für „${name}“ gesetzt. Bitte wähle eine andere.`,
     hotkeyFailed: (reason) =>
       "Das Tastenkürzel ist vermutlich schon vergeben"
       + (reason ? ` (${reason})` : "") + ". Bitte wähle eine andere Kombination.",
@@ -270,12 +284,12 @@ const TABLE = {
     hotkeyTakenEverywhere:
       "Diese Kombination nutzt jedes Programm selbst. Bitte wähle eine andere.",
 
-    permission: "Markierten Text direkt übernehmen (optional)",
+    permission: "Markierten Text direkt übernehmen",
     permissionWhy:
-      "Markierten Text übersetzen, ohne ihn vorher zu kopieren, und Übersetzungen direkt in andere Programme einfügen.",
+      "Optional kannst du markierten Text übersetzen oder als Lernkarte übernehmen, ohne ihn vorher zu kopieren, und Übersetzungen direkt in andere Programme einfügen.",
     permissionHave: "Eingeschaltet.",
     permissionTrust:
-      "Dafür braucht Triglosa die macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ unter Datenschutz & Sicherheit (bis macOS 26 „Bedienungshilfen“). Triglosa nutzt sie nur für diese zwei Dinge und nur, wenn du das Kürzel drückst oder auf „Einfügen“ klickst. Triglosa ist Open Source, du kannst das also nachprüfen:",
+      "Dafür braucht Triglosa die macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ unter Datenschutz & Sicherheit (bis macOS 26 „Bedienungshilfen“). Triglosa nutzt sie nur zum Lesen des markierten Texts und zum Einfügen, und nur, wenn du es darum bittest. Triglosa ist Open Source, du kannst das also nachprüfen:",
     permissionCode: "zum Code",
     permissionAsk: "Erlauben …",
     permissionOpen: "Systemeinstellungen öffnen",
@@ -292,6 +306,9 @@ const TABLE = {
 
     trayCapture: "Markierten Text übersetzen",
     trayCaptureCopied: "Kopierten Text übersetzen",
+    trayCard: "Lernkarte aus markiertem Text erstellen",
+    trayCardCopied: "Lernkarte aus kopiertem Text erstellen",
+    trayCardBlank: "Neue Lernkarte",
     trayShow: "Fenster zeigen",
     trayUpdates: "Nach Updates suchen",
     trayHelp: "Hilfe",
@@ -310,6 +327,7 @@ const TABLE = {
        stands where "Edit" stands while reading — one field, two states, one
        button in one place. */
     translate: "Translate",
+    translateKeys: "Translate (⌘↩)",
     edit: "Edit",
     settings: "Settings",
     original: "Original",
@@ -348,6 +366,7 @@ const TABLE = {
     card: "Flashcard",
     /* What stands in the title bar of its own window. */
     cardCreate: "Create flashcard",
+    cardLanguage: "Language of the flashcard",
     added: "Added",
     synonymBack: "Previous word",
     synonymForward: "Next word",
@@ -462,7 +481,8 @@ const TABLE = {
     groupSections: "Verbs and terms",
     groupModel: "AI model",
     groupTranslation: "Translations",
-    groupControl: "Controls",
+    groupWindow: "Window",
+    groupShortcuts: "Shortcuts",
     groupCards: "Flashcards",
     groupAbout: "About Triglosa",
     aboutVersion: (version) => `Version ${version}`,
@@ -599,7 +619,7 @@ const TABLE = {
     moreWorking: "Explaining in more detail …",
     addExample: "Add an example sentence",
     exampleWorking: "Writing an example sentence…",
-    devicePairs: "Use Apple's on-device translation (optional)",
+    devicePairs: "Use Apple's on-device translation",
     pairsChecking: "Checking…",
     pairsAllInstalled: "Every language pack for your languages is installed.",
     pairsNoDevice:
@@ -618,15 +638,26 @@ const TABLE = {
     pairArrow: (from, to) => `${from} → ${to}`,
 
     closeOnBlur: "Close the translation window when clicking elsewhere",
+    fitWindow: "Fit the window's height to what it holds",
     appIcon: "Icon while Triglosa is running",
     appIcons: { menubar: "in the menu bar", dock: "in the Dock", both: "in the menu bar and the Dock" },
-    hotkey: "Shortcut to start a translation",
+    shortcutsLead:
+      "If nothing happens here in the window when you press a combination, it is already taken. Pick another one.",
+    hotkey: "Start translation",
     hotkeyEmpty: "none set",
     hotkeyRecording: "Press a combination…",
     hotkeyClear: "Clear",
-    hotkeyLead: "Translates text from any program: copy it (⌘C), then press the shortcut.",
-    hotkeyLeadSelected: "Translates the selected text in any program.",
-    hotkeyHint: "If nothing happens when you press the shortcut, the combination is already taken. Pick another one.",
+    hotkeyLead:
+      "Translates text from any program: copy it (⌘C), then press the shortcut. Opens the last translation when nothing new was copied.",
+    hotkeyLeadSelected:
+      "Translates the selected text in any program. Opens the last translation when no text is selected.",
+    freshHotkey: "New translation",
+    cardHotkey: "Create flashcard",
+    cardHotkeyLead:
+      "Creates a flashcard from the copied text (⌘C). Opens a blank flashcard window when nothing new was copied.",
+    cardHotkeyLeadSelected:
+      "Creates a flashcard from the selected text. Opens a blank flashcard window when no text is selected.",
+    hotkeyTakenHere: (name) => `This combination is already set for “${name}”. Please choose another one.`,
     /* What the shell says about it helps rarely, so the sentence that helps
        comes first and the shell's own words follow it in brackets. */
     hotkeyFailed: (reason) =>
@@ -642,12 +673,12 @@ const TABLE = {
        what not, and where that can be checked. macOS describes it so
        broadly that without this sentence it sounds like far more than it
        does here. */
-    permission: "Use selected text directly (optional)",
+    permission: "Use selected text directly",
     permissionWhy:
-      "Translate selected text without copying it first, and insert translations straight into other programs.",
+      "Optionally, you can translate selected text or take it into a flashcard without copying it first, and insert translations straight into other programs.",
     permissionHave: "Switched on.",
     permissionTrust:
-      "For this, Triglosa needs the macOS permission “Device Control and Data Access” under Privacy & Security (“Accessibility” up to macOS 26). Triglosa uses it only for these two things, and only when you press the shortcut or click “Insert”. Triglosa is open source, so you can verify this:",
+      "For this, Triglosa needs the macOS permission “Device Control and Data Access” under Privacy & Security (“Accessibility” up to macOS 26). Triglosa uses it only for reading the selected text and for inserting, and only when you ask it to. Triglosa is open source, so you can verify this:",
     permissionCode: "see the code",
     permissionAsk: "Allow…",
     permissionOpen: "Open System Settings",
@@ -664,6 +695,9 @@ const TABLE = {
 
     trayCapture: "Translate selected text",
     trayCaptureCopied: "Translate copied text",
+    trayCard: "Create flashcard from selected text",
+    trayCardCopied: "Create flashcard from copied text",
+    trayCardBlank: "New flashcard",
     trayShow: "Show window",
     trayUpdates: "Check for updates",
     trayHelp: "Help",
@@ -702,9 +736,14 @@ const WINDOWS = {
       "Verbinde in den Einstellungen ein KI-Modell für Übersetzungen, Verben, Begriffe, Erklärungen und weitere Funktionen.",
     apiKeyHint:
       "Landet in der Windows-Anmeldeinformationsverwaltung, nie in der Einstellungsdatei. Ein lokales Modell braucht meist keinen.",
-    hotkeyLead: "Übersetzt den markierten Text in jedem Programm.",
+    hotkeyLead:
+      "Übersetzt den markierten Text in jedem Programm. Öffnet die letzte Übersetzung, wenn kein Text markiert ist.",
+    cardHotkeyLead:
+      "Erstellt eine Lernkarte basierend auf dem markierten Text. Öffnet ein leeres Fenster zur Lernkartenerstellung, wenn kein Text markiert ist.",
     hotkeyTakenSystem: "Diese Kombination ist von Windows belegt. Bitte wähle eine andere.",
+    appIcons: { menubar: "nur im Infobereich", both: "auch in der Taskleiste" },
     copyFirst: (key) => `Tipp: Text in einem Programm markieren, dann ${key} drücken.`,
+    translateKeys: "Übersetzen (Strg+Enter)",
   },
   en: {
     noDevice: "No AI model is set up. Please set one up in the settings.",
@@ -716,9 +755,14 @@ const WINDOWS = {
       "Connect an AI model in the settings for translations, verbs, terms, explanations and other features.",
     apiKeyHint:
       "Kept in the Windows Credential Manager, never in the settings file. A local model usually needs none.",
-    hotkeyLead: "Translates the selected text in any program.",
+    hotkeyLead:
+      "Translates the selected text in any program. Opens the last translation when no text is selected.",
+    cardHotkeyLead:
+      "Creates a flashcard from the selected text. Opens a blank flashcard window when no text is selected.",
     hotkeyTakenSystem: "This combination is taken by Windows. Please choose another one.",
+    appIcons: { menubar: "only in the notification area", both: "also in the taskbar" },
     copyFirst: (key) => `Tip: select some text in any program, then press ${key}.`,
+    translateKeys: "Translate (Ctrl+Enter)",
   },
 };
 

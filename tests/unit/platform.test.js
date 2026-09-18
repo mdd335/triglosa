@@ -43,7 +43,7 @@ import {
   settingsChanged,
   showWindow,
 } from "../../src/platform/windows.js";
-import { onCapture, registerShortcut } from "../../src/platform/shortcut.js";
+import { onCapture, onCardCapture, registerShortcuts } from "../../src/platform/shortcut.js";
 import { detectByStopwords, detectLanguage } from "../../src/detect.js";
 import { SUPPORTED as SUPPORTED_CODES } from "../../src/languages/index.js";
 import { SEARCH_URLS, searchLink, searchUrlFor } from "../../src/platform/search.js";
@@ -749,7 +749,7 @@ test("outside the app the window seam answers instead of reaching for the shell"
   assert.strictEqual(await hideWindow(), false);
   assert.strictEqual(await showWindow(), false);
   assert.strictEqual(await openSettings("Settings"), false);
-  assert.strictEqual(await applyTray({ show: "show", settings: "settings", quit: "quit" }, "Control+Alt+e"), false);
+  assert.strictEqual(await applyTray({ show: "show", settings: "settings", quit: "quit" }, { capture: "Control+Alt+e" }), false);
   assert.strictEqual(await settingsChanged(), false);
   const stop = await onSettingsChanged(() => {});
   assert.strictEqual(typeof stop, "function");
@@ -767,11 +767,14 @@ test("a shortcut is not registered outside the app, and says nothing went wrong"
   /* "" means it worked. Outside the app there is nothing to hold, and
      reporting a failure here would put an error in a window that is only
      being looked at. */
-  assert.strictEqual(await registerShortcut({ accelerator: "Control+Alt+KeyD" }), "");
-  assert.strictEqual(await registerShortcut(null), "");
+  assert.strictEqual(await registerShortcuts({ hotkey: { accelerator: "Control+Alt+KeyD" }, cardHotkey: null }), "");
+  assert.strictEqual(await registerShortcuts({}), "");
   const stop = await onCapture({ onText() {}, onFailed() {} });
   assert.strictEqual(typeof stop, "function");
   stop();
+  const stopCard = await onCardCapture({ onText() {}, onFailed() {}, onBlank() {} });
+  assert.strictEqual(typeof stopCard, "function");
+  stopCard();
 });
 
 /* AnkiConnect always answers something. An empty reply is a helper that went

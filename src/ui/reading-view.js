@@ -171,7 +171,7 @@ function originalPane({ text, tools, edit, entry, marked, onPick, card }) {
     box.classList.add("writing");
     box.append(draftField(text, edit));
     /* Named, like the field, so scripts/shot.mjs can press it. */
-    const go = button(text.translate, () => edit.onTranslate(), "translate");
+    const go = button(text.translateKeys, () => edit.onTranslate(), "translate");
     go.id = "translate";
     frame.append(actions([go]));
     return section;
@@ -223,7 +223,9 @@ function draftField(text, edit) {
   });
   /* The same combination the whole system uses to send a form off. */
   field.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) edit.onTranslate();
+    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+    event.preventDefault();
+    edit.onTranslate();
   });
   /* Once, after it is in the document: a height read before that is zero. */
   queueMicrotask(grow);
@@ -490,9 +492,9 @@ export const MARKED = "marked";
 
 /* A translation, the verbs, the terms or the picked word folded away. A long
    text makes a long sheet, and a reader comparing it with one translation can
-   put the rest out of the way. Kept with the reading (`state.folded`), so a
-   new reading starts with everything open and one stepped back to is as it
-   was left; a new pick opens the picked word's area again (app.js). The
+   put the rest out of the way. Kept with the reading (`state.folded`), so one
+   stepped back to is as it was left; a new reading starts from the last fold
+   and a new pick opens the picked word's area again (app.js). The
    window redraws on a fold, because the sections take their markings in the
    panels with them. */
 function foldButton(box, key, { state, text, onFold }) {

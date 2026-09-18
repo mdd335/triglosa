@@ -468,6 +468,50 @@ pub fn bring_to_front(window: &tauri::WebviewWindow) {
     let _ = window.set_focus();
 }
 
+/* How far the window's frame reaches past what can be seen of it, in
+   physical pixels: left, top, right, bottom.
+
+   Windows gives a window an invisible border to take hold of for resizing,
+   and a window snapped to half the screen has that border lying past the
+   screen's edge. Measured with it, the snapped window did not fit, and was
+   pushed a few pixels towards the middle and made as much shorter every time
+   it was brought forward. Nothing of the kind elsewhere. */
+pub fn invisible_border(window: &tauri::WebviewWindow) -> (i32, i32, i32, i32) {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_EXTENDED_FRAME_BOUNDS};
+        use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+        let Ok(handle) = window.hwnd() else { return (0, 0, 0, 0) };
+        let mut whole = RECT::default();
+        let mut seen = RECT::default();
+        let measured = unsafe {
+            GetWindowRect(handle, &mut whole).is_ok()
+                && DwmGetWindowAttribute(
+                    handle,
+                    DWMWA_EXTENDED_FRAME_BOUNDS,
+                    &mut seen as *mut RECT as *mut core::ffi::c_void,
+                    std::mem::size_of::<RECT>() as u32,
+                )
+                .is_ok()
+        };
+        if !measured {
+            return (0, 0, 0, 0);
+        }
+        return (
+            (seen.left - whole.left).max(0),
+            (seen.top - whole.top).max(0),
+            (whole.right - seen.right).max(0),
+            (whole.bottom - seen.bottom).max(0),
+        );
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = window;
+        (0, 0, 0, 0)
+    }
+}
+
 /* Whether a combination ends on a key with a character of its own, the kind
    AppKit is handed directly. */
 pub fn is_character_combination(accelerator: &str) -> bool {
@@ -497,21 +541,21 @@ fn key_and_mask(accelerator: &str) -> Option<(String, u64)> {
 /* The menu bar symbol's menu finished where muda cannot: the first entry
    drawn as a section heading, and the shortcut beside the entry it belongs
    to. Both are left as muda built them where AppKit does not answer. */
-pub fn finish_tray_menu(tray: &tauri::tray::TrayIcon, shortcut: Option<(String, String)>) {
+pub fn finish_tray_menu(tray: &tauri::tray::TrayIcon, shortcuts: Vec<(String, String)>) {
     #[cfg(target_os = "macos")]
     let _ = tray.with_inner_tray_icon(move |inner| {
         if let Some(item) = inner.ns_status_item() {
             let item = &*item as *const _ as *mut std::ffi::c_void;
             platform::first_entry_as_heading(item);
-            if let Some((title, accelerator)) = shortcut {
-                if let Some((key, mask)) = key_and_mask(&accelerator) {
-                    platform::key_equivalent(item, &title, &key, mask);
+            for (title, accelerator) in &shortcuts {
+                if let Some((key, mask)) = key_and_mask(accelerator) {
+                    platform::key_equivalent(item, title, &key, mask);
                 }
             }
         }
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (tray, shortcut);
+    let _ = (tray, shortcuts);
 }
 
 #[cfg(test)]

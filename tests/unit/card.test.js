@@ -336,3 +336,18 @@ test("a passage that is its whole sentence is not written on the card twice", ()
   assert.strictEqual(whole.note, "");
   assert.ok(whole.context.sentence, "the sentence still travels with the card");
 });
+
+test("a selection goes on the side of its language, as it stands", async () => {
+  const { freeCard } = await import("../../src/card.js");
+  const own = freeCard({ text: "Hund", detected: "de", reader: "de", choices: ["en", "es"], preset: "en" });
+  assert.strictEqual(own.term, "");
+  assert.strictEqual(own.meaning, "Hund");
+  assert.strictEqual(own.termLanguage, "en");
+  const foreign = freeCard({ text: "a whole sentence of English", detected: "en", reader: "de", choices: ["en"], preset: "en" });
+  assert.strictEqual(foreign.term, "a whole sentence of English", "however long it is");
+  assert.strictEqual(foreign.meaning, "");
+  const unnamed = freeCard({ text: "hond", detected: "", reader: "en", choices: ["es"], preset: "es" });
+  assert.strictEqual(unnamed.term, "hond", "a language nothing could name is the word side");
+  const blank = freeCard({ reader: "de", choices: ["es"], preset: "es" });
+  assert.ok(blank.free && !blank.term && !blank.meaning);
+});

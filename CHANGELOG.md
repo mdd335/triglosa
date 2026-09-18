@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.1
+
+### New
+- Two more shortcuts, set in the settings under Shortcuts: one for a new
+  translation and one that makes a flashcard from the selected text.
+- Flashcards straight from the menu: from the selected text, or a new blank
+  one.
+- The window's automatic height can be switched off in the settings; it then
+  keeps the size you give it.
+- Ctrl+Enter (Windows) or Cmd+Enter (Mac) translates what you typed.
+- Sections you fold away stay folded for the next translation, until
+  Triglosa quits.
+- Windows: Triglosa can also show a button in the taskbar while its window is
+  open.
+
+### Fixed
+- Ctrl+C (Windows) or Cmd+C (Mac) now copies a word or passage marked in
+  the translation window.
+- Windows: translating selected text from the menu in the notification area
+  now finds the selection.
+- Windows: a window snapped to half the screen no longer shifts and shrinks
+  a little when a new translation comes in.
+
 ## 0.3.0
 
 - Triglosa now runs on Windows 11 (Intel and AMD). The shortcut there is
