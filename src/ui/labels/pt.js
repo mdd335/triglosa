@@ -154,6 +154,7 @@ export default {
     third: "só para o terceiro idioma",
     foreign: "para todos os idiomas estrangeiros compatíveis",
   },
+  cardsImprove: "Melhorar os flashcards automaticamente com IA",
   ankiEnabled: "Exportar direto para o Anki",
   ankiEnabledHint: (code) => `Precisa do Anki com o complemento AnkiConnect (código ${code}).`,
   ankiSearching: "Procurando…",

@@ -190,6 +190,7 @@ export default {
     third: "only for the third language",
     foreign: "for all supported foreign languages",
   },
+  cardsImprove: "Improve flashcards automatically with AI",
   ankiEnabled: "Export straight to Anki",
   ankiEnabledHint: (code) => `Needs Anki with the AnkiConnect add-on (code ${code}).`,
   ankiSearching: "Looking …",

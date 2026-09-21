@@ -115,6 +115,12 @@ export const DEFAULTS = {
      have no answer to, and a card can be copied out without it. */
   cards: {
     mode: "foreign",
+    /* The card rewritten by the model as soon as it is shown: the word as a
+       dictionary lists it, one meaning, an explanation with examples. On,
+       because that is the card worth keeping and a reader who wanted the
+       raw one has the way back on the same place. Off, the wand stays and
+       the card is only improved when it is pressed. */
+    improve: true,
     anki: { enabled: false, deck: "", noteType: "", fields: { term: "", meaning: "", note: "" } },
   },
   /* Preset, because a shortcut nobody has set is a feature nobody uses. What
@@ -217,6 +223,7 @@ function normalizeCards(raw) {
     mode: CARD_MODES.includes(cards.mode) ? cards.mode
       : cards.mode === "both" ? "foreign"
       : cards.enabled === false ? "never" : DEFAULTS.cards.mode,
+    improve: cards.improve !== false,
     anki: {
       enabled: stored.enabled === true,
       deck: word(stored.deck),

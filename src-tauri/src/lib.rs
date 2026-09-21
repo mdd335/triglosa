@@ -1197,7 +1197,9 @@ fn apply_tray(
        what every symbol there does. */
     #[cfg(target_os = "windows")]
     let builder = builder
-        .icon(tauri::include_image!("icons/32x32.png"))
+        /* Cut to the square: Apple's grid leaves a margin that made it
+           smaller than its neighbours here. */
+        .icon(tauri::include_image!("icons/tray-windows.png"))
         /* The name under the pointer, as every other symbol there has. */
         .tooltip("Triglosa")
         .show_menu_on_left_click(false)

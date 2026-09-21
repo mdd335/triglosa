@@ -10,7 +10,7 @@
 export const PROJECT_URL = "https://github.com/mdd335/triglosa";
 export const HELP_URL = `${PROJECT_URL}#readme`;
 /* The README section on setting up a model. Renaming that heading means changing this. */
-export const MODEL_HELP_URL = `${PROJECT_URL}#setting-up-an-ai-model`;
+export const MODEL_HELP_URL = `${PROJECT_URL}#connecting-an-ai-model`;
 export const ISSUES_URL = `${PROJECT_URL}/issues`;
 export const RELEASES_URL = `${PROJECT_URL}/releases`;
 /* The file that does everything the Accessibility permission allows, named

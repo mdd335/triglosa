@@ -153,6 +153,7 @@ export default {
     third: "seulement pour la troisième langue",
     foreign: "pour toutes les langues étrangères prises en charge",
   },
+  cardsImprove: "Améliorer automatiquement les fiches avec l’IA",
   ankiEnabled: "Exporter directement vers Anki",
   ankiEnabledHint: (code) => `Nécessite Anki avec le module AnkiConnect (code ${code}).`,
   ankiSearching: "Recherche…",

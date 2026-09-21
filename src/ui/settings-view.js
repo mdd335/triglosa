@@ -484,6 +484,13 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
     hint: text.cardsEnabledHint,
     control: howMany,
   }));
+  /* Offered whatever the answer above: a card out of the selection is made
+     by its own shortcut, and that one is improved too. */
+  view.append(field({
+    label: text.cardsImprove,
+    control: switchFor(settings.cards.improve, text, (on) =>
+      onChange({ ...settings, cards: { ...settings.cards, improve: on } })),
+  }));
   if (settings.cards.mode !== "never") view.append(ankiFields(settings, text, onChange));
 
   view.append(...aboutFields(text));

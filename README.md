@@ -2,15 +2,30 @@
 
 Triglosa is an AI-powered translation app, made for language learners.
 
-Select a sentence in any language anywhere on your PC or Mac, press a
-shortcut, and Triglosa shows it next to one or two translations in the languages of your choice. The words worth
-learning are explained: difficult terms, verb forms, synonyms and abbreviations,
-highlighted in every panel at once. Click any word for its meaning and base
-form, or turn it into a flashcard which you can export directly to Anki.
+Select some text in any language anywhere on your PC or Mac, press a
+shortcut, and Triglosa shows it next to one or two translations in the
+languages of your choice.
 
 ![Triglosa showing a Spanish sentence with its English and Russian translations, the verbs and terms found in it](docs/demo.gif)
 
-**Supported languages:** Triglosa translates text from any language the AI model knows.
+**What makes Triglosa different**
+
+- **No picking languages.** Triglosa recognizes the language on its own and
+  translates into the language(s) relevant for you, according to your settings.
+- **Translation on hover.** Point at any word to see what it became in your
+  language.
+- **Every word is clickable** for translations, explanations, base forms,
+  synonyms and example sentences.
+- **AI-enhanced flashcards from any word**, in Triglosa or straight from a
+  word you select in any other app, sent to Anki with one click.
+- **Made for your level.** It highlights the words that are hard at your
+  level, from A1 to C2.
+- **Your choice of AI model:** any cloud service, or a local model so your
+  texts never leave your computer.
+
+**Supported languages**
+
+Triglosa translates text from any language the AI model knows.
 Your own language and the languages you are learning can be:
 
 - English, Spanish, French, German, Portuguese, Russian and Italian
@@ -44,7 +59,7 @@ probably works, but has not been tested.
 
 This warning is expected. Apple only vouches for apps whose authors pay for a
 developer account and send every version in for checking. Triglosa
-is a free hobby project and does neither. 
+is a free hobby project and does neither.
 
 To open it anyway:
 
@@ -67,7 +82,7 @@ xattr -dr com.apple.quarantine /Applications/Triglosa.app
    brings the window back, translates the selected text, opens the settings, checks for updates, or quits.
 2. **Set your languages** in the settings: your own language, which is also the interface language, and one or two
    you are learning, each with a level from A1 to C2. The level decides which words Triglosa explains, and how explanations, example sentences and flashcards are written.
-3. **Set up an AI model**, see below.
+3. **Connect an AI model**, see below.
 4. **You are all set! Select a sentence in any program and press Win+Shift+E (Windows) or ⌃⌥E (Mac).**
    Triglosa translates it. Pressed with nothing selected, the window comes back as you left it. You can also type
    or paste straight into the window. On a Mac, copy the sentence first (⌘C), unless you allow step 5.
@@ -80,46 +95,26 @@ xattr -dr com.apple.quarantine /Applications/Triglosa.app
    download the language packs and choose who translates by default. If one of the
    two cannot translate, the other steps in.
 
-## What it does
-
-- **Translations side by side**, in two or three panels following your
-  language list.
-- **Difficult terms and verb forms** are listed under the panels and marked in
-  all of them. A verb opens its conjugation table or a web search.
-- **Rest the pointer on a word** in a foreign language to see the translation. The matching words light up in every panel.
-- **Click any word** for its meaning, base form and related words, and ask for
-  a longer explanation of it if you want one.
-- **Create flashcards** from any word, or directly from selected text in any app. Edit the card, let the AI model improve it
-  with the wand at the top, then copy it, or send it directly to
-  [Anki](https://apps.ankiweb.net) with the
-  [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on (you can switch this on in the settings).
-- **Example sentences** for a verb, a term or a clicked word, and a web search for it, each one click away.
-- **Insert a translation** into the program you are in, with the Insert button. If text is selected there, it is replaced. On a Mac this needs the optional permission from *First steps*; without it, use Copy.
-- **The last five readings** are one click back, and are kept in memory only.
-- **A window you can adjust:** most of its parts can be switched off in the settings.
-
-## Setting up an AI model
+## Connecting an AI model
 
 > Never set up an AI model before? No problem! You can paste this whole section into the AI chatbot of your
-> choice and ask it to walk you through getting access step by step.
+> choice and ask it to walk you through step by step.
 
-Triglosa's translations and everything else come from an AI model: explanations, verb forms, base forms, related words and more. Without one, only
-Apple's translation is left on a Mac, if you set it up.
+Triglosa's translations and other features come from an AI model: explanations, verb forms, base forms, related words and more.
 
 Triglosa does not ship an AI model and downloads none. It sends its
-questions to one you choose, and there are two ways to have one. Quality and cost depend on the model you choose.
+questions to one you choose, in the cloud or on your own computer. Quality and cost depend on the model.
 
 **In the cloud** the model runs on a provider's machines. You create an account
-there, generate an API key — a long string of characters, similar to a password — and paste it into
+there, deposit a few euros, generate an API key — a long string of characters, similar to a password — and paste it into
 the settings. Billing is usually per request. Triglosa's questions are short, so this usually comes to
 a few cents a month. Providers that speak the common OpenAI-compatible
-interface include [OpenRouter](https://openrouter.ai), DeepSeek, Groq, Mistral and OpenAI itself.
+interface include [OpenRouter](https://openrouter.ai), Groq, DeepSeek, Anthropic, Mistral and OpenAI itself.
 
 **Locally** the model runs on your own machine, provided that your computer has enough memory. Install a program such as
 [LM Studio](https://lmstudio.ai) or [Ollama](https://ollama.com), download a
 model in it — several gigabytes — and start its built-in server. That costs
-nothing, no text leaves your machine and no API key is needed. In exchange it is
-usually a bit slower and small models answer less precisely.
+nothing, no text leaves your machine and no API key is needed. In exchange, small models answer less precisely.
 
 Three things then go into the settings:
 
@@ -142,19 +137,37 @@ These two were measured over everyday translations in all eight languages:
 | `deepseek/deepseek-v4.1-flash` (via OpenRouter, with routing set to choose the fastest provider) | very good | around 4 seconds | around 0.15 € |
 | `gemma-4-e4b-it` (locally via LM Studio) | acceptable, with some mistakes | around 6 seconds | nothing |
 
+## What it does
+
+- **Translations side by side**, in two or three panels following your
+  language list.
+- **Difficult terms and verb forms** are listed under the panels and marked in
+  all of them. A verb opens its conjugation table or a web search.
+- **Rest the pointer on a word** in a foreign language to see the translation. The matching words light up in every panel.
+- **Click any word** for its meaning, base form and related words, and ask for
+  a longer explanation of it if you want one.
+- **Create flashcards** from any word, or directly from selected text in any app. The AI model improves every card as it
+  opens; the undo button at the top takes that back, and you can switch it off in the settings. Edit the card, then copy it, or send it directly to
+  [Anki](https://apps.ankiweb.net) with the
+  [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on (you can switch this on in the settings).
+- **Example sentences** for a verb, a term or a clicked word, and a web search for it, each one click away.
+- **Insert a translation** into the program you are in, with the Insert button. If text is selected there, it is replaced. On a Mac this needs the optional permission from *First steps*; without it, use Copy.
+- **The last five readings** are one click back, and are kept in memory only.
+- **A window you can adjust:** most of its parts can be switched off in the settings.
+
 ## Privacy
 
-Triglosa sends the text you read to the AI model you set up, and nowhere else.
+Triglosa sends the text you read to the AI model you connect, and nowhere else.
 Your readings are not written to any file, and
 the API key is kept in the Windows Credential Manager or the macOS keychain.
 
-Apple's on-device translation, if you set it up on a Mac, runs on the device.
-
 If you use a cloud model from OpenRouter, you can limit your account to providers with Zero Data Retention (ZDR). This works with `deepseek-v4.1-flash` and many other models.
+
+Apple's on-device translation, if you set it up on a Mac, runs on the device.
 
 ## If you encounter a problem or have an idea
 
-First check whether a newer version has been
+You can check whether a newer version has been
 [released](https://github.com/mdd335/triglosa/releases). It may fix the problem.
 
 If not, please [open an issue](https://github.com/mdd335/triglosa/issues). Ideally, add which

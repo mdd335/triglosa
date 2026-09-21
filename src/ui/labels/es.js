@@ -152,6 +152,7 @@ export default {
     third: "solo para el tercer idioma",
     foreign: "para todos los idiomas extranjeros admitidos",
   },
+  cardsImprove: "Mejorar las tarjetas automáticamente con IA",
   ankiEnabled: "Exportar directamente a Anki",
   ankiEnabledHint: (code) => `Necesita Anki con el complemento AnkiConnect (código ${code}).`,
   ankiSearching: "Buscando…",

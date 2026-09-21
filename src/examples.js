@@ -1,10 +1,11 @@
 /* The example sentences under a row, and the one rule they follow.
 
    They arrive from two places — with a longer explanation, and one at a time
-   on the button beside it — and neither may throw the other's away: a reader
-   who asked for two sentences and then for the explanation has asked for
-   both. So the lists are joined rather than replaced, oldest first, and the
-   ceiling counts them all. */
+   on the button beside it — and neither may throw the other's away. So the
+   lists are joined rather than replaced, oldest first, and the ceiling counts
+   them all. The explanation brings its own only to a row that has none: a
+   reader who asked for sentences and then for the explanation asked for the
+   explanation. */
 
 /* How many example sentences one row may hold, whichever question brought
    them. More than this about one word is a dictionary. */
@@ -29,6 +30,13 @@ export function withExamples(existing = [], arriving = []) {
     kept.push(said ? { ...one, kind: "" } : one);
   }
   return kept.slice(0, MAX_EXAMPLES);
+}
+
+/* The longer explanation's own sentences, which join only a row that has
+   none yet. A reader who already asked for sentences under it asked for the
+   explanation this time, not for another one. */
+export function withExplanationExamples(existing = [], arriving = []) {
+  return existing?.length ? existing : withExamples(existing, arriving);
 }
 
 /* Whether one more may be asked for. */

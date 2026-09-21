@@ -345,6 +345,62 @@ test("no usable answer leaves the card as it was and says so", async () => {
   assert.strictEqual(host.querySelector(".card-improve button").dataset.icon, "improve");
 });
 
+test("the card is improved the moment it is shown, and the wand takes it back", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  let asked = null;
+  renderCard(host,
+    { term: "brazos", termLanguage: "es", meaning: "Arme", meaningLanguage: "de", note: "alt" },
+    {
+      text: de, reader: "de", copy: async () => {}, anki: null, improveNow: true,
+      improve: async (card) => { asked = card; return { term: "el brazo", meaning: "der Arm", note: "neu" }; },
+    });
+  const boxes = [...host.querySelectorAll(".card-box")];
+  /* The card as it arrived stands there while the model is asked, and the
+     fields are closed for the seconds the answer takes. */
+  assert.deepStrictEqual(boxes.map((box) => box.value), ["brazos", "Arme", "alt"]);
+  assert.strictEqual(host.querySelector(".card-status").textContent, de.cardImproving);
+  assert.ok(boxes.every((box) => box.readOnly));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.strictEqual(asked.term, "brazos");
+  assert.deepStrictEqual(boxes.map((box) => box.value), ["el brazo", "der Arm", "neu"]);
+  assert.strictEqual(host.querySelector(".card-status").textContent, "");
+  const wand = () => host.querySelector(".card-improve button");
+  assert.strictEqual(wand().dataset.icon, "undo", "the way back to the reader's own card");
+  wand().click();
+  assert.deepStrictEqual(boxes.map((box) => box.value), ["brazos", "Arme", "alt"]);
+});
+
+test("switched off, nothing is asked until the wand is pressed", async () => {
+  const host = document.createElement("div");
+  let asked = 0;
+  renderCard(host,
+    { term: "brazos", termLanguage: "es", meaning: "Arme", meaningLanguage: "de", note: "alt" },
+    {
+      text: de, reader: "de", copy: async () => {}, anki: null, improveNow: false,
+      improve: async () => { asked += 1; return null; },
+    });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(asked, 0);
+  assert.strictEqual(host.querySelector(".card-status").textContent, "");
+  assert.strictEqual(host.querySelector(".card-improve button").dataset.icon, "improve");
+});
+
+test("a blank card has nothing to improve, so nothing is asked", async () => {
+  const host = document.createElement("div");
+  let asked = 0;
+  renderCard(host,
+    { term: "", termLanguage: "es", meaning: "", meaningLanguage: "de", note: "", choices: ["es"], free: true },
+    {
+      text: de, reader: "de", copy: async () => {}, anki: null, improveNow: true,
+      improve: async () => { asked += 1; return null; },
+    });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(asked, 0);
+  assert.ok(host.querySelector(".card-improve button").disabled);
+});
+
 test("without a model there is no wand", () => {
   const host = document.createElement("div");
   renderCard(host, { term: "caja", termLanguage: "es", meaning: "Kasse", meaningLanguage: "de" },

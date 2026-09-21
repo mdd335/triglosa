@@ -149,6 +149,7 @@ export default {
     third: "nur bei der dritten Sprache",
     foreign: "bei allen unterstützten Fremdsprachen",
   },
+  cardsImprove: "Lernkarten automatisch mit KI verbessern",
   ankiEnabled: "Direkt nach Anki exportieren",
   ankiEnabledHint: (code) => `Braucht Anki mit dem Add-on AnkiConnect (Code ${code}).`,
   ankiSearching: "Wird gesucht …",

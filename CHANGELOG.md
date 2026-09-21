@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.1
+
+### New
+- Ctrl+. (Windows) or Cmd+. (Mac) keeps the window in front, or stops keeping
+  it there, like the pin.
+
+### Changed
+- The buttons at the top of the window name their shortcut on hover.
+- "Explain more" no longer adds another example sentence under a word that
+  already has one.
+- Windows: Triglosa's symbols in the taskbar have the correct size.
+- Flashcards are improved by the AI model as soon as they open. The undo button
+  at the top takes it back, and the settings under Flashcards switch it off.
+
 ## 0.4.0
 
 ### New

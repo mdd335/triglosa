@@ -116,6 +116,7 @@ async function draw() {
     reader: settings.languages[0],
     copy: copyText,
     improve: await improverFor(card, text),
+    improveNow: settings.cards.improve,
     anki: {
       enabled: settings.cards.anki.enabled,
       configured: ankiConfigured(settings),

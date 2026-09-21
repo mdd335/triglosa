@@ -31,7 +31,7 @@ import { faultText, labels, windowTitle } from "./labels.js";
 import { MARKED, renderHeading, renderReading } from "./reading-view.js";
 import { labelsInside } from "./elements.js";
 import { watchGlance } from "./glance-view.js";
-import { roomForExample, withExamples } from "../examples.js";
+import { roomForExample, withExamples, withExplanationExamples } from "../examples.js";
 import { cardLanguages, levelFor, neededPairs, offersCard } from "../settings.js";
 import { keptReading, readingKey } from "../history.js";
 
@@ -275,21 +275,40 @@ function applyLanguage() {
      happened, and that is over. Better gone than half-translated. */
   if (text !== labels(settings.languages[0])) say("");
   text = labels(settings.languages[0]);
-  /* Named the way every other symbol button in the window is named: the word
-     appears over the button while the pointer rests on it. The system's own
-     tooltip is not asked for on top of it — one button, one answer. */
-  for (const [node, name] of [[backButton, text.historyBack],
-                             [forwardButton, text.historyForward],
-                             [freshButton, text.newReading],
-                             [settingsButton, text.settingsOpen],
-                             [closeButton, text.closeWindow]]) {
-    node.querySelector(".pill-label").textContent = name;
-    node.setAttribute("aria-label", name);
-  }
+  nameTitleBar();
   showPin();
   /* The menu bar symbol is named in the same language as everything else,
      and it is the only piece of interface outside the two windows. */
   applyMenu();
+}
+
+/* The keys this window answers to itself, written the way each system
+   writes them. */
+const WINDOW_KEYS = onWindows()
+  ? { close: "Esc", settings: "Ctrl+,", pin: "Ctrl+." }
+  : { close: "esc", settings: "⌘,", pin: "⌘." };
+const withKey = (name, key) => (key ? `${name} (${key})` : name);
+
+/* Named the way every other symbol button in the window is named: the word
+   appears over the button while the pointer rests on it. The system's own
+   tooltip is not asked for on top of it — one button, one answer. A button
+   a key also reaches names the key beside the word; a new translation only
+   where the reader set a combination for it. */
+async function nameTitleBar() {
+  const name = (node, words) => {
+    node.querySelector(".pill-label").textContent = words;
+    node.setAttribute("aria-label", words);
+  };
+  name(backButton, text.historyBack);
+  name(forwardButton, text.historyForward);
+  name(settingsButton, withKey(text.settingsOpen, WINDOW_KEYS.settings));
+  name(closeButton, withKey(text.closeWindow, WINDOW_KEYS.close));
+  name(freshButton, text.newReading);
+  if (!settings.freshHotkey) return;
+  keyLayout = keyLayout || keyLabels();
+  const layout = await keyLayout;
+  /* Read again after the wait: the settings may have changed meanwhile. */
+  name(freshButton, withKey(text.newReading, hotkeyLabel(settings.freshHotkey, layout)));
 }
 
 /* The menu bar symbol's entries, and the shortcut written beside the one that
@@ -790,7 +809,7 @@ function bothOf(marked, picked) {
 function settleMore(marked, answer, status, picked) {
   for (const target of bothOf(marked, picked)) {
     target.more = answer?.text || "";
-    target.examples = withExamples(target.examples, answer?.examples);
+    target.examples = withExplanationExamples(target.examples, answer?.examples);
     target.moreStatus = status;
   }
 }
@@ -1118,7 +1137,7 @@ closeButton.addEventListener("click", () => { forgetPointer(); hideWindow(); });
 
 /* The pin says what a click on it will do, and shows what it is. */
 function showPin() {
-  const name = settings.pinned ? text.unpinWindow : text.pinWindow;
+  const name = withKey(settings.pinned ? text.unpinWindow : text.pinWindow, WINDOW_KEYS.pin);
   pinButton.querySelector(".pill-label").textContent = name;
   pinButton.setAttribute("aria-label", name);
   pinButton.setAttribute("aria-pressed", String(settings.pinned));
@@ -1126,11 +1145,12 @@ function showPin() {
 /* Kept in the settings file so it outlasts the app. Written over what the
    file holds now, not over this window's copy, and the settings window
    leaves it alone in turn (settings-window.js). */
-pinButton.addEventListener("click", async () => {
+async function togglePin() {
   settings = await saveSettings({ ...(await loadSettings()), pinned: !settings.pinned });
   showPin();
   applyPresence(settings);
-});
+}
+pinButton.addEventListener("click", togglePin);
 /* What every program on this system opens its settings with, and the key a
    window lying over somebody else's full screen has to answer to. Escape puts
    it away rather than ending anything: a reading still being worked out goes
@@ -1143,6 +1163,11 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key.toLowerCase() === "c" && (event.metaKey || event.ctrlKey) && copyPicked()) {
     event.preventDefault();
+    return;
+  }
+  if (event.key === "." && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    togglePin();
     return;
   }
   if (event.key === "Escape") {

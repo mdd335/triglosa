@@ -152,6 +152,7 @@ export default {
     third: "только для третьего языка",
     foreign: "для всех поддерживаемых иностранных языков",
   },
+  cardsImprove: "Автоматически улучшать карточки с помощью ИИ",
   ankiEnabled: "Экспортировать сразу в Anki",
   ankiEnabledHint: (code) => `Нужен Anki с дополнением AnkiConnect (код ${code}).`,
   ankiSearching: "Поиск…",

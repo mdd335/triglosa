@@ -165,7 +165,7 @@ function ankiButton(current, { text, anki, say }) {
 /* Draws the card into a host element. Nothing here closes the window: the
    window has a title bar with its own button, and Escape and ⌘W are the
    page's own business — see card-window.js. */
-export function renderCard(host, card, { text, reader, anki, copy, improve, wandSlot }) {
+export function renderCard(host, card, { text, reader, anki, copy, improve, improveNow, wandSlot }) {
   host.textContent = "";
   wandSlot?.replaceChildren();
   if (!card || (!hasCard(card) && !card.free)) return null;
@@ -206,7 +206,8 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, wand
   /* The wand stands in the window's title line where the window has one, the
      way the gear stands in the reading window's; the row of buttons is for
      the ways a card leaves. */
-  if (improve) (wandSlot || feet).append(improveButton({ text, boxes, grown, edited, improve, say }));
+  const wand = improve ? improveButton({ text, boxes, grown, edited, improve, say }) : null;
+  if (wand) (wandSlot || feet).append(wand.holder);
   sheet.append(feet);
   sheet.append(status);
 
@@ -219,6 +220,12 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, wand
      correction is one keystroke away. */
   boxes.term.focus();
   boxes.term.select();
+
+  /* The card as it stands is shown first and the model is asked straight
+     away; the answer takes the fields over when it arrives, with the way
+     back on the wand's place. A card with nothing on it yet — a blank one
+     from the shortcut — has nothing to ask about and waits for the wand. */
+  if (wand && improveNow && enoughToImprove(card)) wand.run();
   return { sheet };
 }
 
@@ -249,6 +256,39 @@ function improveButton({ text, boxes, grown, edited, improve, say }) {
   };
   const holder = element("span", "card-improve");
 
+  /* One run of the model over the card, from the button or from the window
+     itself the moment the card is shown — the same run either way, so the
+     card comes out the same and the way back is on the same place. */
+  const run = async () => {
+    if (working || before) return;
+    const node = holder.querySelector("button");
+    const current = edited();
+    say(text.cardImproving, false);
+    working = true;
+    if (node) node.disabled = true;
+    for (const role of CARD_FIELDS) boxes[role].readOnly = true;
+    try {
+      const better = await improve(current);
+      if (!better) {
+        say(text.cardImproveNothing, true);
+        return;
+      }
+      before = Object.fromEntries(CARD_FIELDS.map((role) => [role, current[role]]));
+      put(better);
+      say("", false);
+      draw();
+    } catch (error) {
+      /* The window words a fault in the reader's language before it gets
+         here; anything else says at least that nothing changed. */
+      say((error && error.message) || text.cardImproveNothing, true);
+    } finally {
+      working = false;
+      const shown = holder.querySelector("button");
+      if (shown && !before) shown.disabled = !enoughToImprove(edited());
+      for (const role of CARD_FIELDS) boxes[role].readOnly = false;
+    }
+  };
+
   const draw = () => {
     const node = before
       ? button(text.cardUndo, () => {
@@ -257,33 +297,8 @@ function improveButton({ text, boxes, grown, edited, improve, say }) {
           say("", false);
           draw();
         }, "undo")
-      : button(text.cardImprove, async (node) => {
-          const current = edited();
-          say(text.cardImproving, false);
-          working = true;
-          node.disabled = true;
-          for (const role of CARD_FIELDS) boxes[role].readOnly = true;
-          try {
-            const better = await improve(current);
-            if (!better) {
-              say(text.cardImproveNothing, true);
-              return;
-            }
-            before = Object.fromEntries(CARD_FIELDS.map((role) => [role, current[role]]));
-            put(better);
-            say("", false);
-            draw();
-          } catch (error) {
-            /* The window words a fault in the reader's language before it
-               gets here; anything else says at least that nothing changed. */
-            say((error && error.message) || text.cardImproveNothing, true);
-          } finally {
-            working = false;
-            node.disabled = !enoughToImprove(edited());
-            for (const role of CARD_FIELDS) boxes[role].readOnly = false;
-          }
-        }, "improve");
-    if (!before) node.disabled = !enoughToImprove(edited());
+      : button(text.cardImprove, () => run(), "improve");
+    if (!before) node.disabled = working || !enoughToImprove(edited());
     holder.replaceChildren(node);
   };
   draw();
@@ -293,5 +308,5 @@ function improveButton({ text, boxes, grown, edited, improve, say }) {
       if (node && !before && !working) node.disabled = !enoughToImprove(edited());
     });
   }
-  return holder;
+  return { holder, run };
 }

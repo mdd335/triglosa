@@ -152,6 +152,7 @@ export default {
     third: "solo per la terza lingua",
     foreign: "per tutte le lingue straniere supportate",
   },
+  cardsImprove: "Migliorare automaticamente le flashcard con l’IA",
   ankiEnabled: "Esporta direttamente in Anki",
   ankiEnabledHint: (code) => `Richiede Anki con il componente aggiuntivo AnkiConnect (codice ${code}).`,
   ankiSearching: "Ricerca…",

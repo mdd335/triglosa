@@ -130,6 +130,12 @@ test("an older file that said yes or no keeps its answer", () => {
   assert.strictEqual(normalizeSettings({ cards: { enabled: false } }).cards.mode, "never");
 });
 
+test("a card is improved by the model unless that was switched off", () => {
+  assert.strictEqual(normalizeSettings({}).cards.improve, true);
+  assert.strictEqual(normalizeSettings({ cards: { improve: false } }).cards.improve, false);
+  assert.strictEqual(normalizeSettings({ cards: { improve: "no" } }).cards.improve, true, "only a plain no is a no");
+});
+
 test("a settings file that only ever named Anki keeps its deck", () => {
   /* The note type and the mapping were not questions that file could answer;
      they are guessed the first time the settings are opened. */

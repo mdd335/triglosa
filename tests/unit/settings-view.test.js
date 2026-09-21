@@ -125,6 +125,29 @@ for (const code of ["de", "en"]) {
   });
 }
 
+test("improving a card is on, and switched off in the flashcard group", () => {
+  const text = labels("de");
+  let changed = null;
+  const draw = (stored) => {
+    const view = settingsView({ settings: normalizeSettings({ languages: ["de", "es"], ...stored }), apiKey: "" },
+      { onChange: (next) => { changed = next; }, onKeyChange: () => {} });
+    return [...view.querySelectorAll(".field")]
+      .find((node) => node.querySelector("label")?.textContent === text.cardsImprove);
+  };
+  const field = draw({});
+  assert.ok(field, "the switch is there");
+  const on = field.querySelector("select");
+  assert.strictEqual(on.value, "on");
+  on.value = "off";
+  on.dispatchEvent(new window.Event("change"));
+  assert.strictEqual(changed.cards.improve, false);
+  assert.strictEqual(changed.cards.mode, "foreign", "the other answer is untouched");
+  assert.strictEqual(draw({ cards: { improve: false } }).querySelector("select").value, "off");
+  /* A reader who makes no cards out of a reading still makes them from the
+     selection, so the question is asked either way. */
+  assert.ok(draw({ cards: { mode: "never" } }), "offered whatever the answer above");
+});
+
 test("the search engine is the Mac's own unless another is chosen", async () => {
   const text = labels("en");
   const draw = (stored) => {

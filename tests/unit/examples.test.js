@@ -1,14 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { MAX_EXAMPLES, roomForExample, withExamples } from "../../src/examples.js";
+import { MAX_EXAMPLES, roomForExample, withExamples, withExplanationExamples } from "../../src/examples.js";
 
 const one = (sentence) => ({ kind: "", sentence, translation: "" });
 
-test("a longer explanation adds its examples to the ones already there", () => {
+test("one more sentence joins the ones already there", () => {
   const asked = [one("Satz A."), one("Satz B.")];
   const arriving = [one("Satz C.")];
   assert.deepStrictEqual(withExamples(asked, arriving).map((e) => e.sentence),
     ["Satz A.", "Satz B.", "Satz C."]);
+});
+
+test("a longer explanation brings its sentence only to a row with none", () => {
+  const asked = [one("Satz A.")];
+  assert.deepStrictEqual(withExplanationExamples(asked, [one("Satz B.")]).map((e) => e.sentence), ["Satz A."]);
+  assert.deepStrictEqual(withExplanationExamples([], [one("Satz B.")]).map((e) => e.sentence), ["Satz B."]);
+  assert.deepStrictEqual(withExplanationExamples(undefined, [one("Satz B.")]).map((e) => e.sentence), ["Satz B."]);
+  assert.deepStrictEqual(withExplanationExamples(undefined, undefined), []);
 });
 
 test("the same sentence is not kept twice, in any script", () => {
