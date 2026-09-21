@@ -84,6 +84,7 @@ export default {
   nothingOn: (word) => `Объяснение для «${word}» не получено.`,
   searching: "ищет…",
   cardImprove: "Улучшить с помощью ИИ",
+  cardDetecting: "Определяется язык…",
   cardImproving: "Карточка улучшается…",
   cardUndo: "Отменить улучшение ИИ",
   cardImproveNothing: "Пригодного улучшения не получено. Карточка остаётся прежней.",

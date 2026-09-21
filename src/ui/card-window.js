@@ -109,6 +109,9 @@ async function draw() {
   document.title = windowTitle(text.cardCreate);
   barTitle.textContent = document.title;
   if (!card) return;
+  /* The same card again is the answer to what it was still waiting for:
+     the window keeps its height rather than being fitted anew. */
+  const same = !!shown && !!card.id && shown.id === card.id;
   shown = { id: card.id };
   renderCard(body, card, {
     wandSlot,
@@ -130,15 +133,15 @@ async function draw() {
   /* A new card is fitted either way, up or down: it is a different card, and
      the height the last one needed says nothing about this one. */
   watch.disconnect();
-  fit(false);
+  fit(same);
   const sheet = root.querySelector(".card-sheet");
   if (sheet) watch.observe(sheet);
 }
 
 await draw();
 
-/* A second row's button fills this window rather than opening another one, so
-   the card can change under a page that is already standing. */
+/* The card can change under a page that is already standing: a card from
+   the shortcut is sent again once its language is found. */
 await onCardChanged(draw);
 
 /* Anki may have been switched on, or a deck chosen, in the window this page

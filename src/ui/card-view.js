@@ -221,6 +221,17 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
   boxes.term.focus();
   boxes.term.select();
 
+  /* A card from the shortcut whose language is still being found: shown
+     already, closed like a card being improved, and replaced by the window
+     once the answer is in — which side the text belongs on may change. */
+  if (card.detecting) {
+    say(text.cardDetecting, false);
+    for (const role of CARD_FIELDS) boxes[role].readOnly = true;
+    const node = wand && wand.holder.querySelector("button");
+    if (node) node.disabled = true;
+    return { sheet };
+  }
+
   /* The card as it stands is shown first and the model is asked straight
      away; the answer takes the fields over when it arrives, with the way
      back on the wand's place. A card with nothing on it yet — a blank one

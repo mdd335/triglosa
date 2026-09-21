@@ -84,6 +84,7 @@ export default {
   nothingOn: (word) => `Nessuna spiegazione ricevuta per «${word}».`,
   searching: "ricerca…",
   cardImprove: "Migliora con l’IA",
+  cardDetecting: "Riconoscimento della lingua…",
   cardImproving: "Miglioramento della flashcard…",
   cardUndo: "Annulla il miglioramento con l’IA",
   cardImproveNothing: "Nessun miglioramento utilizzabile ricevuto. La flashcard resta com’era.",

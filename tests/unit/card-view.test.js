@@ -461,3 +461,20 @@ test("the word side's language is chosen in its heading, and the card takes the 
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepStrictEqual(seen, ["es"], "the wand works on the language shown");
 });
+
+test("a card whose language is still being found is shown closed, and not improved yet", async () => {
+  const host = document.createElement("div");
+  let asked = 0;
+  renderCard(host,
+    { term: "correr", termLanguage: "es", meaning: "", meaningLanguage: "de", note: "", choices: ["es"], free: true, detecting: true },
+    {
+      text: de, reader: "de", copy: async () => {}, anki: null, improveNow: true,
+      improve: async () => { asked += 1; return null; },
+    });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(asked, 0);
+  assert.strictEqual(host.querySelector(".card-status").textContent, de.cardDetecting);
+  assert.ok([...host.querySelectorAll(".card-box")].every((box) => box.readOnly));
+  assert.ok(host.querySelector(".card-improve button").disabled);
+  assert.strictEqual(host.querySelector(".card-box").value, "correr", "the text stands already");
+});

@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "What the windows are allowed to reach outside the process. All three are named \u2014 the reading, the settings and a flashcard each have a window of their own, and one left out here gets no shell at all: no commands, no events, no requests.",
-  "windows": ["main", "settings", "card"],
+  "description": "What the windows are allowed to reach outside the process. All three are named \u2014 the reading, the settings and every flashcard each have a window of their own (card-1, card-2, …), and one left out here gets no shell at all: no commands, no events, no requests.",
+  "windows": ["main", "settings", "card-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.2
+
+### New
+- Mac: Triglosa now also runs on Macs with an Intel processor and macOS 26.
+
+### Changed
+- A flashcard from the shortcut opens at once. The card fills in when it is known.
+- Every new flashcard opens a window of its own, so a card you are still
+  writing stays open.
+
 ## 0.4.1
 
 ### New

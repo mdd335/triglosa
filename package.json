@@ -1,6 +1,6 @@
 {
   "name": "triglosa",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -11,8 +11,9 @@
     "tauri": "tauri",
     "app": "tauri dev",
     "bundle": "tauri build --bundles app && node scripts/sign.mjs",
-    "release": "npm run sidecar && npm run bundle && node scripts/dmg.mjs",
-    "sidecar":"bash scripts/build-sidecar.sh",
+    "bundle:intel": "bash scripts/build-sidecar.sh x86_64-apple-darwin && tauri build --bundles app --target x86_64-apple-darwin && node scripts/sign.mjs x86_64-apple-darwin",
+    "release": "npm run sidecar && npm run bundle && node scripts/dmg.mjs && npm run bundle:intel && node scripts/dmg.mjs x86_64-apple-darwin",
+    "sidecar": "bash scripts/build-sidecar.sh",
     "test": "node --test \"tests/**/*.test.*js\""
   },
   "devDependencies": {

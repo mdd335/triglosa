@@ -48,10 +48,11 @@ probably works, but has not been tested.
 
 ### Installing on Mac
 
-**You need a Mac with Apple silicon (M1 or newer) and macOS 26 or newer.**
+**You need macOS 26 or newer**.
 
-1. Download `Triglosa-…-arm64.dmg` from the
+1. Download `Triglosa-…-Apple-Silicon.dmg` (Macs with an M1 chip or newer) or `Triglosa-…-Intel.dmg` (older Macs with an Intel chip) from the
    [latest release](https://github.com/mdd335/triglosa/releases/latest).
+   Which one you have is shown under  → About This Mac.
 2. Open it and drag Triglosa into Applications.
 3. Open Triglosa. macOS will refuse the first time — see below.
 
@@ -78,7 +79,7 @@ xattr -dr com.apple.quarantine /Applications/Triglosa.app
 
 ## First steps
 
-1. **By default, Triglosa lives in the notification area at the bottom right (Windows) or in the menu bar (Mac).** The book symbol there
+1. **Triglosa lives in the notification area at the bottom right (Windows) or in the menu bar (Mac).** The book symbol there
    brings the window back, translates the selected text, opens the settings, checks for updates, or quits.
 2. **Set your languages** in the settings: your own language, which is also the interface language, and one or two
    you are learning, each with a level from A1 to C2. The level decides which words Triglosa explains, and how explanations, example sentences and flashcards are written.
@@ -121,8 +122,7 @@ Three things then go into the settings:
 - The **endpoint** is the address Triglosa sends its questions to; it almost always ends in `/v1`.
 - The **model** is that provider's name for the model, for example `deepseek/deepseek-v4.1-flash` in the cloud.
   If left empty, Triglosa takes the first model the endpoint offers.
-- The **key** is only needed with a cloud provider, and it goes into the Windows Credential Manager or your
-  macOS keychain, never into a file.
+- The **key** is only needed with a cloud provider.
 
 Click **Test connection** to see whether the model answers.
 

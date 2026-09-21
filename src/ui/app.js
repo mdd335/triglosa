@@ -21,7 +21,7 @@ import { createLlmBackend } from "../platform/llm.js";
 import { appFetch, copyText, ensureTranslationHelper, insideApp, openUrl, searchUrl } from "../platform/env.js";
 import { accessibilityGranted, insertText, keyLabels } from "../platform/capture.js";
 import { hotkeyLabel, menuAccelerator } from "../hotkey.js";
-import { applyPresence, applyTray, fitReadingWindow, hideWindow, onAppearAsked, onFreshAsked, unveilWindow, onSettingsChanged, onWindowShown, openCard, openSettings, showWindow } from "../platform/windows.js";
+import { applyPresence, applyTray, fitReadingWindow, hideWindow, onAppearAsked, onFreshAsked, unveilWindow, onSettingsChanged, onWindowShown, openCard, openSettings, updateCard, showWindow } from "../platform/windows.js";
 import { onCapture, onCardCapture, registerShortcuts } from "../platform/shortcut.js";
 import { searchLink } from "../platform/search.js";
 import { loadSettings, saveSettings } from "../platform/store.js";
@@ -1247,24 +1247,34 @@ await onCapture({
 /* The card shortcut, and the menu's card entry. What was selected goes on
    the side of its language — found the way a reading finds it — and the
    card window opens with it; with nothing selected, blank. The reading
-   window is not brought forward: the card is what was asked for. */
+   window is not brought forward: the card is what was asked for.
+
+   The window opens at once, with the text on the word side and a line
+   saying the language is being found: finding it may take the model a
+   second, and a card that waits for that is a shortcut that seems not to
+   have been heard. The answer then replaces the card, unless another card
+   has taken the window in the meantime. */
 async function openFreeCard(selected) {
   const reader = settings.languages[0];
-  let detected = "";
-  if (selected) {
-    const { translation, llm } = await backends();
-    try {
-      detected = (await detectLanguage(selected, {
-        languages: settings.languages, reader, translation, llm,
-      })).code;
-    } catch {
-      /* Not named: the text goes on the word side, as any foreign word. */
-    }
-  }
-  const { choices, preset } = cardLanguages(settings, detected);
-  const card = freeCard({ text: selected, detected, reader, choices, preset });
+  const title = windowTitle(text.cardCreate);
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  await openCard(windowTitle(text.cardCreate), { ...card, id });
+  const build = (detected) => {
+    const { choices, preset } = cardLanguages(settings, detected);
+    return { ...freeCard({ text: selected, detected, reader, choices, preset }), id };
+  };
+  if (!selected) return openCard(title, build(""));
+
+  await openCard(title, { ...build(""), detecting: true });
+  let detected = "";
+  try {
+    const { translation, llm } = await backends();
+    detected = (await detectLanguage(selected, {
+      languages: settings.languages, reader, translation, llm,
+    })).code;
+  } catch {
+    /* Not named: the text goes on the word side, as any foreign word. */
+  }
+  await updateCard(build(detected));
 }
 
 await onCardCapture({

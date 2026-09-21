@@ -104,6 +104,7 @@ export default {
   nothingOn: (word) => `No explanation received for “${word}”.`,
   searching: "searching…",
   cardImprove: "Improve with AI",
+  cardDetecting: "Finding the language…",
   cardImproving: "Improving the card…",
   cardUndo: "Undo AI improvement",
   cardImproveNothing: "No usable improvement received. The card stays as it was.",

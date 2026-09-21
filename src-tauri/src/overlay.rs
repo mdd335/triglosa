@@ -248,10 +248,12 @@ pub fn app_is_active() -> bool {
    from the bottom left, so keeping the top means moving the origin by what
    the height changes. Through the window's animator inside an animation
    group rather than `setFrame:display:animate:`, which blocks until it is
-   done and takes as long as the distance is long. Apple silicon only, where
-   a rectangle comes back from objc_msgSend like any other value; elsewhere
-   the height is set at once. */
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+   done and takes as long as the distance is long. On Apple silicon a
+   rectangle comes back from objc_msgSend like any other value; on Intel a
+   structure that large comes back through objc_msgSend_stret, which writes
+   it where the caller points — what Rust's C calling convention does for a
+   return value of that size anyway. */
+#[cfg(target_os = "macos")]
 mod animate {
     use std::ffi::{c_void, CString};
     use std::os::raw::c_char;
@@ -269,6 +271,8 @@ mod animate {
         fn sel_registerName(name: *const c_char) -> *const c_void;
         fn objc_getClass(name: *const c_char) -> *mut c_void;
         fn objc_msgSend();
+        #[cfg(target_arch = "x86_64")]
+        fn objc_msgSend_stret();
     }
 
     fn selector(name: &str) -> *const c_void {
@@ -283,7 +287,11 @@ mod animate {
             return;
         }
         let send = objc_msgSend as *const ();
-        let frame: extern "C" fn(*mut c_void, *const c_void) -> Rect = unsafe { std::mem::transmute(send) };
+        #[cfg(target_arch = "x86_64")]
+        let send_rect = objc_msgSend_stret as *const ();
+        #[cfg(not(target_arch = "x86_64"))]
+        let send_rect = send;
+        let frame: extern "C" fn(*mut c_void, *const c_void) -> Rect = unsafe { std::mem::transmute(send_rect) };
         let object: extern "C" fn(*mut c_void, *const c_void) -> *mut c_void = unsafe { std::mem::transmute(send) };
         let plain: extern "C" fn(*mut c_void, *const c_void) = unsafe { std::mem::transmute(send) };
         let duration: extern "C" fn(*mut c_void, *const c_void, f64) = unsafe { std::mem::transmute(send) };
@@ -341,13 +349,13 @@ mod animate {
    animated where the caller says somebody is watching it grow. Must be called
    on the main thread. */
 pub fn set_height_keeping_top(window: &tauri::WebviewWindow, height: f64, animated: bool) {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(target_os = "macos")]
     {
         if let Ok(handle) = window.ns_window() {
             animate::height(handle, height, animated);
         }
     }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(target_os = "macos"))]
     {
         let _ = animated;
         let scale = window.scale_factor().unwrap_or(1.0);
@@ -365,25 +373,25 @@ pub fn set_height_keeping_top(window: &tauri::WebviewWindow, height: f64, animat
    was put away — the previous reading, for a moment. Must be called on the
    main thread. */
 pub fn set_veiled(window: &tauri::WebviewWindow, veiled: bool) {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(target_os = "macos")]
     {
         if let Ok(handle) = window.ns_window() {
             animate::no_appearing_animation(handle);
             animate::alpha(handle, if veiled { 0.0 } else { 1.0 });
         }
     }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(target_os = "macos"))]
     let _ = (window, veiled);
 }
 
 /* Whether a size change comes from the reader's hand. Must be called on the
    main thread, which is where window events arrive. */
 pub fn in_live_resize(window: &tauri::WebviewWindow) -> bool {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    #[cfg(target_os = "macos")]
     {
         window.ns_window().map(animate::in_live_resize).unwrap_or(false)
     }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+    #[cfg(not(target_os = "macos"))]
     {
         let _ = window;
         false

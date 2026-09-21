@@ -27,12 +27,16 @@
    identifier *and* the certificate, and this stops being a compromise.
 
    The sidecar is signed first: signing a bundle seals what is inside it, so
-   anything replaced afterwards breaks the seal. */
+   anything replaced afterwards breaks the seal.
+
+   A target triple as the argument signs that target's build
+   (`npm run bundle:intel`); without one, this machine's own. */
 
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 
-const APP = "src-tauri/target/release/bundle/macos/Triglosa.app";
+const target = process.argv[2];
+const APP = `src-tauri/target/${target ? `${target}/` : ""}release/bundle/macos/Triglosa.app`;
 const IDENTIFIER = "de.mdd335.triglosa";
 
 if (!existsSync(APP)) {

@@ -85,6 +85,7 @@ export default {
   nothingOn: (word) => `Aucune explication reçue pour « ${word} ».`,
   searching: "recherche…",
   cardImprove: "Améliorer avec l’IA",
+  cardDetecting: "Détection de la langue…",
   cardImproving: "Amélioration de la fiche…",
   cardUndo: "Annuler l’amélioration par l’IA",
   cardImproveNothing: "Aucune amélioration utilisable reçue. La fiche reste inchangée.",

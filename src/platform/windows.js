@@ -74,6 +74,16 @@ export async function openCard(title, card) {
   return true;
 }
 
+/* A card already standing, answered further: the same card with what was
+   still being worked out. Taken only while that card is the one in the
+   window — a card opened since is not overwritten by a late answer — and
+   without bringing the window forward, which the reader may have left. */
+export async function updateCard(card) {
+  if (!insideApp()) return false;
+  await shell("update_card", { card: JSON.stringify(card) });
+  return true;
+}
+
 /* What the card window asks for when it has loaded, and again when it is told
    the card changed. */
 export async function takeCard() {
@@ -163,8 +173,8 @@ export function fitTo(height, current, grow) {
   return enough ? height : null;
 }
 
-/* A second row's button fills a window that is already open, and the page is
-   long past asking by then. */
+/* A card sent again to a window already open — a card from the shortcut
+   once its language is found — and the page is long past asking by then. */
 export async function onCardChanged(handler) {
   if (!insideApp()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");

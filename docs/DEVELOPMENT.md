@@ -19,8 +19,9 @@ npm run sidecar               # build the Swift translation helper (once, and af
 npm run app                   # the window with live reload
 npm test                      # unit tests, a few seconds, no external services
 cd src-tauri && cargo test    # the shell's own tests
-npm run bundle                # the signed Triglosa.app
-npm run release               # helper, signed app and the dmg
+npm run bundle                # the signed Triglosa.app, for this Mac's processor
+npm run bundle:intel          # the same for Intel, under target/x86_64-apple-darwin/
+npm run release               # helpers, signed apps and a dmg each for Apple silicon and Intel
 node scripts/shot.mjs out.png "some text"   # photograph the window's page (needs npm run app)
 ```
 
@@ -34,6 +35,11 @@ Always build with `npm run bundle`, never `tauri build` alone: macOS binds the
 Accessibility permission to the app's signature, and `scripts/sign.mjs` pins
 it to the identifier so it survives the next build. The language download
 prompt and the helper's own window only exist in a built app.
+
+The Mac has two downloads, Apple silicon and Intel, built on one Mac:
+`rustup target add x86_64-apple-darwin` once, and `npm run release` builds
+both. An Apple silicon Mac runs the Intel build through Rosetta, which is how
+it can be tried without an Intel Mac.
 
 ## Layout
 

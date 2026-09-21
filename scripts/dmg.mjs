@@ -6,17 +6,20 @@
    was signed instead, next to a link to /Applications so the window that
    opens says what to do with it.
 
-   The name carries the version and the architecture: the build is Apple
-   silicon only, and a file called Triglosa.dmg says nothing to somebody with an
-   Intel Mac. */
+   The name carries the version and the architecture: Apple silicon and
+   Intel get a download each, and a file called Triglosa.dmg says nothing
+   about which one it is. A target triple as the argument packs that
+   target's build; without one, this machine's own. */
 
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const APP = "src-tauri/target/release/bundle/macos/Triglosa.app";
-const OUT = "src-tauri/target/release/bundle/dmg";
+const target = process.argv[2];
+const RELEASE = `src-tauri/target/${target ? `${target}/` : ""}release`;
+const APP = `${RELEASE}/bundle/macos/Triglosa.app`;
+const OUT = `${RELEASE}/bundle/dmg`;
 
 if (!existsSync(APP)) {
   console.error(`${APP} is not there — run npm run bundle first.`);
@@ -31,7 +34,10 @@ const run = (command, args) =>
 run("codesign", ["--verify", "--deep", "--strict", APP]);
 
 const { version } = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
-const arch = execFileSync("uname", ["-m"], { encoding: "utf8" }).trim();
+/* In the words About This Mac uses, so that nobody needs to know what arm64
+   means to pick the right one. */
+const machine = target ? target.split("-")[0] : execFileSync("uname", ["-m"], { encoding: "utf8" }).trim();
+const arch = machine === "x86_64" ? "Intel" : "Apple-Silicon";
 const image = join(OUT, `Triglosa-${version}-${arch}.dmg`);
 
 const stage = join(tmpdir(), `triglosa-dmg-${process.pid}`);

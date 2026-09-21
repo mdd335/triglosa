@@ -43,16 +43,24 @@ impl Default for SettingsName {
     }
 }
 
-/* The card a window is being opened for, and its title.
+/* The card each card window holds, by the window's label.
 
    Handed over here rather than through an event, because there is no moment
    at which both ends are ready: the window is told to open and the card would
    be emitted before its page has a listener. The page asks for it instead,
    once, when it has loaded — and asks again when it is told the card changed,
-   which is what a second row's button does to a window already standing
-   open. */
+   which is what a card from the shortcut does once its language is found.
+   Every card gets a window of its own, so a second one never takes the place
+   of a card still being written. */
 #[derive(Default)]
-struct PendingCard(Mutex<Option<String>>);
+struct PendingCard {
+    cards: Mutex<std::collections::HashMap<String, String>>,
+    next: std::sync::atomic::AtomicUsize,
+}
+
+/* Where a new card window stands: a step down and to the right of the last
+   card still open, so the one underneath keeps showing its edge. */
+const CARD_STEP: f64 = 24.0;
 
 /* The height the reading window was last asked to take, in points of its
    whole frame — what it is on its way to while it animates, which its frame
@@ -859,24 +867,11 @@ fn settings_window(app: &tauri::AppHandle, about: bool) -> Result<(), String> {
    it — the reading window asks every window this app has before it puts
    itself away, so bringing the card forward leaves the reading standing.
 
-   Opened rather than toggled, like the settings: a second row's button fills
-   the window that is already there and brings it forward. */
-fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("card") {
-        let _ = window.set_title(&title);
-        let _ = window.unminimize();
-        let _ = window.show();
-        /* In front even where another program is: the card shortcut opens
-           this window straight out of whatever the reader was working in. */
-        let target = window.clone();
-        let _ = window.run_on_main_thread(move || overlay::bring_to_front(&target));
-        /* The page is already past asking, so it has to be told. */
-        let _ = app.emit_to("card", "card-changed", ());
-        return Ok(());
-    }
-
+   Each card opens a window of its own: a card being corrected stays standing
+   while the next one is made. */
+fn card_window(app: &tauri::AppHandle, label: &str, title: String) -> Result<(), String> {
     let builder =
-        tauri::WebviewWindowBuilder::new(app, "card", tauri::WebviewUrl::App("card.html".into()))
+        tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("card.html".into()))
             .title(title)
             /* Near what a card actually comes to, because the page measures
                itself and sets its own height as soon as it has drawn — a
@@ -889,6 +884,10 @@ fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
                as it was built, from the card shortcut, it stood behind the
                program in front. */
             .visible(false);
+    let builder = match last_card_place(app, label) {
+        Some((x, y)) => builder.position(x + CARD_STEP, y + CARD_STEP),
+        None => builder,
+    };
     /* The page runs the full height and draws the title line itself, so the
        wand can stand in it the way the gear stands in the reading window's.
        The three buttons stay: this window is closed the way everybody knows.
@@ -896,6 +895,15 @@ fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let builder = builder.title_bar_style(tauri::TitleBarStyle::Overlay).hidden_title(true);
     let window = builder.build().map_err(|error| error.to_string())?;
+    /* A closed card takes its card with it. */
+    let (handle, own) = (app.clone(), label.to_string());
+    window.on_window_event(move |event| {
+        if let WindowEvent::Destroyed = event {
+            if let Some(state) = handle.try_state::<PendingCard>() {
+                state.cards.lock().unwrap().remove(&own);
+            }
+        }
+    });
     overlay::over_full_screen(&window, overlay::Spaces::Active);
     let _ = window.show();
     let target = window.clone();
@@ -903,28 +911,77 @@ fn card_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
     Ok(())
 }
 
+fn is_card_label(label: &str) -> bool {
+    label.starts_with("card-")
+}
+
+/* The place of the newest card window still open, in points. */
+fn last_card_place(app: &tauri::AppHandle, except: &str) -> Option<(f64, f64)> {
+    let number = |label: &str| label.trim_start_matches("card-").parse::<usize>().unwrap_or(0);
+    let window = app
+        .webview_windows()
+        .into_iter()
+        .filter(|(label, window)| is_card_label(label) && label != except && window.is_visible().unwrap_or(false))
+        .max_by_key(|(label, _)| number(label))?
+        .1;
+    let scale = window.scale_factor().ok()?;
+    let place = window.outer_position().ok()?.to_logical::<f64>(scale);
+    Some((place.x, place.y))
+}
+
 /* Async, as every command that builds a window has to be: a synchronous one
    runs on the main thread, and on Windows building a web view there waits
    for the very thread it is holding. */
 #[tauri::command]
 async fn open_card_window(app: tauri::AppHandle, title: String, card: String) -> Result<(), String> {
-    if let Some(state) = app.try_state::<PendingCard>() {
-        *state.0.lock().unwrap() = Some(card);
+    let Some(state) = app.try_state::<PendingCard>() else { return Ok(()) };
+    let label = format!("card-{}", state.next.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1);
+    state.cards.lock().unwrap().insert(label.clone(), card);
+    card_window(&app, &label, title)
+}
+
+/* The same card with more known about it — the language of a card from the
+   shortcut, found after the window opened. Goes to the window holding that
+   card, if it is still open, without bringing it forward. */
+#[tauri::command]
+fn update_card(app: tauri::AppHandle, card: String) {
+    let Some(state) = app.try_state::<PendingCard>() else { return };
+    let mut cards = state.cards.lock().unwrap();
+    let Some(label) = cards
+        .iter()
+        .find(|(_, stored)| same_card(Some(stored.as_str()), &card))
+        .map(|(label, _)| label.clone())
+    else {
+        return;
+    };
+    cards.insert(label.clone(), card);
+    drop(cards);
+    let _ = app.emit_to(label.as_str(), "card-changed", ());
+}
+
+fn same_card(stored: Option<&str>, card: &str) -> bool {
+    let id = |raw: &str| {
+        serde_json::from_str::<serde_json::Value>(raw)
+            .ok()
+            .and_then(|value| value.get("id").and_then(|id| id.as_str()).map(String::from))
+    };
+    match (stored.and_then(id), id(card)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
     }
-    card_window(&app, title)
 }
 
-/* What the card window asks for once it has loaded, and again whenever it is
-   told the card changed. */
+/* What a card window asks for once it has loaded, and again whenever it is
+   told its card changed. */
 #[tauri::command]
-fn take_card(app: tauri::AppHandle) -> Option<String> {
+fn take_card(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Option<String> {
     app.try_state::<PendingCard>()
-        .and_then(|state| state.0.lock().unwrap().clone())
+        .and_then(|state| state.cards.lock().unwrap().get(window.label()).cloned())
 }
 
 #[tauri::command]
-fn close_card_window(app: tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("card") {
+fn close_card_window(window: tauri::WebviewWindow) {
+    if is_card_label(window.label()) {
         let _ = window.close();
     }
 }
@@ -1306,6 +1363,7 @@ pub fn run() {
             open_card_window,
             close_card_window,
             take_card,
+            update_card,
             key_labels,
             taken_shortcuts,
             apply_tray
@@ -1429,6 +1487,15 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_late_answer_only_replaces_its_own_card() {
+        use super::same_card;
+        assert!(same_card(Some(r#"{"id":"a","term":"x"}"#), r#"{"id":"a","term":"y"}"#));
+        assert!(!same_card(Some(r#"{"id":"b"}"#), r#"{"id":"a"}"#));
+        assert!(!same_card(Some(r#"{"term":"x"}"#), r#"{"term":"x"}"#));
+        assert!(!same_card(None, r#"{"id":"a"}"#));
+    }
+
     #[test]
     fn the_reading_window_fits_its_page_on_the_screen() {
         use super::fitted_height;
