@@ -58,7 +58,7 @@ src/
   ui/            the three windows: reading, settings, card
   platform/      everything that leaves the process
 src-tauri/
-  src/           the Rust shell (lib.rs, capture.rs, overlay.rs, keychain.rs, keyboard.rs)
+  src/           the Rust shell (lib.rs, capture.rs, overlay.rs, keychain.rs, keyboard.rs, update.rs)
   sidecar/       translator.swift
   capabilities/  window permissions — every window label must be listed here
 tests/

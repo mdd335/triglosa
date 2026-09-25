@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.3
+
+### New
+- A newer version can be installed from the settings with one click, and
+  Triglosa restarts on its own. It is downloaded only when you click.
+
+### Fixed
+- A security fix in the part that encrypts the connections to the AI model
+  and to GitHub.
+
 ## 0.4.2
 
 ### New

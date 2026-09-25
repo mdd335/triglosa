@@ -38,6 +38,7 @@ import {
   appFetch,
   appVersion,
   ensureTranslationHelper,
+  insideApp,
   openUrl,
   openLanguageSettings,
   prepareLanguages,
@@ -57,6 +58,7 @@ import { faultOf } from "../faults.js";
 import { CAPTURE_CODE_URL, HELP_URL, ISSUES_URL, MODEL_HELP_URL, PROJECT_URL, checkForUpdate } from "../updates.js";
 import { faultText, labels } from "./labels.js";
 import { keyHint } from "../platform/keychain.js";
+import { installUpdate } from "../platform/update.js";
 import { SEARCH_NAMES, SYSTEM_SEARCH, WINDOWS_SEARCH } from "../platform/search.js";
 import { element, field, group, reportOn, select, secretInput, textInput } from "./elements.js";
 
@@ -594,15 +596,48 @@ function aboutFields(text) {
   const check = element("button", null, text.updatesCheck);
   check.className = "update-check";
   const download = element("button", "quiet", text.updatesDownload);
+  /* Installing is offered only inside the app, and the download page stays
+     beside it: a release made before the app could install itself has
+     nothing to install from, and a reader may prefer the page anyway. */
+  const install = element("button", null, text.updatesInstall);
+  install.className = "update-check";
+  const installed = () => {
+    if (update.installing) return update.percent == null ? text.updatesInstalling : text.updatesLoading(update.percent);
+    const fault = update.installFault;
+    if (!fault) return text.updatesFound(update.version);
+    if (fault.kind === "none") return text.updatesInstallNone;
+    if (fault.kind === "unreachable") return text.updatesInstallUnreachable;
+    return text.updatesInstallFailed(fault.detail);
+  };
   const show = () => {
     download.remove();
+    install.remove();
     if (!update) return void (result.textContent = "");
     if (update.failed) return void (result.textContent = text.updatesFailed(update.status));
     if (!update.newer) return void (result.textContent = text.updatesNone);
-    result.textContent = text.updatesFound(update.version);
+    result.textContent = installed();
     download.onclick = () => openUrl(update.url);
+    if (insideApp() && update.installFault?.kind !== "none") {
+      install.disabled = !!update.installing;
+      buttons.append(install);
+    }
     buttons.append(download);
   };
+  install.addEventListener("click", async () => {
+    Object.assign(update, { installing: true, percent: null, installFault: null });
+    check.disabled = true;
+    show();
+    try {
+      await installUpdate((percent) => {
+        update.percent = percent === 100 ? null : percent;
+        if (row.isConnected) show();
+      });
+    } catch (error) {
+      Object.assign(update, { installing: false, installFault: error.fault || { kind: "failed", detail: "" } });
+    }
+    check.disabled = false;
+    if (row.isConnected) show();
+  });
   check.addEventListener("click", async () => {
     check.disabled = true;
     result.textContent = text.updatesChecking;

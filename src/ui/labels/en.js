@@ -173,10 +173,16 @@ export default {
   aboutProject: "Triglosa on GitHub",
   updatesCheck: "Check for updates",
   updatesChecking: "Checking …",
-  updatesHint: "Asks GitHub for the newest version. Triglosa only asks when you click here, and downloads nothing.",
+  updatesHint: "Asks GitHub for the newest version only when you click here. An update is downloaded only when you click “Install now”.",
   updatesNone: "You have the latest version.",
   updatesFound: (version) => `Version ${version} is available.`,
   updatesDownload: "Go to download",
+  updatesInstall: "Install now",
+  updatesLoading: (percent) => `Downloading … ${percent} %`,
+  updatesInstalling: "Installing … Triglosa will restart.",
+  updatesInstallNone: "This version cannot be installed from here. Please use “Go to download”.",
+  updatesInstallUnreachable: "The update could not be downloaded. Please try again later.",
+  updatesInstallFailed: (detail) => `The update was not installed${detail ? ` (${detail})` : ""}. Please use “Go to download”.`,
   updatesFailed: (status) => `No answer from GitHub${status ? ` (${status})` : ""}. Please try again later.`,
 
   /* Two switches rather than one: the card itself never leaves the machine

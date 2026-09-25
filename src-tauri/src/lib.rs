@@ -10,6 +10,7 @@ use std::sync::Mutex;
 mod capture;
 mod keyboard;
 mod keychain;
+mod update;
 mod overlay;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -1328,6 +1329,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Helper::default())
         .manage(SettingsName::default())
         .manage(PendingCard::default())
@@ -1345,6 +1347,7 @@ pub fn run() {
             prepare_languages,
             open_language_settings,
             anki_request,
+            update::install_update,
             launch_anki,
             preferred_search_report,
             system_languages_report,
