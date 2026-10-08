@@ -9,6 +9,7 @@ import {
   stripQuotes,
   toSentences,
   toTokens,
+  wordAround,
   wordCount,
   wordIndexOf,
 } from "../../src/text.js";
@@ -177,4 +178,55 @@ test("the word wins over the place", () => {
   const target = "Gestern regnete es. Er ging durch den Park.";
   assert.strictEqual(sentenceWith(target, "Park", { index: 0, total: 2 }),
     "Er ging durch den Park.");
+});
+
+/* Chinese, Japanese and Thai put no space between words. The platform's own
+   word segmentation cuts them; everything written with spaces is cut as
+   before. */
+const segmentedWords = (t) => toTokens(t).filter((p) => p.isWord).map((p) => p.text);
+
+test("a script without spaces comes apart into its words, and the pieces still cover the text", () => {
+  const t = "尽管经济形势严峻，政府仍然决定提高最低工资。";
+  assert.deepStrictEqual(segmentedWords(t),
+    ["尽管", "经济", "形势", "严峻", "政府", "仍然", "决定", "提高", "最低", "工资"]);
+  assert.strictEqual(toTokens(t).map((p) => p.text).join(""), t);
+  assert.deepStrictEqual(segmentedWords("Er sagte 我们明天见 und ging"), ["Er", "sagte", "我们", "明天", "见", "und", "ging"]);
+  assert.deepStrictEqual(segmentedWords("東京は日本の首都です。"), ["東京", "は", "日本", "の", "首都", "です"]);
+});
+
+test("a word in a script without spaces is found where it stands as a word, not inside another", () => {
+  const t = "政府仍然决定提高最低工资。";
+  assert.strictEqual(wordIndexOf(t, "最低工资"), t.indexOf("最低工资"));
+  assert.strictEqual(wordIndexOf(t, "工资"), t.indexOf("工资"));
+  assert.strictEqual(wordIndexOf(t, "低工"), -1, "half of two words");
+  assert.strictEqual(wordIndexOf(t, "资。"), -1, "half of a word and the stop");
+  assert.ok(containsWord("我们明天见", "明天"));
+});
+
+test("words in a script without spaces are counted one by one", () => {
+  assert.strictEqual(wordCount("工资"), 1);
+  assert.strictEqual(wordCount("最低工资"), 2);
+  assert.strictEqual(wordCount("尽管经济形势严峻，政府仍然决定提高最低工资。"), 10);
+  assert.strictEqual(wordCount("Er sagte 我们明天见"), 5);
+  assert.strictEqual(wordCount("（最低工资）"), 2);
+});
+
+test("a Chinese text comes apart at its own full stops, closing quotes kept", () => {
+  assert.deepStrictEqual(toSentences("他说：“我们明天见。”然后他走了。你呢？！我很好。"),
+    ["他说：“我们明天见。”", "然后他走了。", "你呢？！", "我很好。"]);
+});
+
+test("a character read under the pointer grows to the word of a script without spaces it stands in", () => {
+  const t = "政府仍然决定提高最低工资。这项政策引起了广泛的讨论。";
+  const at = t.indexOf("政策");
+  assert.deepStrictEqual(wordAround(t, at, at + 1), { start: at, end: at + 2 });
+  assert.deepStrictEqual(wordAround(t, at, at + 2), { start: at, end: at + 2 }, "already the word");
+  assert.strictEqual(wordAround(t, 0, t.indexOf("。")), null, "a whole clause: where the pointer was is not known");
+  /* Written with spaces: the half of a broken word a PDF's line holds. */
+  const pdf = "a new language representation model";
+  assert.deepStrictEqual(wordAround(pdf, 15, 25), { start: 15, end: 29 }, "representa → representation");
+  assert.deepStrictEqual(wordAround("Die Regierung hat beschlossen", 4, 13), { start: 4, end: 13 }, "a whole word stays");
+  assert.deepStrictEqual(wordAround("l'homme pre-trained", 2, 7), { start: 2, end: 7 }, "not past an apostrophe");
+  assert.deepStrictEqual(wordAround("l'homme pre-trained", 12, 19), { start: 12, end: 19 }, "nor past a hyphen");
+  assert.strictEqual(wordAround("Die Regierung hat", 0, 13), null, "two words: where the pointer was is not known");
 });

@@ -7,14 +7,14 @@
    the original: the original text, the translations, then the picked word,
    verbs and terms. */
 
-import { fragmentsForPanel, selectionForPanel } from "../highlights.js";
+import { differsFromLookup, fragmentsForPanel, fragmentsForSentence, selectionForPanel } from "../highlights.js";
 import { explanationsAvailable, showsSection } from "../settings.js";
 import { entryCard, markedCard, readingCard, termCard, verbCard } from "../card.js";
 import { bareInfinitive, citationForm, languageLabel, languagePack, writingDirection } from "../languages/index.js";
 import { languageChoice } from "./language-choice.js";
-import { faultText, labels } from "./labels.js";
+import { creditLine, faultText, labels } from "./labels.js";
 import { actions, button, element, lockedNote, pane, reportOn } from "./elements.js";
-import { markPanel, markGroups } from "./marking.js";
+import { markLine, markPanel, markGroups } from "./marking.js";
 import { watchSelection } from "./selection.js";
 import { roomForExample } from "../examples.js";
 
@@ -102,6 +102,17 @@ function cardButton(tools, text, wordLanguage, build) {
   return button(text.card, () => tools.card(build()), "card");
 }
 
+/* The looked-up words as a verb, where the term below them is that verb
+   and nothing more: the entry's card is then a verb's. */
+function lookedUpVerb(state) {
+  const word = state.words?.[0];
+  if (!word?.verb || differsFromLookup(state, word)) return null;
+  return { ...word.verb, meaning: word.meaning, note: word.note };
+}
+
+/* A lookup's one term in the app's accent; a longer text's three apart. */
+const termShade = (state) => (state.short ? "tmark" : "wmark");
+
 /* One panel's text with the difficult words marked in it. The same for the
    original and for a translation — which fragments land where is the only
    difference, and highlights.js has already worked that out. */
@@ -115,15 +126,15 @@ function markSource(body, state, index, settings, codes) {
   markPanel(
     body,
     state.panels[index].text,
-    markGroups(away("terms") ? [] : parts.words, "wmark")
-      .concat(markGroups(away("verbs") ? [] : parts.verbs, "vmark")),
+    markGroups(away("terms") ? [] : parts.words, termShade(state), parts.near?.words)
+      .concat(markGroups(away("verbs") ? [] : parts.verbs, "vmark", parts.near?.verbs)),
     /* The picked word's frame is the reader's own act and stays; its spots
        in the other panels point at the area, and go with it. */
     away(MARKED) && state.selection?.panel !== index
       ? null
       : selectionForPanel(state, index, settings.languages),
     codes,
-    state.selection?.panel === index,
+    state.selection?.panel === index && !state.selection.inSentence,
   );
   /* A panel holds one language, so the direction is a property of the panel
      and not of anything inside it. Arabic marked up this way keeps its
@@ -159,6 +170,18 @@ function markSource(body, state, index, settings, codes) {
 /* A panel's language as its heading names it: by its code where the app
    knows one — a language the reader chose has one even without a pack —
    and otherwise by the name the run found. */
+/* A model as a person would name it: without the provider in front
+   ("deepseek/deepseek-v4.1-flash" is "deepseek-v4.1-flash"). */
+const modelName = (model) => String(model || "").split("/").pop();
+
+/* The ones a hint names (labels.js, `creditLine`). */
+const TRIGLOSA = { kind: "triglosa" };
+const theModel = (model) => ({ kind: "model", name: modelName(model) });
+/* Who placed a section's rows in the translations, from what the run noted. */
+const placedBy = (by, model) => ({ aligner: [TRIGLOSA], model: [theModel(model)], both: [TRIGLOSA, theModel(model)] })[by] || [];
+/* A section's hint: who explained its rows and who placed them. */
+const sectionCredit = (text, model, by) => creditLine(text, [["explained", [theModel(model)]], ["assigned", placedBy(by, model)]]);
+
 function panelName(entry, reader) {
   return (entry.code && languageLabel(entry.code, reader))
     || (entry.iso && languageLabel(entry.iso, reader))
@@ -175,19 +198,28 @@ export function renderHeading(node, state, { text, settings, editing, onLanguage
   const name = !editing && first ? panelName(first, reader) || text.unknownLanguage : "";
   const current = first ? (first.code || first.iso || "") : "";
   const guesses = state?.source?.guesses || [];
-  const key = JSON.stringify([text.original, text.sourceLanguage, name, current, recent, guesses, settings.languages, !!onLanguage]);
+  /* Who named the language, for a pointer resting on the heading, the way
+     a translation's heading says who wrote it. */
+  const namedBy = { text: [TRIGLOSA], device: [{ kind: "device" }], model: [theModel(state?.source?.model)], reader: [{ kind: "reader" }] }[state?.source?.by];
+  /* And who said which word became which, for the hover. */
+  const matchedBy = state?.glance?.sentences ? placedBy(state.glance.by, state.model) : [];
+  const source = name && current ? creditLine(text, [["detected", namedBy], ["words", matchedBy]]) : "";
+  const key = JSON.stringify([text.original, text.sourceLanguage, name, current, recent, guesses, settings.languages, !!onLanguage, source]);
   if (node.dataset.key === key) return;
   node.dataset.key = key;
   if (!name) {
     node.replaceChildren(element("span", "name", text.original));
     return;
   }
-  node.replaceChildren(
-    element("span", "name", `${text.original} ·`),
-    onLanguage
-      ? languageChoice({ name, current, recent, guesses, languages: settings.languages, reader, text, onChoose: onLanguage })
-      : element("span", "name", name),
-  );
+  const original = element("span", "name", `${text.original} ·`);
+  const language = onLanguage
+    ? languageChoice({ name, current, recent, guesses, languages: settings.languages, reader, text, onChoose: onLanguage })
+    : element("span", "name", name);
+  node.replaceChildren(original, language);
+  if (!source) return;
+  /* Under the word "Original", where a button's label hangs: over the
+     title line's own row it had no room it could count on. */
+  node.append(element("span", "pill-label heading-note", source));
 }
 
 function originalHeading(text, language, editing) {
@@ -195,7 +227,7 @@ function originalHeading(text, language, editing) {
   return name ? `${text.original} · ${name}` : text.original;
 }
 
-function originalPane({ text, tools, edit, entry, marked, onPick, card }) {
+function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, lookedUpIn, sentences, onSentence }) {
   /* Headless: this section's heading is the line above the sheet, which holds
      the window's buttons and therefore cannot scroll away with the text. */
   const section = pane({ bare: true });
@@ -214,8 +246,14 @@ function originalPane({ text, tools, edit, entry, marked, onPick, card }) {
 
   marked(box);
   if (onPick) watchSelection(box, 0, onPick);
+  if (lookedUpIn) box.after(sentenceLine(lookedUpIn, onPick));
+  if (sentences?.back) section.prepend(neighbourLine(text.previousSentence, "↑", sentences.back, entry, () => onSentence(-1)));
+  if (sentences?.next) section.append(neighbourLine(text.nextSentenceLine, "↓", sentences.next, entry, () => onSentence(1)));
   frame.append(actions([
     button(text.edit, () => edit.onEdit(), "edit"),
+    /* A looked-up word is said aloud like a row's; a longer text is read,
+       not listened to. */
+    aloud ? speakButton(tools, text, entry?.code, entry?.text) : null,
     button(text.copy, (node) =>
       reportOn(node, () => tools.copy(entry ? entry.text : edit.draft), text.copied), "copy"),
     /* In short mode the reading is a word, and a word in a language being
@@ -225,6 +263,35 @@ function originalPane({ text, tools, edit, entry, marked, onPick, card }) {
     card ? cardButton(tools, text, entry?.code, card) : null,
   ].filter(Boolean)));
   return section;
+}
+
+/* The sentence a short text was looked up in, under it, quieter than
+   anything else on the sheet, the text itself lifted out: what the first
+   line of the entry is the meaning in. */
+/* Its words can be picked like a panel's, and a word picked there is asked
+   about in the sentence; the pick says where it came from, or its place
+   would be read in the original. */
+function sentenceLine({ text: sentence, start, end, selection, terms, codes }, onPick) {
+  const line = element("p", "looked-up-in");
+  line.dir = "auto";
+  markLine(line, sentence, { start, end }, selection ? [selection] : null, terms, codes);
+  if (onPick) watchSelection(line, 0, (choice) => onPick({ ...choice, inSentence: true }));
+  return line;
+}
+
+/* The sentence before or after the one read, in the text it was read out
+   of: outside the field, since it is not about the text in it, as small as
+   the sentence a word was looked up in, and one line whatever its length.
+   Pressed, it is read in the place of the one on screen. */
+function neighbourLine(label, arrow, sentence, entry, onStep) {
+  const line = element("button", "neighbour");
+  line.type = "button";
+  line.setAttribute("aria-label", label);
+  const words = element("span", "", sentence.replace(/\s+/g, " "));
+  words.dir = entry?.code ? writingDirection(entry.code) : "auto";
+  line.append(element("span", "", arrow), words);
+  line.addEventListener("click", onStep);
+  return line;
 }
 
 /* The field itself. It grows with what is typed into it rather than scrolling
@@ -267,23 +334,33 @@ function draftField(text, edit) {
   return field;
 }
 
+/* The word said aloud, as it stands in the text and in its own language —
+   the form the reader met, which is the one they want to hear. Only where
+   the system has a voice for that language (platform/speech.js), and never
+   in the reader's own language, which nobody needs read out to them. */
+function speakButton(tools, text, language, words) {
+  if (!tools.speak || !words || language === tools.reader || !tools.canSpeak?.(language)) return null;
+  return button(text.speak, () => tools.speak(words, language), "speak");
+}
+
 function searchButton(tools, text, term) {
   return button(text.search, (node) =>
     reportOn(node, () => tools.search(term), text.opened), "search");
 }
 
-/* The conjugation table for a base form, where the language names a site for
-   one. It stands next to the web search rather than instead of it: the two
-   answer different questions about the same verb — how it is formed, and what
-   else is written about it — and a reader looking at a verb may well want
-   either. Which language decides is the one the word is in, not the one the
-   text is in: a verb clicked in a translation panel conjugates in that
-   panel's language. */
-function conjugationButton(tools, text, language, infinitive) {
+/* One button to look a row's word up: a verb's conjugation table, anything
+   else on the web — never both. Which language decides is the one the word
+   is in, not the one the text is in: a verb clicked in a translation panel
+   conjugates in that panel's language. A verb whose language names no
+   conjugation site is searched for in its base form, the word a dictionary
+   or a forum is written about. */
+function lookUpButton(tools, text, language, infinitive, term) {
+  if (!infinitive) return searchButton(tools, text, term);
+  const bare = bareInfinitive(language, infinitive);
   const address = languagePack(language).conjugationUrl;
-  if (!address || !infinitive) return null;
+  if (!address) return searchButton(tools, text, bare || term);
   return button(text.conjugation, (node) =>
-    reportOn(node, () => tools.open(address(bareInfinitive(language, infinitive))), text.opened), "conjugation");
+    reportOn(node, () => tools.open(address(bare)), text.opened), "conjugation");
 }
 
 function verbRow(verb, index, { text, tools, sourceLanguage, sentence, translation, spotOf, moreOf, onMore, onExample, reader }) {
@@ -298,13 +375,10 @@ function verbRow(verb, index, { text, tools, sourceLanguage, sentence, translati
   moreText(main, more, { text, reader });
 
   rowActions(line, [
+    speakButton(tools, text, sourceLanguage, verb.form),
     moreButton(text, more, onMore && (() => onMore({ kind: "verbs", index, item: verb }))),
     exampleButton(text, more, onExample && (() => onExample({ kind: "verbs", index, item: verb }))),
-    conjugationButton(tools, text, sourceLanguage, verb.infinitive),
-    /* Looked up in its base form: that is the word a dictionary, a forum or
-       an example sentence is written about. The inflected form is a spot in
-       this text and nowhere else. */
-    searchButton(tools, text, bareInfinitive(sourceLanguage, verb.infinitive) || verb.form),
+    lookUpButton(tools, text, sourceLanguage, verb.infinitive, verb.form),
     cardButton(tools, text, sourceLanguage, () =>
       verbCard(verb, { text, sourceLanguage, reader: tools.reader, sentence, translation,
                        spot: spotOf("verbs", index) })),
@@ -317,25 +391,40 @@ function verbRow(verb, index, { text, tools, sourceLanguage, sentence, translati
    What decides is the language of the word, not of the source text. The
    exception is an abbreviation — there stands the expansion, and a reader
    needs that in their own language too. */
-function termRow(word, index, { text, tools, sourceLanguage, sentence, translation, spotOf, moreOf, onMore, onExample, reader }) {
-  const { line, main, head } = newRow("wmark" + (index % 3));
-  head.append(element("span", "term mark wmark" + (index % 3), word.text));
-  if (!showAbbreviation(head, word.abbreviation) && sourceLanguage !== tools.reader) {
-    showEquivalent(head, [word.text], word.meaning);
+/* `entryAbove`: a lookup's term that is the looked-up words themselves,
+   unmarked above and so unmarked here; its buttons stay. */
+function termRow(word, index, { text, tools, sourceLanguage, sentence, translation, spotOf, moreOf, onMore, onExample, reader },
+                 { shade = "wmark" + (index % 3), entryAbove = false } = {}) {
+  const { line, main, head } = newRow(shade);
+  /* A lookup's term that is the looked-up words is marked nowhere above, so
+     neither here: no line, and nothing for the pointer to light up. */
+  head.append(element("span", entryAbove ? "term" : "term mark " + shade, word.text));
+  /* A looked-up verb form (ask.js, lookupVerb): drawn the way a verb row
+     is, its base form after an arrow and person and tense for a class. */
+  const verb = word.verb;
+  if (verb) {
+    head.append(element("span", "arrow", "→"));
+    head.append(element("span", "base", citationForm(sourceLanguage, verb.infinitive)));
   }
-  const kind = classLine(text, word.wordClass);
+  if (!showAbbreviation(head, word.abbreviation) && sourceLanguage !== tools.reader) {
+    showEquivalent(head, [word.text, verb?.infinitive].filter(Boolean), word.meaning);
+  }
+  const kind = verb ? [verb.person, verb.tense].filter(Boolean).join(" · ") : classLine(text, word.wordClass);
   if (kind) head.append(element("span", "grammar", kind));
   if (word.note) main.append(element("div", "explanation", word.note));
   const more = moreOf("words", index);
   moreText(main, more, { text, reader });
 
   rowActions(line, [
+    speakButton(tools, text, sourceLanguage, word.text),
     moreButton(text, more, onMore && (() => onMore({ kind: "words", index, item: word }))),
     exampleButton(text, more, onExample && (() => onExample({ kind: "words", index, item: word }))),
-    searchButton(tools, text, word.text),
-    cardButton(tools, text, sourceLanguage, () =>
-      termCard(word, { text, sourceLanguage, reader: tools.reader, sentence, translation,
-                       spot: spotOf("words", index) })),
+    lookUpButton(tools, text, sourceLanguage, verb?.infinitive, word.text),
+    cardButton(tools, text, sourceLanguage, () => (verb
+      ? verbCard({ ...verb, form: word.text, meaning: word.meaning }, { text, sourceLanguage, reader: tools.reader,
+                                                                     sentence, translation, spot: spotOf("words", index) })
+      : termCard(word, { text, sourceLanguage, reader: tools.reader, sentence, translation,
+                         spot: spotOf("words", index) }))),
   ]);
   return line;
 }
@@ -381,13 +470,13 @@ function markedRow(marked, { text, tools, wordLanguage, sentence, translation, o
   }
 
   rowActions(line, [
+    speakButton(tools, text, wordLanguage, marked.text),
     moreButton(text, marked, onMore && (() => onMore({ kind: "marked", item: marked }))),
     exampleButton(text, marked, onExample && (() => onExample({ kind: "marked", item: marked }))),
     /* A marked word that is a verb is a verb: the row already says form,
        base, meaning, person and tense the way the verb table does, and it
-       gets the same pair of buttons. */
-    conjugationButton(tools, text, wordLanguage, marked.infinitive),
-    searchButton(tools, text, bareInfinitive(wordLanguage, marked.infinitive) || marked.text),
+       gets the same button. */
+    lookUpButton(tools, text, wordLanguage, marked.infinitive, marked.text),
     cardButton(tools, text, wordLanguage, () =>
       markedCard(marked, { text, wordLanguage, reader: tools.reader, sentence, translation })),
   ]);
@@ -395,14 +484,15 @@ function markedRow(marked, { text, tools, wordLanguage, sentence, translation, o
 }
 
 /* A marked passage: the passage and its translation, drawn the way every
-   row's first line is, and nothing else the reader did not mark. Web search
-   and card stay; conjugation, synonyms and the two explanation buttons are
+   row's first line is, and nothing else the reader did not mark. Saying it
+   aloud, web search and card stay; conjugation, synonyms and the two explanation buttons are
    about a word. */
 function passageRow(marked, { text, tools, wordLanguage, sentence, translation }) {
   const { line, head } = newRow("sel");
   head.append(element("span", "term", marked.text));
   showEquivalent(head, [marked.text], marked.meaning);
   rowActions(line, [
+    speakButton(tools, text, wordLanguage, marked.text),
     searchButton(tools, text, marked.text),
     cardButton(tools, text, wordLanguage, () =>
       markedCard(marked, { text, wordLanguage, reader: tools.reader, sentence, translation })),
@@ -481,15 +571,19 @@ function exampleButton(text, holder, ask) {
 
    Its words can be picked like those of a sentence: a translation of one
    word is as likely to be the word worth asking about as the word itself. */
-function alternativeRow(item, { text, tools, panelLanguage, sentence, sourceLanguage, readerAlternatives, selection, onPick }) {
+function alternativeRow(item, { text, tools, panelLanguage, sentence, sourceLanguage, readerAlternatives, selection, onPick, here }) {
   const { line, head } = newRow("");
   const term = element("span", "term");
   markPanel(term, item.text, [], selection, [panelLanguage].filter(Boolean));
   term.dir = writingDirection(panelLanguage);
   watchSelection(term, 0, onPick);
   head.append(term);
-  if (item.note) head.append(element("span", "grammar", item.note));
+  /* The meaning there says what it is instead of its note, which beside
+     the sentence says little more than "usual". */
+  if (here) head.append(element("span", "grammar here", text.inSentence));
+  else if (item.note) head.append(element("span", item.gloss ? "grammar gloss" : "grammar", item.note));
   rowActions(line, [
+    speakButton(tools, text, panelLanguage, item.text),
     insertButton(tools, text, item.text),
     button(text.copy, (node) =>
       reportOn(node, () => tools.copy(item.text), text.copied), "copy"),
@@ -552,7 +646,7 @@ function foldButton(box, key, { state, text, onFold }) {
    never will, so an area standing at "…" would be waiting for something
    nobody is working on. That happens the moment the reader switches a
    section on: the reading on screen was made without it. */
-function section({ title, status, rows, empty, text, name, busy, reader, runFault }) {
+function section({ title, status, rows, empty, text, name, busy, reader, runFault, credit = "" }) {
   const working = status === "working" || status === "linking";
   /* What the run put there is either one of its own words for a state or a
      fault — an object with no words in it at all.
@@ -575,7 +669,10 @@ function section({ title, status, rows, empty, text, name, busy, reader, runFaul
   /* Rows already found stay on screen while the assignment runs: the meanings
      are readable long before the colours arrive. */
   if (rows && rows.length) {
-    const box = pane({ title, status: working ? note : "", rows: true, name });
+    /* Once the rows stand, who made them: for a pointer resting on the
+       section's name, as a panel says who translated it. */
+    const box = pane({ title, status: working ? note : credit, rows: true, name });
+    if (!working && credit) box.querySelector(".label .status").classList.add("on-hover");
     const body = box.querySelector(".box");
     for (const line of rows) body.append(line);
     return box;
@@ -615,7 +712,7 @@ export function renderReading(sheet, state, handlers) {
   return draw(sheet, state, handlers);
 }
 
-function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, onFold, onMore, onExample }) {
+function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, onFold, onMore, onExample, sentences, onSentence }) {
   const text = labels(settings.languages[0]);
   sheet.textContent = "";
 
@@ -624,7 +721,10 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
      the reader writes in — and under it the areas a model would fill, so that
      what is missing can be missed. */
   if (!state || !state.panels.length) {
-    sheet.append(originalPane({ text, tools, edit, marked: (box) => {
+    /* The sentences around it stand from the first moment of a step: gone
+       while the language is being found, they came back a second later
+       under a pointer that had meant to press again. */
+    sheet.append(originalPane({ text, tools, edit, sentences, onSentence, marked: (box) => {
       box.textContent = edit.draft;
       if (!edit.draft) box.classList.add("muted");
     } }));
@@ -672,26 +772,44 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
         text, tools, edit, entry,
         marked: (body) => markSource(body, state, 0, settings, codes),
         onPick,
+        aloud: state.short,
+        sentences,
+        onSentence,
+        lookedUpIn: state.short && state.sentence
+          ? {
+              ...state.sentence,
+              selection: state.selection?.inSentence ? state.selection : null,
+              /* Folded away, the term takes its colour with it, as in a panel. */
+              terms: state.folded?.has("terms") ? [] : markGroups(fragmentsForSentence(state), "tmark"),
+              codes,
+            }
+          : null,
         card: state.short
           ? () => readingCard({
               text: entry.text,
               sourceLanguage: entry.code,
               reader: tools.reader,
               alternatives: readerPanel?.alternatives,
+              verb: lookedUpVerb(state),
+              sentence: state.sentence?.text || "",
             })
           : null,
       }));
       return;
     }
 
-    /* Who translated it, said only where it was not the one the reader chose:
-       they chose for a reason, and a panel that came from the other one would
-       otherwise be read as theirs. Quiet, at the far end of the heading, where
-       a section says what it is doing. */
+    /* Who translated it. Said outright where it was not the one the reader
+       chose — they chose for a reason, and a panel that came from the other
+       one would otherwise be read as theirs — and otherwise only for a
+       pointer resting on the panel's name: a reader comparing two panels
+       may want to know. One place for both, quiet, at the far end of the
+       heading, where a section says what it is doing. */
+    const written = entry.engine && (entry.text || entry.alternatives?.length);
     const box = pane({
       title: named(entry),
-      status: entry.fallback && entry.text ? text.translatedBy[entry.engine] : "",
+      status: written ? creditLine(text, [["translated", [entry.engine === "device" ? { kind: "device" } : theModel(entry.model)]]]) : "",
     });
+    if (written && !entry.fallback) box.querySelector(".label .status").classList.add("on-hover");
     foldButton(box, `panel:${entry.code || entry.name || index}`, { state, text, onFold });
     const body = box.querySelector(".box");
 
@@ -727,6 +845,8 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
         const chosen = state.selection?.panel === index && state.selection.entry === line;
         body.append(alternativeRow(item, {
           text, tools, panelLanguage: entry.code, sentence: state.panels[0].text,
+          /* Looked up in its sentence, the first line is the meaning there. */
+          here: line === 0 && !!state.sentence,
           sourceLanguage: state.panels[0].code,
           readerAlternatives: readerPanel?.alternatives,
           selection: chosen ? [{ start: state.selection.start, end: state.selection.end }] : null,
@@ -781,18 +901,21 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
     /* A word picked out of a dictionary line stands in that line, not in a
        sentence of the panel's. */
     const picked = state.selection.entry;
-    const pickedFrom = picked == null ? panel?.text : panel?.alternatives?.[picked]?.text;
+    const pickedFrom = state.selection.inSentence
+      ? state.sentence?.text
+      : picked == null ? panel?.text : panel?.alternatives?.[picked]?.text;
     const named_ = panel ? named(panel) : "";
     const area = appendSection({
       name: MARKED,
       title: named_ ? `${text.marked} · ${named_}` : text.marked,
       status: state.markedStatus,
+      credit: marked ? sectionCredit(text, marked.model || state.model, marked.assignedBy) : "",
       runFault: state.fault,
       rows: marked
         ? [markedRow(marked, {
             text, tools, wordLanguage,
             sentence: pickedFrom || "",
-            translation, onLookUp, onMore, onExample, reader: settings.languages[0],
+            translation: state.selection.inSentence ? "" : translation, onLookUp, onMore, onExample, reader: settings.languages[0],
           })]
         : [],
       empty: text.nothingOn(state.selection.term || ""),
@@ -806,15 +929,38 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
     }
   };
 
-  /* Short mode: no verb table and no word list — there is no context to find
-     difficult words in, and the other panels hold lists rather than
-     sentences. A word picked out of the reading or out of one of those lines
-     is still worth asking about, and that area is drawn here like anywhere
-     else. Locked, the panels hold the device's plain translation, and the
-     one line says what a model adds. */
+  const fold = (drawn, key) => {
+    if (drawn) foldButton(drawn, key, { state, text, onFold });
+  };
+
+  /* Short mode: no verb table, and one term at most — the looked-up words,
+     or the fixed expression in their sentence they belong to, explained
+     where they are hard enough for this reader. A word picked out of the
+     reading or out of the entry's lines is still worth asking about, and
+     that area is drawn here like anywhere else. Locked, the panels hold the
+     device's plain translation, and the one line says what a model adds. */
   if (state.short) {
-    if (locked) sheet.append(lockedNote(text));
-    else if (state.selection) appendMarked();
+    if (locked) {
+      sheet.append(lockedNote(text));
+      return heading;
+    }
+    if (about("terms")) {
+      /* The panels hold the word's translation, not the sentence's: the
+         sentence goes on a card as it stands. */
+      const inSentence = state.sentence ? { ...context, sentence: state.sentence.text, translation: "" } : context;
+      fold(appendSection({
+        title: text.term,
+        status: state.status.words,
+        credit: sectionCredit(text, state.model, ""),
+        rows: state.words && state.words.map((word, index) =>
+          termRow(word, index, inSentence, { shade: "tmark0", entryAbove: !differsFromLookup(state, word) })),
+        empty: text.noTerm,
+        text,
+        reader: settings.languages[0],
+        busy: state.busy,
+      }), "terms");
+    }
+    if (state.selection) appendMarked();
     return heading;
   }
 
@@ -828,32 +974,30 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
   /* First of the three, because it answers what the reader has just done. */
   if (state.selection) appendMarked();
 
-  const fold = (drawn, key) => {
-    if (drawn) foldButton(drawn, key, { state, text, onFold });
-  };
-
-  if (about("verbs")) {
-    fold(appendSection({
-      title: text.verbs,
-      status: state.status.verbs,
-      rows: state.verbs && state.verbs.map((verb, index) => verbRow(verb, index, context)),
-      empty: text.noVerbs,
-      text,
-      reader: settings.languages[0],
-      busy: state.busy,
-    }), "verbs");
-  }
-
   if (about("terms")) {
     fold(appendSection({
       title: text.terms,
       status: state.status.words,
+      credit: sectionCredit(text, state.model, state.wordAlign?.by),
       rows: state.words && state.words.map((word, index) => termRow(word, index, context)),
       empty: text.noTerms,
       text,
       reader: settings.languages[0],
       busy: state.busy,
     }), "terms");
+  }
+
+  if (about("verbs")) {
+    fold(appendSection({
+      title: text.verbs,
+      status: state.status.verbs,
+      credit: sectionCredit(text, state.model, state.verbAlign?.by),
+      rows: state.verbs && state.verbs.map((verb, index) => verbRow(verb, index, context)),
+      empty: text.noVerbs,
+      text,
+      reader: settings.languages[0],
+      busy: state.busy,
+    }), "verbs");
   }
 
   return heading;

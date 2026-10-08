@@ -52,7 +52,7 @@
                          difficulty(form)    higher means harder to look up
 
    Only Spanish has a verbs section: it is the one language with a measured
-   calibration behind it, and phase 6 measured that such calibration does not
+   calibration behind it, and the prompt measurements showed such calibration does not
    generalise. Where it is missing, showing one verb row too few beats showing
    a wrong one — while `grammar`, which does generalise, is filled everywhere. */
 

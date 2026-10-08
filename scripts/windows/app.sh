@@ -5,7 +5,7 @@
 set -e
 cd "$(dirname "$0")"
 ./sync.sh
-./run.sh 'Get-Process Triglosa -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 1; cmd /c "npx tauri build --debug --target x86_64-pc-windows-msvc --no-bundle 2>&1" | Select-String -Pattern "^error|^\s+-->|Built application|could not compile" -Context 0,6 | % { $_.ToString() }'
+./run.sh 'Get-Process Triglosa -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 1; node scripts/aligner-fetch.mjs; cmd /c "npx tauri build --debug --target x86_64-pc-windows-msvc --no-bundle 2>&1" | Select-String -Pattern "^error|^\s+-->|Built application|could not compile" -Context 0,6 | % { $_.ToString() }'
 printf '%s\n' \
   'Get-Process Triglosa -ErrorAction SilentlyContinue | Stop-Process -Force' \
   'explorer.exe C:\triglosa\src-tauri\target\x86_64-pc-windows-msvc\debug\Triglosa.exe' \

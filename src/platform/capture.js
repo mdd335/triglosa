@@ -30,6 +30,13 @@ export async function accessibilityGranted() {
    half the users. Answers whether the permission is there now, which is
    normally false — macOS puts the app into the list and leaves the switch to
    the reader. */
+/* Whether the permission is to be used at all — the settings' switch. The
+   shell keeps it, because the shortcut reads before this page hears of it. */
+export async function useDirectSelection(on) {
+  if (!insideApp()) return;
+  await shell("set_direct_selection", { on: !!on });
+}
+
 export async function requestAccessibility() {
   if (!insideApp()) return false;
   return shell("request_accessibility");

@@ -177,7 +177,7 @@ export function createAnkiBackend(post = ankiPost) {
          first one, which Anki judges emptiness and duplicates by — see
          noteFields. A note type that cannot be asked about still gets a
          note; addNote then says what is wrong with it. */
-      let order = [];
+      let order;
       try {
         order = await this.fieldsOf(noteType);
       } catch {

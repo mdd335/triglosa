@@ -120,12 +120,11 @@ export function readAnswer(body) {
    "minimal" is never sent first, because for one whole kind it is the switch
    that turns thinking on.
 
-   And it stops there. There used to be a third rung — no field at all and a
-   flat allowance on top of the budget — which bought room for a model that
-   thinks whatever is sent. It is gone, because what it actually did was
-   worse than the failure it was catching: the rung is remembered for the
-   whole backend, so ONE awkward text put every later question of that
-   session into a thinking mode nobody asked for. Measured against
+   And it stops there. A third rung — no field at all and a flat allowance
+   on top of the budget — would buy room for a model that thinks whatever is
+   sent, and does worse than the failure it catches: the rung is remembered
+   for the whole backend, so ONE awkward text puts every later question of
+   that session into a thinking mode nobody asked for. Measured against
    gemini-3.8-flash, a three-word Arabic phrase did exactly that and the run
    cost 142,000 output tokens instead of about 5,000 — thirty times the money
    and the latency, on a reading that fires from a keystroke.
@@ -135,12 +134,10 @@ export function readAnswer(body) {
 export const REASONING_LADDER = ["none", "minimal"];
 /* Which rung to try next, or nothing when there is nothing left to try.
 
-   Both kinds of failure climb the same ladder now: a refusal that names
-   reasoning, and an answer that was nothing but reasoning. The second used
-   to jump straight past "minimal" to a rung that simply paid for the
-   thinking; since "minimal" is the one field that quiets the models which
-   refuse "none", jumping over it skipped the only rung that could have
-   helped. */
+   Both kinds of failure climb the same ladder: a refusal that names
+   reasoning, and an answer that was nothing but reasoning. "minimal" is the
+   one field that quiets the models which refuse "none", so neither kind may
+   jump past it. */
 export function nextReasoningMode(current, error) {
   if (!error || !(error.reasoningRefused || error.onlyReasoned)) return "";
   return REASONING_LADDER[REASONING_LADDER.indexOf(current) + 1] || "";
@@ -216,16 +213,33 @@ export function createLlmBackend({ endpoint, apiKey, model }, fetchImpl = fetch)
         if (error && error.fault) throw error;
         throw throwing(String(error?.message || error), faultForThrow(error));
       }
-      if (response.ok) return response.json();
+      if (response.ok) {
+        const body = await response.json();
+        /* A 200 that carries the failure inside it, the way OpenRouter
+           answers when the provider behind it is rate-limited. The code in
+           the body is the status that was meant, and where waiting can help
+           it is waited out like one sent properly. Anything else goes on to
+           `readAnswer`, which refuses it. */
+        const code = Number(body?.error?.code);
+        if (!RETRY_STATUS.includes(code)) return body;
+        if (attempt < RETRIES) {
+          await new Promise((done) => setTimeout(done, retryDelay("", attempt)));
+          continue;
+        }
+        const detail = String(body.error.message || "").slice(0, 200);
+        const error = throwing(`The endpoint answered ${code}. ${detail}`.trim(), faultForStatus(code, detail));
+        error.status = code;
+        throw error;
+      }
       if (attempt < RETRIES && RETRY_STATUS.includes(response.status)) {
         const wait = retryDelay(response.headers?.get?.("retry-after"), attempt);
         await new Promise((done) => setTimeout(done, wait));
         continue;
       }
-      /* What the endpoint said, not only that it said no. A refusal used to
-         arrive as "answered 400 Bad Request" with the reason thrown away —
-         and the reason is sometimes the whole of it: the GLM family refuses
-         a request that asks it not to think, and there is a rung for that. */
+      /* What the endpoint said, not only that it said no. "Answered 400 Bad
+         Request" alone throws the reason away — and the reason is sometimes
+         the whole of it: the GLM family refuses a request that asks it not
+         to think, and there is a rung for that. */
       const detail = await errorDetail(response);
       const error = throwing(
         `The endpoint answered ${response.status} ${response.statusText}.` +
@@ -272,9 +286,9 @@ export function createLlmBackend({ endpoint, apiKey, model }, fetchImpl = fetch)
            once, so by the time one of them fails another may already have
            moved the shared rung on — and then this one has nothing to decide:
            it simply asks again on the rung that now applies. Reading the
-           shared value instead cost the verb list of a Russian text, which
-           gave up at the top of the ladder because a neighbour had climbed it
-           first. */
+           shared value instead gives up at the top of the ladder because a
+           neighbour climbed it first — measured, the verb list of a Russian
+           text. */
         const used = reasoning;
         try {
           const body = await request(
@@ -301,8 +315,8 @@ export function createLlmBackend({ endpoint, apiKey, model }, fetchImpl = fetch)
              first and not on the second. */
           if (error.reasoningRefused || error.onlyReasoned) {
             /* What the endpoint said is kept: for a refusal it is often the
-               whole of the explanation, and throwing it away once already
-               left a reader with "answered 400 Bad Request". */
+               whole of the explanation, and without it the reader is left
+               with "answered 400 Bad Request". */
             throw throwing(
               `${name} answers only by thinking first, and this app asks models not to. ` +
                 `Choose a model whose thinking can be switched off. ${error.message}`,

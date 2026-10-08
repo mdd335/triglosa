@@ -14,25 +14,20 @@ body:
     attributes:
       label: The text you read
       description: The sentence or word, if it is not private. Many problems only show up with one particular text.
-  - type: input
-    id: languages
+  - type: textarea
+    id: diagnostics
     attributes:
-      label: Your languages and levels
-      placeholder: "German; Spanish B1, English C1"
-    validations:
-      required: true
-  - type: input
-    id: model
-    attributes:
-      label: AI model
-      description: The model name from the settings, and whether it runs in the cloud or locally. "None" is a fine answer.
-      placeholder: "deepseek/deepseek-v4.1-flash on OpenRouter"
-    validations:
-      required: true
-  - type: input
-    id: versions
-    attributes:
-      label: Triglosa version and system
-      placeholder: "Triglosa 0.3.0, Windows 11 24H2 — or macOS 26.4"
+      label: Diagnostics
+      description: >-
+        In Triglosa's settings under "About Triglosa", click "Copy diagnostics" and paste it here.
+        It holds the version, system, languages and AI model, none of your texts and not your key.
+        In a version without that button: your languages and levels, the AI model, the Triglosa
+        version and the system.
+      render: text
+      placeholder: |
+        Triglosa 0.4.3
+        System: macOS 26.4 (aarch64)
+        Languages: de, es (B1), en (C1)
+        ...
     validations:
       required: true

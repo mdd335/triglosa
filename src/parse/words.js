@@ -6,7 +6,7 @@ import { parseSynonyms } from "./synonyms.js";
 import { isBaseForm, isPartOfTerm, repeatsTerm, trimToBaseForm } from "./terms.js";
 import { grammarOf } from "./verbs.js";
 import { isFunctionWord } from "../vocabulary.js";
-import { isSupported, languagePack } from "../languages/index.js";
+import { bareInfinitive, isSupported, languagePack } from "../languages/index.js";
 import { WORD_CLASSES } from "../prompts/marked.js";
 import { startsUnknown } from "../strings.js";
 
@@ -37,14 +37,41 @@ export function withoutNestedTerms(list) {
     j !== i && (other === keys[i] ? j < i : other.length > keys[i].length && containsWord(other, keys[i]))));
 }
 
-/* term | equivalent | explanation. Further pipes belong to the explanation,
-   not to a fourth column. */
+/* Is the term the looked-up words themselves, give or take a function
+   word? Then the dictionary entry above already says what it is, and only
+   the note adds anything. Compared by the words that carry meaning. */
+const contentWords = (s, code) => stripDiacritics(String(s || "")).toLowerCase()
+  .split(/[^\p{L}\p{N}]+/u)
+  .filter((w) => w && !isFunctionWord(w, [code]));
+
+export function namesTheLookup(term, words, code) {
+  const own = contentWords(term, code).sort().join(" ");
+  return !!own && own === contentWords(words, code).sort().join(" ");
+}
+
+/* Does the term name one of the looked-up words that carries meaning, as
+   written there? */
+export function sharesContentWord(term, words, code) {
+  const own = new Set(contentWords(term, code));
+  return contentWords(words, code).some((word) => own.has(word));
+}
+
+/* How many native speakers know a term: the fourth field of a native
+   reader's list. */
+export const KNOWN = ["most", "some", "few"];
+
+/* term | equivalent | explanation, and for a native reader | known. Further
+   pipes belong to the explanation; only a last field that is one of KNOWN is
+   a fourth column. */
 export function parseWords(raw) {
   const out = [];
   for (const line of String(raw || "").split(/\r?\n/)) {
     const L = cleanLine(line);
     if (!L) continue;
-    const parts = L.split("|");
+    const cut = L.split("|");
+    const last = cut.length > 2 ? stripQuotes(cut[cut.length - 1]).toLowerCase().replace(/\.$/, "") : "";
+    const known = KNOWN.includes(last) ? last : "";
+    const parts = known ? cut.slice(0, -1) : cut;
     if (parts.length < 2) continue;
     const term = stripQuotes(parts[0]);
     if (!term) continue;
@@ -56,6 +83,7 @@ export function parseWords(raw) {
       text: term,
       meaning: stripQuotes(meaning),
       note: stripQuotes(parts.length === 2 ? rest.join(";") : parts.slice(2).join("|")).replace(/\s*[;,]$/, ""),
+      ...(known ? { known } : {}),
     });
     if (out.length >= MAX_WORDS + READ_AHEAD) break;
   }
@@ -185,13 +213,99 @@ export function firstFieldLine(raw) {
     .find((L) => L && L.includes("|")) || "";
 }
 
+/* The base form of a picked word, and whether it is a verb form at all.
+
+   Three things hang on it: the arrow and the conjugation button in the row,
+   the card, and the synonym question, which is asked about the base form
+   rather than about the form in the text. A question about a conjugated word
+   comes back with conjugated synonyms whatever its rules say — 9 % of them
+   in the base form on the cloud model, 22 % on the local one, against 95 %
+   and 98 % when the base form is what goes in. Run twenty-five.
+
+   A verb form is at most TWO words, counted off the selection rather than
+   off the answer, because the selection is a fact and cannot drift: a
+   compound tense, a reflexive and a separable verb are written in two
+   words in the eight languages, and a form written in three is not one a
+   reader picks whole. Above that the row was drawn as a line of the verb
+   table — arrow, person, tense, and a button offering to conjugate half a
+   clause.
+
+   Two words are not enough on their own, though, and this is where they
+   differ from one. "die Tür öffnete" is a verb standing next to a word
+   that has nothing to do with it, and the meaning question answers such a
+   phrase with the infinitive of the verb in it — by its own rule 2, which
+   is right for what that question is for. So a two-word pick needs a
+   SECOND vote: the verb-form question, which is asked in parallel anyway
+   and costs nothing, has to come back with a person and a tense rather
+   than the hyphen its rules ask for when the term is not one verb form.
+   One word keeps the single vote it was measured with.
+
+   Where a language carries no grammar table there is no second question to
+   ask, and a two-word pick is then not a verb — one row too few rather
+   than a wrong one. All eight carry one.
+
+   The test that field 1 brings a word of its own loosens with the same
+   step, and for the same reason: a form written in two words carries its
+   base form inside it, so the strict test rejected the right answer in five
+   of the eight languages. Two words keep only the bar the strict test was
+   written for — that field 1 is not the term written out again — and hand
+   the rest to the second question. */
+export function verbFormOf({ meaningRaw, grammarRaw, term, code }) {
+  const fields = firstFieldLine(meaningRaw).split("|");
+  const words = term.trim().split(/\s+/).length;
+  const said = parseVerbGrammar(grammarRaw);
+  /* One exception to the repeat test: an infinitive clicked as it stands IS
+     its own base form, and tumbar, bosser, restituer and indemnify all lost
+     their table to it. Where the verb-form question names the form an
+     infinitive, the repeat is the right answer. A conjugated form the model
+     merely repeated stays out.
+
+     It holds for a form written in two words as well. English writes a
+     phrasal verb's citation form exactly as the text has it, and "hold off"
+     came back as its own base form, correctly — whereupon the trimming, which
+     is there to cut a subject the model named along with the verb, took the
+     verb for the subject and left "off". Where the field is the term again
+     and the form is an infinitive, nothing is cut and nothing is doubted. */
+  const ownInfinitive = /infinit/i.test(firstFieldLine(grammarRaw) || String(grammarRaw || "").trim());
+  const given = stripQuotes(fields[0]);
+  const field1 = ownInfinitive && repeatsTerm(given, term) ? given.trim() : trimToBaseForm(given, term);
+  const ownWords = words === 1
+      ? ownInfinitive || !isPartOfTerm(field1, term)
+      : ownInfinitive || !repeatsTerm(field1, term);
+  const verbLike = words <= MAX_VERB_WORDS && isBaseForm(field1, code) && ownWords;
+
+  /* Person and tense only for a word this section itself takes for a verb
+     form. If the meaning call says "not a verb" and the annotation says "1st
+     person, present", the row would stand against itself — and field 1 is
+     the calibrated answer to that question, not the side question. */
+  const grammar = verbLike ? said : null;
+  const infinitive = verbLike && (words === 1 || grammar) ? field1 : "";
+  return { field1, verbLike, grammar, infinitive };
+}
+
 /* Three answers, one line each. Field 1 is NOT displayed the way the model
    returns it but the way it stands in the text — the rule asking for that is
    not followed reliably, and the highlight hangs on the real spot.
 
    code is the language of the text, lang the language the reader gets
    explanations in, codes the languages of the whole run. */
-export function parseMarkedWord({ meaningRaw, spotRaw, term, code, thirdRaw, grammarRaw, wholeRaw, kindRaw, lang, codes }) {
+/* A verb's note that opens by naming the form and its base — "Form von
+   inducir:", "Partizip von „ridurre“;", "Participio de pedir;" — says what
+   the row's arrow already says. The opening goes where it is short and holds
+   the base form; what follows it is the explanation. Found by the base form
+   and not by the words around it, which differ in every language. */
+const FORM_OPENING_WORDS = 5;
+
+export function withoutFormOpening(note, base, code) {
+  const text = String(note || "");
+  const opening = text.match(/^([^:;]+)[:;]\s*/);
+  if (!base || !opening || opening[1].trim().split(/\s+/).length > FORM_OPENING_WORDS) return text;
+  const fold = (s) => stripDiacritics(String(s)).toLowerCase();
+  if (!fold(opening[1]).includes(fold(bareInfinitive(code, base)))) return text;
+  return text.slice(opening[0].length).trim() || text;
+}
+
+export function parseMarkedWord({ meaningRaw, spotRaw, term, code, thirdRaw, grammarRaw, wholeRaw, kindRaw, codes }) {
   const meaningLine = firstFieldLine(meaningRaw);
   if (!meaningLine) return null;
 
@@ -216,65 +330,8 @@ export function parseMarkedWord({ meaningRaw, spotRaw, term, code, thirdRaw, gra
   const a = spot.length >= 2 ? usableSpot(stripQuotes(spot[0]), term) : "";
   const b = spot.length >= 2 ? usableSpot(stripQuotes(spot[1]), term) : "";
 
-  /* Field 1 carries the infinitive, but only where it is one, contributes
-     something of its own, and the thing asked about is a verb form at all.
-
-     A verb form is at most TWO words, counted off the selection rather than
-     off the answer, because the selection is a fact and cannot drift: a
-     compound tense, a reflexive and a separable verb are written in two
-     words in the eight languages, and a form written in three is not one a
-     reader picks whole. Above that the row was drawn as a line of the verb
-     table — arrow, person, tense, and a button offering to conjugate half a
-     clause.
-
-     Two words are not enough on their own, though, and this is where they
-     differ from one. "die Tür öffnete" is a verb standing next to a word
-     that has nothing to do with it, and the meaning question answers such a
-     phrase with the infinitive of the verb in it — by its own rule 2, which
-     is right for what that question is for. So a two-word pick needs a
-     SECOND vote: the verb-form question, which is asked in parallel anyway
-     and costs nothing, has to come back with a person and a tense rather
-     than the hyphen its rules ask for when the term is not one verb form.
-     One word keeps the single vote it was measured with.
-
-     Where a language carries no grammar table there is no second question to
-     ask, and a two-word pick is then not a verb — one row too few rather
-     than a wrong one. All eight carry one.
-
-     The test that field 1 brings a word of its own loosens with the same
-     step, and for the same reason: a form written in two words carries its
-     base form inside it, so the strict test rejected the right answer in five
-     of the eight languages. Two words keep only the bar the strict test was
-     written for — that field 1 is not the term written out again — and hand
-     the rest to the second question. */
-  const words = term.trim().split(/\s+/).length;
-  const said = parseVerbGrammar(grammarRaw);
-  /* One exception to the repeat test: an infinitive clicked as it stands IS
-     its own base form, and tumbar, bosser, restituer and indemnify all lost
-     their table to it. Where the verb-form question names the form an
-     infinitive, the repeat is the right answer. A conjugated form the model
-     merely repeated stays out.
-
-     It holds for a form written in two words as well. English writes a
-     phrasal verb's citation form exactly as the text has it, and "hold off"
-     came back as its own base form, correctly — whereupon the trimming, which
-     is there to cut a subject the model named along with the verb, took the
-     verb for the subject and left "off". Where the field is the term again
-     and the form is an infinitive, nothing is cut and nothing is doubted. */
-  const ownInfinitive = /infinit/i.test(firstFieldLine(grammarRaw) || String(grammarRaw || "").trim());
-  const given = stripQuotes(fields[0]);
-  const field1 = ownInfinitive && repeatsTerm(given, term) ? given.trim() : trimToBaseForm(given, term);
-  const ownWords = words === 1
-    ? ownInfinitive || !isPartOfTerm(field1, term)
-    : ownInfinitive || !repeatsTerm(field1, term);
-  const verbLike = words <= MAX_VERB_WORDS && isBaseForm(field1, code) && ownWords;
-
-  /* Person and tense only for a word this section itself takes for a verb
-     form. If the meaning call says "not a verb" and the annotation says "1st
-     person, present", the row would stand against itself — and field 1 is
-     the calibrated answer to that question, not the side question. */
-  const grammar = verbLike ? said : null;
-  const infinitive = verbLike && (words === 1 || grammar) ? field1 : "";
+  const { grammar, infinitive } = verbFormOf({ meaningRaw, grammarRaw, term, code });
+  note = withoutFormOpening(note, infinitive, code);
 
   meaning = withoutSecondMeaning(meaning, term);
 
@@ -283,7 +340,7 @@ export function parseMarkedWord({ meaningRaw, spotRaw, term, code, thirdRaw, gra
      for "IVA" it carries both, and the explanation beside it says what it is
      about anyway. */
   const expansion = looksLikeAbbreviation(term) ? parseAbbreviation(thirdRaw, term) : "";
-  const synonyms = expansion ? [] : parseSynonyms(thirdRaw, term, codes);
+  const synonyms = expansion ? [] : parseSynonyms(thirdRaw, term, codes, infinitive);
   if (expansion) meaning = expansion;
 
   /* A pick of several words is shown translated whole. The meaning question

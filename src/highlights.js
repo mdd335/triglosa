@@ -8,16 +8,23 @@
    to the term. First come, first coloured. */
 
 import { distributeSpots } from "./match/columns.js";
-import { rangesOf } from "./match/positions.js";
+import { rangesOf, spotsFor } from "./match/positions.js";
 import { otherPanels } from "./panels.js";
+import { namesTheLookup } from "./parse/words.js";
 
 export function fragmentsForPanel(state, index) {
   const words = state.words || [];
   const verbs = state.verbs || [];
 
   if (index === 0) {
+    /* A lookup's term is marked only where it differs from the words
+       themselves: here where it stands among them, in the sentence where it
+       reaches beyond them (fragmentsForSentence). Left out here, it keeps
+       its place in the list, so its colour stays its row's. */
+    const marked = (word) => !state.short
+      || (differsFromLookup(state, word) && (!state.sentence || withinLookup(state, word)));
     return {
-      words: words.map((word) => [word.spot || word.text]),
+      words: words.map((word) => (marked(word) ? [word.spot || word.text] : [])),
       verbs: verbs.map((verb) => [verb.form]),
     };
   }
@@ -26,7 +33,33 @@ export function fragmentsForPanel(state, index) {
   return {
     words: state.wordAlign ? state.wordAlign[column] || [] : [],
     verbs: state.verbAlign ? state.verbAlign[column] || [] : [],
+    /* Whereabouts each one stands, where the word aligner knows: see run.js. */
+    near: {
+      words: state.wordAlign?.near?.[column] || [],
+      verbs: state.verbAlign?.near?.[column] || [],
+    },
   };
+}
+
+/* Is a lookup's term more, or less, than the looked-up words? Then it has
+   a row of its own, a place to mark and a card; otherwise the entry above
+   already is all of that, and the term adds its note. */
+export function differsFromLookup(state, word) {
+  return !namesTheLookup(word.text, state.text, state.panels[0]?.code);
+}
+
+/* Does a lookup's term stand among the looked-up words, every part of it? */
+function withinLookup(state, word) {
+  const parts = String(word.spot || word.text).split("+").map((part) => part.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every((part) => spotsFor(state.text, part).length > 0);
+}
+
+/* The term marked in the sentence a short text was looked up in, where it
+   reaches beyond the looked-up words. */
+export function fragmentsForSentence(state) {
+  if (!state.short || !state.sentence) return [];
+  return (state.words || []).map((word) =>
+    (differsFromLookup(state, word) && !withinLookup(state, word) ? [word.spot || word.text] : []));
 }
 
 /* Where the word the reader picked out stands, panel by panel.
@@ -37,7 +70,8 @@ export function fragmentsForPanel(state, index) {
    that way and the model follows the examples more reliably than the labels. */
 export function selectionForPanel(state, index, languages) {
   const selection = state.selection;
-  if (!selection) return null;
+  /* Picked in the sentence under a short text, it stands in no panel. */
+  if (!selection || selection.inSentence) return null;
   if (selection.panel === index) return [{ start: selection.start, end: selection.end }];
   if (!state.marked) return null;
 

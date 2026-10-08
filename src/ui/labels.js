@@ -44,6 +44,35 @@ export function labels(code, system = currentSystem()) {
   return OVERLAID[language];
 }
 
+/* Who did what, as one line: `parts` is a list of [what, who], who being a
+   list of { kind, name } — "device" (Apple, said to be on the machine),
+   "triglosa", "model" with its name, "reader". What the same ones
+   did is said together ("explained and matched by …"), anything else apart;
+   a part nobody did is left out. */
+export function creditLine(text, parts) {
+  const words = text.credits;
+  const merged = [];
+  for (const [what, who] of parts) {
+    if (!who || !who.length) continue;
+    const key = JSON.stringify(who);
+    const last = merged[merged.length - 1];
+    if (last && last.key === key && who[0].kind !== "reader") last.what.push(what);
+    else merged.push({ key, what: [what], who });
+  }
+  const named = (who) => {
+    const pairs = who.map((one) => words.by(one));
+    const alike = pairs.every(([word]) => word === pairs[0][0]);
+    return alike
+      ? `${pairs[0][0]} ${pairs.map(([, name]) => name).join(` ${words.and} `)}`.trim()
+      : pairs.map((pair) => pair.join(" ")).join(` ${words.and} `);
+  };
+  return merged
+    .map(({ what, who }) => (who[0].kind === "reader"
+      ? words.chosen
+      : words.line(what.map((one) => words.verbs[one]).join(` ${words.and} `), named(who))))
+    .join(" · ");
+}
+
 /* The failures whose bracket carries the service's own words besides the
    HTTP number — see labels/detail.js. */
 const WITH_DETAIL = new Set(["refused", "notFound", "status", "server"]);

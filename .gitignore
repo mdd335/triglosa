@@ -6,6 +6,9 @@ src-tauri/gen/
 
 # Compiled binaries of the Swift bridge
 src-tauri/binaries/
+
+# The word aligner's model, fetched by scripts/aligner-fetch.mjs
+src-tauri/resources/aligner/
 *.dSYM/
 
 # Raw measurement output: reproducible, does not belong in the repo.

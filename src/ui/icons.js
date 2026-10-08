@@ -24,6 +24,8 @@ const PATHS = {
      is what the page that opens actually shows. */
   conjugation: '<rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/>'
     + '<path d="M2.5 6.6h11M6.4 6.6v5.9"/>',
+  /* A loudspeaker with one wave in front of it: the word said aloud. */
+  speak: '<path d="M2.5 6.2h2.2L8 3.5v9L4.7 9.8H2.5z"/><path d="M10.6 5.6a3.4 3.4 0 0 1 0 4.8M12.4 3.9a5.8 5.8 0 0 1 0 8.2"/>',
   /* A magnifying glass: the web search. */
   search: '<circle cx="7" cy="7" r="4.3"/><path d="m10.2 10.2 3.3 3.3"/>',
   /* A card cut across the middle: a front and a back, which is what a

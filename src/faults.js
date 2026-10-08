@@ -25,6 +25,9 @@ export const FAULTS = [
   /* Nothing answered at the address. A local server that is not running, an
      address with a typo in it. */
   "unreachable",
+  /* Plain http to an address outside the reader's own network, which the
+     app does not send to. The address is the thing to change. */
+  "insecure",
   /* It answered, but not in time. */
   "timeout",
   /* 401, 403 — the key, or the lack of one. */
@@ -77,6 +80,7 @@ export function faultForThrow(error) {
   const name = String(error?.name || "");
   const message = String(error?.message || error || "");
   if (name === "TimeoutError" || /timed? ?out/i.test(message)) return fault("timeout");
+  if (name === "InsecureAddressError") return fault("insecure", { detail: message });
   return fault("unreachable", { detail: message });
 }
 

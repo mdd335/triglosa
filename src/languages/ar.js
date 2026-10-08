@@ -17,13 +17,15 @@ export default {
      tune and no corpus behind it. It is what closes both leaks at once — the
      verb prompt naming a Spanish tense under a Portuguese text, and a bare
      prompt naming a German one. Kept apart from `verbs` below, which holds
-     calibration; the two are different kinds of knowledge and phase 6
-     measured that only this one generalises. */
+     calibration; the two are different kinds of knowledge and the prompt
+     measurements showed that only this one generalises. */
   grammar: {
     persons: ["أنا", "أنت", "هو", "هي", "نحن", "أنتم", "هم"],
     tenses: [
       "الماضي", "المضارع", "الأمر", "المصدر", "اسم الفاعل", "اسم المفعول",
     ],
+    /* The forms among them that carry no person. */
+    nonFinite: ["المصدر", "اسم الفاعل", "اسم المفعول"],
     genders: ["masculine", "feminine"],
   },
   /* Where a conjugation table for this language lives. A verb row offers it

@@ -93,3 +93,9 @@ test("the languages that had no everyday vocabulary have one", () => {
     assert.ok(!isBasicWord(word, code), `${word} is not everyday ${code}`);
   }
 });
+
+test("words carrying meaning are counted in a script without spaces too", () => {
+  assert.strictEqual(contentWordCount("工资", [""]), 1);
+  assert.strictEqual(contentWordCount("最低工资", [""]), 2);
+  assert.strictEqual(contentWordCount("政府仍然决定提高最低工资", [""]), 6);
+});

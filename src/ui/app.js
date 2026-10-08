@@ -11,19 +11,24 @@
    have a window of their own and are not part of this one. */
 
 import { onWindows } from "../system.js";
-import { runText } from "../run.js";
+import { SHORT_MAX_WORDS, runText, sentenceFor } from "../run.js";
+import { wordAround, wordCount } from "../text.js";
 import { detectLanguage, keepsChosenLanguage } from "../detect.js";
 import { freeCard } from "../card.js";
 import { addExample, explainMarked, explainMore } from "../ask.js";
 import { otherPanels } from "../panels.js";
+import { fragmentsAcross } from "../match/links.js";
 import { HELPER_URL, createTranslationBackend } from "../platform/translation.js";
 import { createLlmBackend } from "../platform/llm.js";
-import { appFetch, copyText, ensureTranslationHelper, insideApp, openUrl, searchUrl } from "../platform/env.js";
-import { accessibilityGranted, insertText, keyLabels } from "../platform/capture.js";
+import { appFetch, copyText, ensureTranslationHelper, insideApp, languageIdentifier, modelFetch, noteFault, openUrl, searchUrl, wordAligner } from "../platform/env.js";
+import { faultLine } from "../diagnostics.js";
+import { accessibilityGranted, insertText, keyLabels, useDirectSelection } from "../platform/capture.js";
 import { hotkeyLabel, menuAccelerator } from "../hotkey.js";
 import { applyPresence, applyTray, fitReadingWindow, hideWindow, onAppearAsked, onFreshAsked, unveilWindow, onSettingsChanged, onWindowShown, openCard, openSettings, updateCard, showWindow } from "../platform/windows.js";
-import { onCapture, onCardCapture, registerShortcuts } from "../platform/shortcut.js";
+import { lightUp, listenForForceClick, onCapture, onCardCapture, registerShortcuts } from "../platform/shortcut.js";
+import { selectionSpan, sentenceAfter, sentenceUnder } from "../sentence.js";
 import { searchLink } from "../platform/search.js";
+import { createSpeech } from "../platform/speech.js";
 import { loadSettings, saveSettings } from "../platform/store.js";
 import { loadApiKey } from "../platform/keychain.js";
 import { faultOf } from "../faults.js";
@@ -32,8 +37,8 @@ import { MARKED, renderHeading, renderReading } from "./reading-view.js";
 import { labelsInside } from "./elements.js";
 import { watchGlance } from "./glance-view.js";
 import { roomForExample, withExamples, withExplanationExamples } from "../examples.js";
-import { cardLanguages, levelFor, neededPairs, offersCard } from "../settings.js";
-import { keptReading, readingKey } from "../history.js";
+import { cardLanguages, levelFor, neededPairs, offersCard, usesPermission } from "../settings.js";
+import { dropOldest, keptReading, readingKey } from "../history.js";
 
 let settings = await loadSettings();
 /* Kept apart from the settings on purpose: the key lives in the system's own
@@ -81,7 +86,7 @@ const GEAR = `<svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor
 const root = document.getElementById("app");
 root.innerHTML = `
   <div class="topline" data-tauri-drag-region>
-    <div class="heading" id="heading"></div>
+    <div class="heading" id="heading" data-tauri-drag-region></div>
     <div class="window-actions">
       <button id="back" class="icon">${BACK}<span class="pill-label"></span></button>
       <button id="forward" class="icon">${FORWARD}<span class="pill-label"></span></button>
@@ -136,6 +141,7 @@ const say = (message) => { statusLine.textContent = message || ""; fitSoon(); };
 /* The pending fit of the window to its page, and what watches the page for
    it — see pageHeight. */
 let fitting = 0;
+let fittingLate = 0;
 let settling = Promise.resolve(false);
 /* While a word is being picked the pointer is down and only its frame moves;
    the window keeps its size until the pointer is released. Fitted on the
@@ -144,11 +150,16 @@ let settling = Promise.resolve(false);
    after the other whenever the click was slower than a frame, and the window
    twitched. */
 let pointerDown = false;
-document.addEventListener("mouseup", () => {
+const letGo = () => {
   if (!pointerDown) return;
   /* After the pick has drawn what the release decided. */
   setTimeout(() => { pointerDown = false; fitSoon(); }, 0);
-});
+};
+document.addEventListener("mouseup", letGo);
+/* A button let go outside the window never reaches it as a mouseup, and the
+   window would keep its size for good — through every reading after it. By
+   the time another program has the focus, the press is over. */
+window.addEventListener("blur", letGo);
 const heightWatch = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => fitSoon());
 
 /* The program the current text was read out of, and the one a translation
@@ -156,18 +167,25 @@ const heightWatch = typeof ResizeObserver === "undefined" ? null : new ResizeObs
    here, and then there is nothing to replace anywhere. */
 let source = 0;
 
-/* Whether the optional Accessibility switch is on. Off, the shortcut reads
+/* Whether the optional Accessibility permission is there (`trusted`), and
+   whether the reader wants it used for the selection — the settings' switch
+   (`granted`). Off, the shortcut reads
    what the reader copied, the menu bar's entry says so, and a translation
    has no Insert: that button is the permission's other half, and Copy stands
    beside it anyway. Asked again whenever the window comes forward — the
    reader turns the switch in System Settings, which takes the window away,
    and comes back — rather than on a timer. */
 let granted = false;
+let trusted = false;
 
 async function checkPermission() {
-  const now = insideApp() && await accessibilityGranted();
-  if (now === granted) return;
+  const there = insideApp() && await accessibilityGranted();
+  const now = there && usesPermission(settings);
+  if (now === granted && there === trusted) return;
+  trusted = there;
   granted = now;
+  /* A force click is heard only once the permission is there. */
+  listenForForceClick(wantsForceClick());
   tools = makeTools();
   applyMenu();
   draw();
@@ -203,23 +221,23 @@ let reading = false;
 
    In memory and nowhere else. The window hides rather than closes, so this
    outlives the way it is normally put away, and a reader's texts stay out of
-   any file. Five is what fits two chevrons rather than a list.
+   any file. How many is the reader's choice (`kept` in the settings); none
+   still holds the one on screen, with no chevrons to step by.
 
    `place` is which of them is on screen. One past the end means a sheet that
    is not one of them yet: a blank one waiting to be written in, or a reading
    still being worked out. */
-const KEPT = 5;
 const history = [];
 let place = 0;
 
 function remember(entry) {
   history.push(entry);
-  while (history.length > KEPT) history.shift();
+  dropOldest(history, settings, entry);
   place = history.length - 1;
 }
 
 /* A run that produced nothing at all leaves no entry behind: there would be
-   nothing in it to come back to, and it would take one of the five places
+   nothing in it to come back to, and it would take a place
    from a translation that has something to show. */
 function forget(entry) {
   const index = history.indexOf(entry);
@@ -254,6 +272,7 @@ async function goTo(index) {
 function applyHistory() {
   backButton.disabled = place <= 0;
   forwardButton.disabled = place >= history.length - 1;
+  for (const button of [backButton, forwardButton]) button.style.display = settings.kept ? "" : "none";
 }
 
 /* Which kept translation is on screen, and whether a run's answers still
@@ -352,8 +371,16 @@ async function applyMenu() {
 /* The combinations, handed to the shell. Done again after every change in the
    settings, so an old one is never left holding on. */
 async function applyShortcut() {
+  await useDirectSelection(usesPermission(settings));
   const failed = await registerShortcuts(settings);
   if (failed) say(text.hotkeyFailed(failed));
+  listenForForceClick(wantsForceClick());
+}
+
+/* The force click has a switch of its own; the shell hears it only with
+   the permission. */
+function wantsForceClick() {
+  return settings.forceClick && !onWindows();
 }
 
 /* Everything a row's buttons can set off. Assembled once per run, because
@@ -378,7 +405,7 @@ function makeTools() {
             await insertText(source, value);
           } catch (error) {
             if (!pinned) await showWindow();
-            throw new Error(text.insertNoWay(error.message || String(error)));
+            throw new Error(text.insertNoWay(error.message || String(error)), { cause: error });
           }
         }
       : null,
@@ -394,12 +421,21 @@ function makeTools() {
        their own list. Asked per row, because the language is the word's and
        not the text's. */
     cardFor: (code) => offersCard(settings, code),
+    speak: speech.speak,
+    canSpeak: speech.canSpeak,
   };
 }
 
+/* One for the window's life. Its voices can arrive after the first drawing,
+   and a reading on screen then gets its loudspeakers. */
+const speech = createSpeech(globalThis.speechSynthesis, globalThis.SpeechSynthesisUtterance, () => {
+  if (current) draw();
+});
+
 let tools = { reader: settings.languages[0], copy: copyText, open: openUrl,
               search: async (term) => openUrl(searchLink(await searchUrl(settings.search), term)),
-              card: null, cardFor: () => false, insert: null };
+              card: null, cardFor: () => false, insert: null,
+              speak: speech.speak, canSpeak: speech.canSpeak };
 
 /* What the line under the sheet says while a reading is on screen: the one
    reason nothing came of it, or what the run is doing, or nothing at all.
@@ -448,7 +484,10 @@ function draw() {
 function pageHeight() {
   const last = sheet.lastElementChild;
   const top = sheet.getBoundingClientRect().top;
-  const bottom = last ? last.getBoundingClientRect().bottom + sheet.scrollTop : top;
+  /* With the margin under it: the locked line's, measured, was six pixels
+     the window could be scrolled by. */
+  const margin = last ? parseFloat(getComputedStyle(last).marginBottom) || 0 : 0;
+  const bottom = last ? last.getBoundingClientRect().bottom + margin + sheet.scrollTop : top;
   const padding = parseFloat(getComputedStyle(sheet).paddingBottom) || 0;
   return Math.ceil(root.querySelector(".topline").offsetHeight + (bottom - top) + padding + statusLine.offsetHeight);
 }
@@ -461,13 +500,23 @@ function fitSoon() {
   /* One measurement per burst: a run lands several pieces within a few
      milliseconds, and every one of them redraws. */
   cancelAnimationFrame(fitting);
-  fitting = requestAnimationFrame(() => { settling = fitReadingWindow(pageHeight(), arriving()); });
+  clearTimeout(fittingLate);
+  const fit = () => {
+    cancelAnimationFrame(fitting);
+    clearTimeout(fittingLate);
+    settling = fitReadingWindow(pageHeight(), arriving());
+  };
+  fitting = requestAnimationFrame(fit);
+  /* A page the system gives no frames — a window behind another program's —
+     is fitted all the same, a moment later. */
+  fittingLate = setTimeout(fit, 250);
 }
 
 /* Now, without waiting for a frame — a hidden page is given none, and the
    shortcut fits the window before it shows it. */
 function fitNow() {
   cancelAnimationFrame(fitting);
+  clearTimeout(fittingLate);
   if (!settings.fitWindow) return settling = Promise.resolve(false);
   settling = fitReadingWindow(pageHeight(), false);
   return settling;
@@ -509,6 +558,8 @@ function drawReading() {
     onPick: pick,
     onLookUp: lookUp,
     onStep: stepTrail,
+    sentences: neighbours(),
+    onSentence: stepSentence,
     onFold: fold,
     onMore: more,
     onExample: example,
@@ -541,6 +592,7 @@ function startFresh() {
 
 function startEditing() {
   edited = chosen.get(showing()?.draft) || null;
+  editedIn = showing()?.sentence ? { word: showing().draft, sentence: showing().sentence } : null;
   draft = current?.panels[0]?.text ?? draft;
   editing = true;
   draw();
@@ -569,15 +621,14 @@ async function deviceBackend() {
 }
 
 async function backends() {
-  const fetchImpl = await appFetch();
   const translation = await deviceBackend();
   const llm = settings.endpoint
     ? createLlmBackend(
         { endpoint: settings.endpoint, apiKey, model: settings.model },
-        fetchImpl,
+        await modelFetch(),
       )
     : null;
-  return { translation, llm };
+  return { translation, llm, identifier: await languageIdentifier() };
 }
 
 async function translate() {
@@ -604,7 +655,12 @@ async function translate() {
      selection brings its own program to write back into; a text typed over
      and restored character for character is the one over there again, and
      `onDraft` had given up on it at the first keystroke. */
-  const kept = keptReading(history, body, settings);
+  /* Edited and not changed, a word looked up in its sentence is the same
+     question: the sentence stays with it. Changed, it is a text of its own. */
+  const lookedUp = lookup || (editing && editedIn?.word === body ? editedIn.sentence : null);
+  lookup = null;
+  editedIn = null;
+  const kept = keptReading(history, body, settings, lookedUp?.text || "");
   if (kept) {
     const moved = history.indexOf(kept) !== place;
     place = history.indexOf(kept);
@@ -633,11 +689,73 @@ async function translate() {
      while this is still being worked out has to be able to walk forward into
      it again — and it goes on filling itself in the meantime, so what they
      come back to is further along than what they left. */
-  const entry = { draft: body, source, state: null, key: readingKey(settings) };
+  const entry = { draft: body, source, state: null, key: readingKey(settings), sentence: lookedUp };
   remember(entry);
   draw();
   toTop();
-  say(chosen.has(body) ? "" : text.detecting);
+  say(chosen.has(body) || entry.sentence?.detected.code ? "" : text.detecting);
+  await read(entry);
+}
+
+/* The sentence a looked-up word came with, until its entry is asked for
+   (onCapture). */
+let lookup = null;
+
+/* Stepping on through the text a sentence or a selection was read out of,
+   a sentence at a time (author 2026-10-07): `around` is the text that came
+   along with it, `spans` the sentences found in it so far, `at` the one on
+   screen and `entries` their readings. Only forwards from where the reader
+   started, and back as far as that; the next one is cut out of the text
+   already here (sentenceAfter), so nothing is offered that is not there.
+
+   The sentence stepped to takes the place of the one on screen among the
+   kept readings — a walk is one reading there, not one per sentence — and
+   the walk keeps its own, so a step back is drawn and not asked again. */
+let walk = null;
+
+function startWalk(selection, span) {
+  walk = span && settings.nextSentence ? { around: selection.context, source: selection.source || 0, spans: [span], at: 0, entries: [] } : null;
+}
+
+const walked = () => (walk && settings.nextSentence && !editing && showing() && walk.entries[walk.at] === showing() ? walk : null);
+
+/* The sentences before and after the one on screen, for the lines around
+   the original — null where there is none to step to. */
+function neighbours() {
+  const here = walked();
+  if (!here) return null;
+  if (here.at === here.spans.length - 1 && !here.ended) {
+    const next = sentenceAfter(here.around, here.spans[here.at].end);
+    if (next) here.spans.push(next);
+    else here.ended = true;
+  }
+  return { back: here.spans[here.at - 1]?.text || "", next: here.spans[here.at + 1]?.text || "" };
+}
+
+async function stepSentence(delta) {
+  const here = walked();
+  const span = here?.spans[here.at + delta];
+  if (!span) return;
+  const from = showing();
+  here.at += delta;
+  lightUp(span.start, span.end);
+  /* The language the reader said the text is in goes on with it. */
+  if (chosen.has(from.draft) && !chosen.has(span.text)) rememberChoice(span.text, chosen.get(from.draft));
+  const kept = here.entries[here.at];
+  const again = kept && kept.key === readingKey(settings) && !kept.state?.fault;
+  const entry = again ? kept : { draft: span.text, source: here.source, state: null, key: readingKey(settings), sentence: null };
+  here.entries[here.at] = entry;
+  history[history.indexOf(from)] = entry;
+  edited = null;
+  lookup = null;
+  draft = entry.draft;
+  source = entry.source;
+  current = entry.state;
+  tools = await makeTools();
+  draw();
+  toTop();
+  if (again) return sayFor(current);
+  say(chosen.has(entry.draft) ? "" : text.detecting);
   await read(entry);
 }
 
@@ -652,6 +770,8 @@ let recentChoices = [];
 const MOST_RECENT = 5;
 /* The choice of the reading being edited, carried to the edited text. */
 let edited = null;
+/* The sentence the reading being edited was looked up in. */
+let editedIn = null;
 
 function rememberChoice(text, choice) {
   chosen.delete(text);
@@ -669,6 +789,7 @@ async function chooseLanguage(code) {
   rememberChoice(old.draft, { code, guesses: old.state?.source?.guesses || [] });
   recentChoices = [code, ...recentChoices.filter((c) => c !== code)].slice(0, MOST_RECENT);
   const entry = { draft: old.draft, source: old.source, state: null, key: readingKey(settings) };
+  if (walked()) walk.entries[walk.at] = entry;
   history[history.indexOf(old)] = entry;
   draft = old.draft;
   current = null;
@@ -681,7 +802,7 @@ async function chooseLanguage(code) {
 /* One reading, start to finish, into its entry. */
 async function read(entry) {
   const choice = chosen.get(entry.draft);
-  const { translation, llm } = await backends();
+  const { translation, llm, identifier } = await backends();
   currentLlm = llm;
   tools = await makeTools();
   await ensureTranslationHelper(translation);
@@ -692,10 +813,22 @@ async function read(entry) {
       settings,
       translation,
       llm,
+      aligner: await wordAligner(),
+      identifier,
       waitTurn: quietTurn,
-      language: choice?.code || "",
-      guesses: choice?.guesses || [],
+      language: choice?.code || entry.sentence?.detected.code || "",
+      languageBy: choice?.code ? "reader" : entry.sentence?.detected.by || "",
+      guesses: choice?.guesses || entry.sentence?.detected.guesses || [],
+      sentence: entry.sentence
+        ? { text: entry.sentence.text, start: entry.sentence.start, end: entry.sentence.end }
+        : null,
       onChange(state) {
+        /* Kept for a problem report, once per run: the diagnostics in the
+           settings list the last few. */
+        if (state.fault && !entry.noted) {
+          entry.noted = true;
+          noteFault(faultLine(state.fault));
+        }
         if (showing() === entry && !editing) sayFor(state);
         if (!state.panels.length) return;
         /* The entry's own previous state, not the window's: while this runs,
@@ -715,6 +848,7 @@ async function read(entry) {
        the reader was about to read, and a sheet wiped clean for an error
        message would take it away with it. The message goes to the status
        line, where every other passing word goes. */
+    noteFault(faultLine(faultOf(error)));
     if (settle(entry)) say(faultText(settings.languages[0], faultOf(error)));
   } finally {
     reading = false;
@@ -766,6 +900,9 @@ function settle(entry) {
   current = entry.state;
   draw();
   sayFor(current);
+  /* Once more when every animation of the run is over: one still running
+     when the last answer landed can end on a height of its own. */
+  setTimeout(fitSoon, 400);
   return true;
 }
 
@@ -834,8 +971,7 @@ function askingFor({ kind, index, item }, shown) {
   if (kind === "marked") {
     const panel = shown.panels[shown.selection?.panel ?? 0];
     if (!panel) return null;
-    const picked = shown.selection?.entry;
-    const from = picked == null ? panel.text : panel.alternatives?.[picked]?.text;
+    const from = pickedText(shown.selection || {}, panel, shown);
     return {
       holder: item,
       ask: {
@@ -849,10 +985,17 @@ function askingFor({ kind, index, item }, shown) {
   const panel = shown.panels[0];
   if (!panel) return null;
   const holder = ((shown.more ||= {})[`${kind}:${index}`] ||= {});
+  /* A looked-up word's term was found in its sentence, and may reach past
+     the word into it. */
+  const around = shown.sentence?.text || panel.text;
   const ask = kind === "verbs"
-    ? { term: item.form, base: item.infinitive, text: panel.text, source: askedLanguage(panel), meaning: item.meaning,
+    ? { term: item.form, base: item.infinitive, text: around, source: askedLanguage(panel), meaning: item.meaning,
         note: [item.infinitive, item.person, item.tense].filter(Boolean).join(", ") }
-    : { term: item.text, text: panel.text, source: askedLanguage(panel), meaning: item.meaning, note: item.note };
+    /* A looked-up verb form gets its examples by its base form, as a verb
+       row and a picked verb do: written from the form, they kept its tense
+       and person. Its note is an explanation, as a picked word's is. */
+    : { term: item.text, base: item.verb?.infinitive, text: around, source: askedLanguage(panel), meaning: item.meaning,
+        note: item.note };
   return { holder, ask };
 }
 
@@ -1034,6 +1177,13 @@ async function revealMarked() {
   area.scrollIntoView({ block, behavior: "smooth" });
 }
 
+/* The text a word was picked out of: a panel's, a line of a dictionary
+   entry, or the sentence a short text was looked up in. */
+const pickedText = (choice, panel, reading) =>
+  choice.inSentence ? reading.sentence?.text
+  : choice.entry == null ? panel?.text
+  : panel?.alternatives?.[choice.entry]?.text;
+
 /* Picking a word. While the pointer is still down only the frame moves — the
    question is asked once, when it is released. */
 async function pick(choice) {
@@ -1041,7 +1191,7 @@ async function pick(choice) {
   const panel = current.panels[choice.panel];
   /* In short mode a translation panel holds lines rather than a text, and a
      word picked there is picked out of its line. */
-  const from = choice.entry == null ? panel?.text : panel?.alternatives?.[choice.entry]?.text;
+  const from = pickedText(choice, panel, current);
   if (!from) return;
 
   const term = from.slice(choice.start, choice.end).trim();
@@ -1056,7 +1206,7 @@ async function pick(choice) {
        times on the way. */
     const before = current.selection;
     if (before && before.panel === choice.panel && before.entry === choice.entry
-        && before.start === choice.start && before.end === choice.end) return;
+        && !before.inSentence === !choice.inSentence && before.start === choice.start && before.end === choice.end) return;
     current.selection = { ...choice, term };
     current.markedTrail = null;
     current.marked = null;
@@ -1083,9 +1233,20 @@ async function pick(choice) {
     .filter(Boolean)
     .map((entry) => ({ code: entry.code, text: entry.text }));
 
+  /* A single word the aligner has a place for in both other panels is not
+     asked about: an expression of several words is, like a term. */
+  const places = wordCount(term) === 1 && current.links
+    ? otherPanels(choice.panel, sourceCode, settings.languages)
+      .filter((index) => current.panels[index])
+      .map((index) => fragmentsAcross(current.links, current.panels.map((entry) => entry.text), choice.panel,
+        { start: choice.start, end: choice.end }, index).join(" + "))
+    : [];
+  const knownSpot = places.length && places.every(Boolean) ? `${places[0]} | ${places[1] || "-"}` : "";
+
   const asked = term;
   try {
     const marked = await waitedOn(() => explainMarked(currentLlm, {
+      spot: knownSpot,
       term,
       text: from,
       source: askedLanguage(panel),
@@ -1109,10 +1270,13 @@ async function pick(choice) {
        overwrite the newer one. */
     if (current.selection?.term !== asked) return;
     const shown = current.marked;
-    current.marked = marked && shown?.moreStatus !== undefined
-      ? { ...marked, more: shown.more, moreStatus: shown.moreStatus,
+    /* Who explained it and who placed it in the other panels, for the
+       heading's hint. */
+    const credited = marked && { ...marked, model: settings.model || "", assignedBy: knownSpot ? "aligner" : current.short ? "" : "model" };
+    current.marked = credited && shown?.moreStatus !== undefined
+      ? { ...credited, more: shown.more, moreStatus: shown.moreStatus,
           examples: shown.examples, exampleStatus: shown.exampleStatus }
-      : marked;
+      : credited;
     current.markedStatus = "";
   } catch (error) {
     current.marked = null;
@@ -1199,6 +1363,11 @@ function copyPicked() {
 await onSettingsChanged(async () => {
   settings = await loadSettings();
   apiKey = await loadApiKey();
+  /* Fewer kept from now on: the oldest go at once, not with the next
+     reading. */
+  const shown = showing();
+  dropOldest(history, settings, shown);
+  place = shown ? history.indexOf(shown) : history.length;
   applyLanguage();
   applyPresence(settings);
   await applyShortcut();
@@ -1221,9 +1390,50 @@ await onCapture({
     source = selection.source || 0;
     edited = null;
     draft = selection.text;
+    /* A program may answer with one character of a Chinese word as the word
+       under the pointer: the text around it says which word that is. */
+    if (selection.route === "pointer-word" && selection.context) {
+      const { text: around, at } = selection.context;
+      const word = around.slice(at, at + selection.text.length) === selection.text
+        ? wordAround(around, at, at + selection.text.length)
+        : null;
+      if (word && word.end - word.start > selection.text.length) {
+        selection = { ...selection, text: around.slice(word.start, word.end), context: { text: around, at: word.start } };
+        draft = selection.text;
+        lightUp(word.start, word.end);
+      }
+    }
+    /* The sentence under the pointer arrives as the word the pointer was on
+       and the text around it; the sentence is cut out of that here, read as
+       a text of its own, and lit up where it stands. */
+    let stretch = null;
+    if (selection.route === "pointer-sentence") {
+      const sentence = sentenceUnder(selection.context, selection.text.length);
+      if (!sentence) return;
+      draft = sentence.text;
+      lightUp(sentence.start, sentence.end);
+      stretch = sentence;
+    } else if (selection.context && wordCount(selection.text) > SHORT_MAX_WORDS) {
+      stretch = selectionSpan(selection.context, selection.text);
+    }
+    /* One to three words come with the text around them, and their sentence
+       goes along where the reader switched that on (sentence.js). */
+    lookup = settings.withSentence && selection.context
+      && selection.route !== "pointer-sentence" && wordCount(selection.text) <= SHORT_MAX_WORDS
+      ? await sentenceFor(selection.text, selection.context, { settings, ...(await backends()) }).catch(() => null)
+      : null;
     editing = false;
     current = null;
+    walk = null;
     translate();
+    /* The reading it starts from is the one just put on screen. */
+    startWalk(selection, stretch);
+    if (walk && showing()?.draft === draft.trim()) {
+      walk.entries[0] = showing();
+      draw();
+    } else {
+      walk = null;
+    }
     await appear();
   },
   /* Nothing came back. Nothing selected, or nothing new copied, brings back
@@ -1267,9 +1477,9 @@ async function openFreeCard(selected) {
   await openCard(title, { ...build(""), detecting: true });
   let detected = "";
   try {
-    const { translation, llm } = await backends();
+    const { translation, llm, identifier } = await backends();
     detected = (await detectLanguage(selected, {
-      languages: settings.languages, reader, translation, llm,
+      languages: settings.languages, reader, translation, llm, identifier,
     })).code;
   } catch {
     /* Not named: the text goes on the word side, as any foreign word. */
@@ -1320,6 +1530,9 @@ async function appear(fresh = false) {
     focusDraft();
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     await unveilWindow();
+    /* Once more now that it can be seen: hidden, the window's frame may not
+       have been measurable (platform/windows.js). */
+    fitSoon();
   }
 }
 

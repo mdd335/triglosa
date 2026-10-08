@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { parseVerbForms, parseVerbTable, knownPerson, selectVerbForms, withoutVerbs } from "../../src/parse/verbs.js";
+import { parseVerbForms, parseVerbTable, knownPerson, selectVerbForms, withoutVerbs, meaningWordCount, grammarOf } from "../../src/parse/verbs.js";
 import { annotateVerbs } from "../../src/ask.js";
 import { languagePack } from "../../src/languages/index.js";
 
@@ -92,11 +92,19 @@ test("a tie leaves the earlier form in front", () => {
   ]);
 });
 
-test("a language without a verb model keeps the order it was given", () => {
-  /* Eight packs have none. Taking the first rows shows fewer interesting
-     verbs, but never a wrong one. */
+test("a language without a verb model ranks by what every pack carries", () => {
   const forms = ["parle", "aurait pu discuter", "vient"];
   assert.deepStrictEqual(selectVerbForms(forms, 2, "fr"), ["parle", "aurait pu discuter"]);
+  /* A long text: the verbs of the first weeks and the short forms give way
+     to the ones further down, in the text's order. */
+  const long = ["pulled", "went", "to get", "stayed", "wanted", "to see", "come", "took", "began", "to make",
+    "hurried", "seemed", "worried", "decided", "not to be", "appeared", "had burned", "had turned"];
+  assert.deepStrictEqual(selectVerbForms(long, 10, "en"),
+    ["pulled", "stayed", "wanted", "hurried", "seemed", "worried", "decided", "appeared", "had burned", "had turned"]);
+  assert.deepStrictEqual(selectVerbForms(["ficámos", "ficámos", "amolava"], 2, "pt"), ["ficámos", "amolava"],
+    "a form found twice is one candidate");
+  /* Ten or fewer all go, as they stand. */
+  assert.deepStrictEqual(selectVerbForms(long.slice(0, 10), 10, "en"), long.slice(0, 10));
 });
 
 test("only forms standing in the text survive", () => {
@@ -315,4 +323,20 @@ test("a form and a tense saying the same word say it once", () => {
   assert.deepStrictEqual(italian.map((v) => [v.person, v.tense]), [["", "participio"]]);
   const kept = parseVerbTable("measures | measure | messen | he/she/it | present simple", "en");
   assert.deepStrictEqual(kept.map((v) => [v.person, v.tense]), [["he/she/it", "present simple"]]);
+});
+
+test("a verb form carries one word of meaning, its auxiliaries and pronouns aside", () => {
+  assert.strictEqual(meaningWordCount("avons pris", "fr"), 1);
+  assert.strictEqual(meaningWordCount("se indique", "es"), 1);
+  assert.strictEqual(meaningWordCount("will appeal", "en"), 1);
+  assert.strictEqual(meaningWordCount("будет выступать", "ru"), 1);
+  assert.strictEqual(meaningWordCount("encher linguiça", "pt"), 2);
+  assert.strictEqual(meaningWordCount("кот наплакал", "ru"), 2);
+});
+
+test("a form the pack lists as carrying no person shows none, in every section", () => {
+  assert.deepStrictEqual(grammarOf("él/ella/usted", "participio", "es"), { person: "", tense: "participio" });
+  assert.deepStrictEqual(grammarOf("er/sie/es", "Partizip II", "de"), { person: "", tense: "Partizip II" });
+  assert.deepStrictEqual(grammarOf("él/ella/usted", "pretérito indefinido", "es"),
+    { person: "él/ella/usted", tense: "pretérito indefinido" });
 });

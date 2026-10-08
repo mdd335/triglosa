@@ -5,10 +5,10 @@
    together whatever it is written in: "fármaco" is one word and not three,
    and so are ходатайства and الصيانة.
 
-   It used to name the Latin-1 and Extended-A ranges outright, which made
-   every Cyrillic and Arabic character a separator. Word boundaries are what
-   the whole of matching rests on, so under those two scripts nothing could
-   be found at all except by accident. */
+   Naming the Latin ranges outright would make every Cyrillic and Arabic
+   character a separator. Word boundaries are what the whole of matching
+   rests on, so under those two scripts nothing could be found at all except
+   by accident. */
 export function isWordChar(ch) {
   return !!ch && /[\p{L}\p{N}\p{M}]/u.test(ch);
 }
@@ -45,18 +45,148 @@ export function stripDiacritics(s) {
     .replace(/\u0649/g, "\u064a");
 }
 
+/* The scripts written without a space between words: Chinese, Japanese,
+   Thai, Lao, Khmer, Burmese. A run of letters in one of them is a clause,
+   not a word, and it is cut into words by the platform's own segmentation —
+   the dictionary it carries for these scripts, the same on every system.
+   A property of the script, not of a language: no word of any language is
+   named here. Text holding none of these letters never reaches the
+   segmentation, so everything written with spaces is cut exactly as it is
+   without it. */
+const UNSPACED = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+
+export function isUnspaced(s) {
+  return UNSPACED.test(String(s || ""));
+}
+
+let segmenter;
+function wordSegmenter() {
+  if (segmenter === undefined) {
+    segmenter = typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+      ? new Intl.Segmenter("und", { granularity: "word" })
+      : null;
+  }
+  return segmenter;
+}
+
+/* A run of letters cut into its words, as tokens placed at `offset`. */
+function segmented(run, offset) {
+  const words = wordSegmenter();
+  if (!words || !UNSPACED.test(run)) return [{ text: run, start: offset, end: offset + run.length, isWord: true }];
+  return [...words.segment(run)].map(({ segment, index }) => ({
+    text: segment,
+    start: offset + index,
+    end: offset + index + segment.length,
+    isWord: true,
+  }));
+}
+
 /* Splits text into alternating word and non-word runs covering it
-   completely, so the pieces can be reassembled without loss. */
+   completely, so the pieces can be reassembled without loss. In a script
+   without spaces two words may follow each other with nothing between. */
 export function toTokens(text) {
   const s = String(text || "");
   const out = [];
+  const unspaced = UNSPACED.test(s);
   let i = 0;
   while (i < s.length) {
     const isWord = isWordChar(s.charAt(i));
     let j = i;
     while (j < s.length && isWordChar(s.charAt(j)) === isWord) j++;
-    out.push({ text: s.slice(i, j), start: i, end: j, isWord });
+    if (isWord && unspaced) out.push(...segmented(s.slice(i, j), i));
+    else out.push({ text: s.slice(i, j), start: i, end: j, isWord });
     i = j;
+  }
+  return out;
+}
+
+/* A word as the words it is: itself, unless it is a run of a script
+   without spaces. */
+export function unspacedWords(word) {
+  if (!UNSPACED.test(word)) return [word];
+  return toTokens(word).filter((token) => token.isWord).map((token) => token.text);
+}
+
+/* The word that text[start, end) lies inside, as { start, end } — or null
+where the stretch is no part of one word, or spans several. A program asked
+for the word under the pointer may answer with one character of a Chinese
+word, or with the half of a word that stands on the pointer's line where a
+PDF broke it over two (Edge, measured: "representa" of "representation");
+the text around it says which word that belongs to. In a script written
+with spaces the word is the letters standing right against the stretch. */
+export function wordAround(text, start, end) {
+  const s = String(text || "");
+  if (!UNSPACED.test(s.slice(start, end))) {
+    const letter = /[\p{L}\p{M}]/u;
+    if (start >= end || [...s.slice(start, end)].some((char) => !letter.test(char))) return null;
+    let from = start;
+    let to = end;
+    while (from > 0 && letter.test(s[from - 1]) && !UNSPACED.test(s[from - 1])) from--;
+    while (to < s.length && letter.test(s[to]) && !UNSPACED.test(s[to])) to++;
+    return { start: from, end: to };
+  }
+  const word = toTokens(s).find((token) => token.isWord && token.start <= start && end <= token.end);
+  return word ? { start: word.start, end: word.end } : null;
+}
+
+/* Where the words of a script without spaces meet, per text, kept for the
+   few texts a reading asks about over and over. */
+const seams = new Map();
+const SEAMS_KEPT = 16;
+
+/* Is text[i] the first letter of a word whose last letter is text[i - 1]?
+   Only ever where a script without spaces is on either side; two letters of
+   any other script are one word. */
+export function segmentBreak(text, i) {
+  const s = String(text || "");
+  const before = s.charAt(i - 1);
+  const after = s.charAt(i);
+  if (!isWordChar(before) || !isWordChar(after)) return false;
+  if (!UNSPACED.test(before) && !UNSPACED.test(after)) return false;
+  let starts = seams.get(s);
+  if (!starts) {
+    starts = new Set(toTokens(s).map((token) => token.start));
+    if (seams.size >= SEAMS_KEPT) seams.delete(seams.keys().next().value);
+    seams.set(s, starts);
+  }
+  return starts.has(i);
+}
+
+/* Can a word that starts at text[i] stand there as a word of its own — is
+   what stands before it no letter, or the end of another word? And can one
+   that ends before text[i]? Only the letter outside is asked about: a
+   caller finding a folded needle in a folded text holds positions that may
+   sit a mark away from the letter the needle starts with. */
+export function wordMayStart(text, i) {
+  return !isWordChar(text.charAt(i - 1)) || segmentBreak(text, i);
+}
+
+export function wordMayEnd(text, i) {
+  return !isWordChar(text.charAt(i)) || segmentBreak(text, i);
+}
+
+/* A piece of text as the words it holds, for counting. Written with spaces,
+   a word is what stands between them, punctuation and all; a piece of a
+   script without spaces is cut into its words, what stands between them
+   going with the word before it. */
+export function wordPieces(s) {
+  const out = [];
+  for (const chunk of String(s || "").matchAll(/\S+/g)) {
+    if (!UNSPACED.test(chunk[0])) {
+      out.push(chunk[0]);
+      continue;
+    }
+    let current = "";
+    let holdsWord = false;
+    for (const token of toTokens(chunk[0])) {
+      if (token.isWord && holdsWord) {
+        out.push(current);
+        current = "";
+      }
+      current += token.text;
+      holdsWord = holdsWord || token.isWord;
+    }
+    if (current) out.push(current);
   }
   return out;
 }
@@ -68,9 +198,8 @@ export function wordIndexOf(haystack, needle) {
   let i = haystack.indexOf(needle);
   while (i !== -1) {
     const end = i + needle.length;
-    const left = !isWordChar(needle.charAt(0)) || !isWordChar(haystack.charAt(i - 1));
-    const right =
-      !isWordChar(needle.charAt(needle.length - 1)) || !isWordChar(haystack.charAt(end));
+    const left = !isWordChar(needle.charAt(0)) || wordMayStart(haystack, i);
+    const right = !isWordChar(needle.charAt(needle.length - 1)) || wordMayEnd(haystack, end);
     if (left && right) return i;
     i = haystack.indexOf(needle, i + 1);
   }
@@ -137,10 +266,16 @@ export function stripModelWrapping(t) {
    and no others. What stands in its place is a rule that needs no words: a
    piece whose last word before the stop is a **single letter** is an
    abbreviation and not the end of anything, so "z. B." and "e. g." stay in
-   one piece. One-letter words do not end sentences in any of the eight. */
+   one piece. One-letter words do not end sentences in any of the eight.
+
+   Chinese and Japanese end a sentence with a full-width stop and start the
+   next one without a space: after the stop, and after the closing quotes
+   and brackets that belong to the sentence. */
+const SENTENCE_END = /(?<=[.!?…؟۔])[ \t]*(?:\n|(?=\S))|(?<=[。！？][”’」』）》]*)(?![。！？”’」』）》])[ \t]*(?:\n|(?=\S))/;
+
 export function toSentences(text) {
   const out = [];
-  for (const piece of String(text || "").split(/(?<=[.!?…؟۔])[ \t]*(?:\n|(?=\S))/)) {
+  for (const piece of String(text || "").split(SENTENCE_END)) {
     const trimmed = piece.trim();
     if (!trimmed) continue;
     const previous = out[out.length - 1];
@@ -201,7 +336,7 @@ export function sentenceWith(text, word, at = null) {
 }
 
 export function wordCount(s) {
-  return (String(s || "").trim().match(/\S+/g) || []).length;
+  return wordPieces(s).length;
 }
 
 /* Bring a list into the order its entries appear in the text.

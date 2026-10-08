@@ -26,12 +26,19 @@ jobs:
       - name: Install
         run: npm ci
 
+      - name: Fetch the word aligner's model
+        run: node scripts/aligner-fetch.mjs
+
       - name: Test the page and the pipeline
-        run: npm test
+        run: |
+          npm test
+          npm run lint
 
       - name: Test the shell
         working-directory: src-tauri
-        run: cargo test
+        run: |
+          cargo fmt --check
+          cargo test
 
       - name: Build the installer
         run: npx tauri build --bundles nsis

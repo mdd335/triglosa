@@ -12,12 +12,15 @@
 import { wordSet } from "../languages/index.js";
 import { stripDiacritics } from "../text.js";
 
-const MARKER = /^\s*(?:EXAMPLE|BEISPIEL)\s*[:\-–]\s*/i;
+/* A colon or a dash after the marker, or the field separator itself:
+   `EXAMPLE | kind | sentence | translation` is how one cloud model writes
+   every example line. */
+const MARKER = /^\s*(?:EXAMPLE|BEISPIEL)\s*[:\-–|]\s*/i;
 /* The same word wherever it stands: a model asked for a paragraph and then
    example lines writes all of it on one line — measured, 19 of 19 on a local
    model — and the marker is then the only thing saying where the paragraph
    ends. */
-const ANYWHERE = /(?:^|\s)(?:EXAMPLE|BEISPIEL)\s*[:\-–]\s*/i;
+const ANYWHERE = /(?:^|\s)(?:EXAMPLE|BEISPIEL)\s*[:\-–|]\s*/i;
 
 function clean(value) {
   return String(value || "")
@@ -66,7 +69,9 @@ function fields(line) {
   while (parts.length > 3 && parts[0] === "") parts.shift();
   if (parts.length > 3) parts.splice(2, parts.length, parts.slice(2).filter(Boolean).join(" "));
 
-  let [kind, sentence, translation] = ["", "", ""];
+  let kind = "";
+  let sentence;
+  let translation = "";
   if (parts.length >= 3) {
     [kind, sentence, translation] = parts;
   } else if (parts.length === 2) {

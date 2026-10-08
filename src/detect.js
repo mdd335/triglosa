@@ -1,13 +1,14 @@
 /* Deciding the language of a text from its function words.
 
    The promise is: rather stay silent than be wrong. An empty answer means
-   "ask something that knows better" — Apple's recognizer, then the model.
-   Costs nothing and takes no process start, which is why it runs first.
+   "ask something that knows better" — the identifier, Apple's recognizer,
+   then the model. Costs nothing and takes no process start, which is why it
+   runs first.
 
    Calibrated on the labelled corpus and on a set of texts in languages the
-   app does not offer, which is where it used to be wrong: a Czech sentence
-   scored Portuguese on se, do, a and pro, a Croatian one French, and both
-   reached the reader as a supported language with everything under the
+   app does not offer, which is where a lower bar goes wrong: a Czech sentence
+   scores Portuguese on se, do, a and pro, a Croatian one French, and both
+   would reach the reader as a supported language with everything under the
    panels built for it. Function words are short and cheap, and a language
    outside the eight hits a few of them by accident — so the bar is what
    tells an accident from a language: four hits, twice the runner-up, and at
@@ -19,7 +20,7 @@
    nothing a reader can feel. What stays open is the short input where
    function words give nothing away, and that runs in short mode anyway. */
 
-import { cleanLine, stripDiacritics, stripQuotes } from "./text.js";
+import { cleanLine, stripDiacritics, stripQuotes, unspacedWords } from "./text.js";
 import { SUPPORTED, displayName, isSupported, languageLabel, wordSet } from "./languages/index.js";
 import { detectPrompt } from "./prompts/detect.js";
 
@@ -37,7 +38,8 @@ function words(text) {
   return stripDiacritics(String(text || ""))
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
-    .filter(Boolean);
+    .filter(Boolean)
+    .flatMap(unspacedWords);
 }
 
 /* candidates limits what may be answered — normally every supported
@@ -65,36 +67,90 @@ export function detectByStopwords(text, candidates) {
   return winner;
 }
 
-/* All three stages, in the order that costs least.
+/* From this share on the identifier's likeliest language is taken. Lower,
+   and a word written alike in two languages is named the wrong one; at this
+   value it named none of the corpus's texts wrongly (run forty-one). */
+export const IDENTIFIER_THRESHOLD = 0.9;
+
+/* What the identifier's answer — the likeliest languages with a share each,
+   likeliest first — says: a supported language it is sure of (`code`), or
+   that it is sure of one the app does not offer (`foreign`), or nothing. The
+   reader's own languages are given no precedence here: every wrong answer it
+   gave in the measurement came from one. */
+export function readIdentified(top) {
+  const [code, share] = (top || [])[0] || [];
+  if (!code || !(share >= IDENTIFIER_THRESHOLD)) return { code: "", foreign: false };
+  return SUPPORTED.includes(code) ? { code, foreign: false } : { code: "", foreign: true };
+}
+
+/* All four stages, in the order that costs least.
 
      1. function words — free, decides 49 of the 108 corpus texts
-     2. the device's recognizer — a few ms, decides almost all of the rest
-     3. the model — about 1.4 s, whatever is left
+     2. the identifier — a hundredth of a millisecond, decides two thirds
+     3. the device's recognizer — a few ms, decides almost all of the rest
+     4. the model — about 1.4 s, whatever is left
 
-   Both early stages may refuse, and on the corpus neither is ever wrong.
-   That counts for more than coverage here: detection stands at the head of
-   the longest path and everything waits on it, but a wrong language spoils
-   the entire run.
+   The early stages may refuse, and that counts for more than coverage
+   here: detection stands at the head of the longest path and everything
+   waits on it, but a wrong language spoils the entire run.
 
-   Returns { code, name }. code is a supported language — not necessarily one
+   Returns { code, name, by }: by says who named it — "text" for the
+   function words and the identifier, "device" or "model". code is a supported language — not necessarily one
    the user configured, since such a text keeps a panel of its own — or ""
    when the text is in none of them, in which case name carries the language's
    name for display and nothing else is known about it. */
-export async function detectLanguage(text, { languages, reader, translation, llm }) {
+export async function detectLanguage(text, { languages, reader, translation, llm, identifier }) {
   const local = detectByStopwords(text, SUPPORTED);
-  if (local) return { code: local, name: displayName(local, reader), guesses: [] };
+  if (local) return { code: local, name: displayName(local, reader), guesses: [], by: "text" };
+
+  const identified = readIdentified(identifier ? await identifier.identify(text).catch(() => null) : null);
+  if (identified.code) return { code: identified.code, name: displayName(identified.code, reader), guesses: [], by: "text" };
 
   /* What the recognizer thought likeliest, kept for a reader who corrects
-     the answer: it is the first place to look for the language it missed. */
+     the answer: it is the first place to look for the language it missed.
+     unsure is what it would name if nobody else could. */
   let guesses = [];
-  if (translation) {
-    /* The reader's own languages break a tie the recognizer cannot. */
-    const device = await translation.detect(text, SUPPORTED, languages || [], (found) => { guesses = found; });
-    if (device) return { code: device, name: displayName(device, reader), guesses };
+  let unsure = "";
+  /* The reader's own languages break a tie the recognizer cannot. */
+  const askDevice = async () => (translation
+    ? translation.detect(text, SUPPORTED, languages || [], (found) => {
+      guesses = found?.guesses || [];
+      unsure = found?.unsure || "";
+    })
+    : "");
+  /* A language the app does not offer is one the recognizer may not know
+     either, and it then names the nearest it has, sure of it: Persian comes
+     back Arabic, Serbian Russian. Where the identifier is sure of such a
+     language the recognizer's own verdict is passed over, and the model
+     asked. */
+  const device = await askDevice();
+  if (device && !(identified.foreign && llm)) {
+    return { code: device, name: displayName(device, reader), guesses, by: "device" };
   }
 
-  if (!llm) return { code: "", name: "", guesses };
-  return { ...(await detectByModel(text, { languages, reader, llm })), guesses };
+  /* Nobody left to ask. A single word carries no function words and the
+     recognizer is rarely sure enough of one, so the model was the third and
+     last stage — and where it is not there, or cannot be reached, the panels
+     stayed empty although the device could have translated the word: it
+     only ever needed a language to translate from. Apple's own best reading
+     is taken instead. Measured in run twenty-four, its first guess is the
+     model's answer for 73-76 % of one-language inputs; the other quarter
+     gets a wrong language rather than nothing, and the heading's
+     list is where the reader says which it is (author 2026-09-22). */
+  const guessed = () => (unsure
+    ? { code: unsure, name: displayName(unsure, reader), guesses, by: "device" }
+    : { code: "", name: "", guesses });
+
+  if (!llm) return guessed();
+  try {
+    return { ...(await detectByModel(text, { languages, reader, llm })), guesses, by: "model" };
+  } catch (error) {
+    /* A model that answered something unusable is not a model that failed:
+       only an unreachable one comes through here, and the run records the
+       reason from the questions that follow. */
+    if (!unsure) throw error;
+    return guessed();
+  }
 }
 
 /* What the reader said the text is in, in the shape detection answers with.

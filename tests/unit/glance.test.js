@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { parseGlance } from "../../src/parse/glance.js";
+import { parseGlance, unitsFromLinks } from "../../src/parse/glance.js";
 import { glanceAt, glancePairs, placeUnits, unitsOver } from "../../src/glance.js";
 
 const shown = (sentence, units) => units.map((unit) => `${sentence.slice(unit.start, unit.end)} → ${unit.gloss}`);
@@ -162,3 +162,67 @@ test("a second column that came to nothing costs the reader's column nothing", a
   assert.deepStrictEqual(units.map((unit) => unit.gloss), ["Die Regierung", "billigte", "das Gesetz"]);
   assert.ok(units.every((unit) => unit.second === null));
 });
+
+test("the units of a sentence without spaces are laid over its words, however the model cut them", () => {
+  const sentence = "政府决定提高最低工资";
+  const translation = "Die Regierung beschloss, den Mindestlohn anzuheben";
+  const units = parseGlance("政府 | Die Regierung\n决定 | beschloss\n提高 | anzuheben\n最低工资 | den Mindestlohn",
+    sentence, translation, ["zh", "de"]);
+  assert.deepStrictEqual(shown(sentence, units),
+    ["政府 → Die Regierung", "决定 → beschloss", "提高 → anzuheben", "最低工资 → den Mindestlohn"]);
+});
+
+/* The word aligner's links: pairs of word numbers, the words carrying
+   meaning linked and the small words of the translation left to nobody. */
+
+test("links become units, and a small word nobody took goes to the word after it", () => {
+  const sentence = "El Gobierno ha aprobado el decreto";
+  const translation = "Die Regierung hat das Dekret gebilligt.";
+  /* Gobierno–Regierung, aprobado–gebilligt, decreto–Dekret; "Die", "hat"
+     and "das" linked to nothing. */
+  const units = unitsFromLinks(sentence, translation, [[1, 1], [3, 5], [5, 4]], ["es", "de"]);
+  assert.deepStrictEqual(shown(sentence, units),
+    ["El Gobierno → Die Regierung", "ha → ", "aprobado → gebilligt", "el decreto → das Dekret"]);
+  assert.strictEqual(translation.slice(units[0].to[0].start, units[0].to[0].end), "Die Regierung");
+});
+
+test("a small word left at the end of a clause goes to the word before it", () => {
+  const sentence = "porque me pilló";
+  const translation = "weil mich die Arbeit erwischt hat.";
+  const units = unitsFromLinks(sentence, translation, [[0, 0], [1, 1], [2, 4]], ["es", "de"]);
+  assert.strictEqual(units.find((unit) => sentence.slice(unit.start, unit.end).endsWith("pilló")).gloss, "erwischt hat");
+});
+
+test("two words with only an apostrophe between them are one unit", () => {
+  const sentence = "J'ai faim";
+  const translation = "Ich habe Hunger";
+  const units = unitsFromLinks(sentence, translation, [[0, 0], [1, 1], [2, 2]], ["fr", "de"]);
+  assert.deepStrictEqual(shown(sentence, units), ["J'ai → Ich habe", "faim → Hunger"]);
+});
+
+test("a word linked to words apart shows them with the gap between", () => {
+  const sentence = "Il governo ha approvato il decreto";
+  const translation = "Die Regierung hat das Dekret gebilligt";
+  const units = unitsFromLinks(sentence, translation, [[1, 1], [3, 2], [3, 5], [5, 4]], ["it", "de"]);
+  const verb = units.find((unit) => sentence.slice(unit.start, unit.end).includes("approvato"));
+  assert.strictEqual(verb.gloss, "hat … gebilligt");
+  assert.strictEqual(verb.to.length, 2);
+});
+
+test("the second translation gets its own ranges under the same grouping", () => {
+  const sentence = "Кошка спала";
+  const units = unitsFromLinks(sentence, "Die Katze schlief", [[0, 1], [1, 2]], ["ru", "de"],
+    { text: "The cat slept", links: [[0, 1], [1, 2]], codes: ["ru", "en"] });
+  assert.deepStrictEqual(units.map((unit) => [unit.gloss, unit.second.gloss]), [["Die Katze", "The cat"], ["schlief", "slept"]]);
+  /* A second column that came to nothing is null throughout, as in a model's answer. */
+  const bare = unitsFromLinks(sentence, "Die Katze schlief", [[0, 1], [1, 2]], ["ru", "de"],
+    { text: "The cat slept", links: [], codes: ["ru", "en"] });
+  assert.ok(bare.every((unit) => unit.second === null));
+});
+
+test("links to words that are not there are left out, and no words is no answer", () => {
+  assert.strictEqual(unitsFromLinks("…", "nichts", [], ["es", "de"]), null);
+  const units = unitsFromLinks("Hola mundo", "Hallo Welt", [[0, 0], [1, 1], [7, 0], [0, 9]], ["es", "de"]);
+  assert.deepStrictEqual(shown("Hola mundo", units), ["Hola → Hallo", "mundo → Welt"]);
+});
+

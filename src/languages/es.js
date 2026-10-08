@@ -161,7 +161,7 @@ function wordDifficulty(word, multipart) {
     }
   }
 
-  let stem = w;
+  let stem;
   const tense = TENSES.find((t) => t.re.test(w));
   if (tense) {
     points += tense.points;
@@ -220,8 +220,8 @@ export default {
      tune and no corpus behind it. It is what closes both leaks at once — the
      verb prompt naming a Spanish tense under a Portuguese text, and a bare
      prompt naming a German one. Kept apart from `verbs` below, which holds
-     calibration; the two are different kinds of knowledge and phase 6
-     measured that only this one generalises. */
+     calibration; the two are different kinds of knowledge and the prompt
+     measurements showed that only this one generalises. */
   grammar: {
     persons: ["yo", "tú", "él/ella/usted", "nosotros", "vosotros", "ellos/ustedes"],
     tenses: [
@@ -230,6 +230,8 @@ export default {
       "pretérito perfecto", "pretérito pluscuamperfecto", "futuro perifrástico",
       "infinitivo", "gerundio", "participio",
     ],
+    /* The forms among them that carry no person. */
+    nonFinite: ["infinitivo", "gerundio", "participio"],
     genders: ["masculine", "feminine"],
   },
   /* Where a conjugation table for this language lives. A verb row offers it

@@ -65,6 +65,10 @@ export const CARD_MODES = ["never", "second", "third", "foreign"];
 /* Where the running app shows itself: in the menu bar, in the Dock, or both. */
 export const APP_ICONS = ["menubar", "dock", "both"];
 
+/* How many readings stay behind the title bar's chevrons: five, ten, or none
+   but the one on screen. */
+export const KEPT_READINGS = [5, 10, 0];
+
 /* Who translates the panels first. The other one steps in where the first
    cannot — so both answers still translate without a model, where the
    device can. */
@@ -137,6 +141,32 @@ export const DEFAULTS = {
      app, these two are for somebody who already uses it. */
   freshHotkey: null,
   cardHotkey: null,
+  /* The word and the sentence under the pointer, on the Mac with the
+     permission: empty until the reader sets them. */
+  wordHotkey: null,
+  sentenceHotkey: null,
+  /* Whether the Accessibility permission is used for the selection: read
+     without copying, and a translation inserted. Null is a file that never
+     said — read as "yes, where macOS allows it". What is under the pointer
+     has shortcuts and a switch of its own and does not hang on this. */
+  directSelection: null,
+  /* A force click on a Mac's trackpad looks up the word under the pointer,
+     or the selection it lands in. Off until the reader turns it on: it needs
+     the permission, and Apple's Look Up answers the same click until the
+     reader moves Look Up elsewhere. */
+  forceClick: false,
+  /* The sentence around one to three looked-up words goes to the model with
+     them (sentence.js). On, because a word without its sentence is the
+     weakest answer the app gives (author 2026-10-07); it is more text than
+     the reader selected, so the settings and the README say how much. Only
+     where the permission reads it — the clipboard brings the selection and
+     nothing around it. */
+  withSentence: true,
+  /* The sentence after the one read stands under the original, to be read
+     on a click (the walk in app.js). Off until the reader asks for it
+     (author 2026-10-07): it is one more line in a window that is otherwise
+     only what was read, and not every program gives the text that follows. */
+  nextSentence: false,
   /* The reading window goes away when the focus leaves it, the way a menu
      does. Pinned, it stays standing above every other window, for a reader
      who reads beside something else — the pin in the window's title line. */
@@ -147,10 +177,18 @@ export const DEFAULTS = {
   /* The reading window as tall as what it holds. Off, it keeps the size the
      reader gave it, and remembers that size as it always does. */
   fitWindow: true,
+  /* How many readings can be stepped back to (KEPT_READINGS). Five fits two
+     chevrons rather than a list; zero keeps the one on screen and nothing
+     before it, for a reader who wants what they read gone with the next. */
+  kept: 5,
   /* The menu bar symbol alone by default: a window lying over another
      program's full screen should not bring a Dock icon and a Space along. */
   appIcon: "menubar",
 };
+
+/* Whether the permission is to be used for the selection, where macOS
+   grants it. Only an explicit no is no; see `directSelection`. */
+export const usesPermission = (settings) => settings.directSelection !== false;
 
 const isPlainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 
@@ -195,11 +233,18 @@ export function normalizeSettings(stored, { systemLanguages } = {}) {
     hotkey: normalizeHotkey(raw, "hotkey"),
     freshHotkey: normalizeHotkey(raw, "freshHotkey"),
     cardHotkey: normalizeHotkey(raw, "cardHotkey"),
+    wordHotkey: normalizeHotkey(raw, "wordHotkey"),
+    sentenceHotkey: normalizeHotkey(raw, "sentenceHotkey"),
+    directSelection: typeof raw.directSelection === "boolean" ? raw.directSelection : null,
+    forceClick: raw.forceClick === true,
+    withSentence: raw.withSentence !== false,
+    nextSentence: raw.nextSentence === true,
     /* Whoever switched off closing on a focus change wanted the window to
        stay: that is a pinned window now. */
     pinned: typeof raw.pinned === "boolean" ? raw.pinned : raw.closeOnBlur === false,
     search: SEARCH_URLS[raw.search] ? raw.search : SYSTEM_SEARCH,
     fitWindow: raw.fitWindow !== false,
+    kept: KEPT_READINGS.includes(raw.kept) ? raw.kept : DEFAULTS.kept,
     appIcon: APP_ICONS.includes(raw.appIcon) ? raw.appIcon : DEFAULTS.appIcon,
   };
 }
@@ -245,9 +290,9 @@ function normalizeHotkey(raw, key) {
   return DEFAULTS[key];
 }
 
-/* The three combinations by what they do, in the order the settings show
-   them and the shell registers them. */
-export const HOTKEYS = ["hotkey", "freshHotkey", "cardHotkey"];
+/* The combinations by what they do, in the order the settings show them
+   and the shell registers them. */
+export const HOTKEYS = ["hotkey", "freshHotkey", "cardHotkey", "wordHotkey", "sentenceHotkey"];
 
 /* Levels for languages nobody has selected are kept, not dropped: the point
    of remembering one is that it survives a detour through another language.

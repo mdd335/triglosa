@@ -99,8 +99,15 @@ export const PREFERRED_FLOOR = 0.25;
 
    A leader that is itself one of the reader's languages is not promoted from
    low confidence: that is the recognizer being unsure, not torn, and a rare
-   Spanish word comes back English at 0.47. Anything unusable means silence. */
-export function readDetection(answer, candidates, preferred = []) {
+   Spanish word comes back English at 0.47. Anything unusable means silence.
+
+   `unsure` reads the same answer for the case where silence helps nobody:
+   no model is there to ask after it, so the leader is taken however little
+   the recognizer thinks of it. The threshold is there to choose between the
+   recognizer and the model, and with no model there is nothing to choose —
+   the choice is between a guess and no translation at all. The reader's own
+   languages keep their precedence. */
+export function readDetection(answer, candidates, preferred = [], unsure = false) {
   const lines = String(answer || "").trim().split("\n").map((line) => line.trim()).filter(Boolean);
   const hypotheses = [];
   for (const line of lines) {
@@ -114,9 +121,10 @@ export function readDetection(answer, candidates, preferred = []) {
 
   const [leader] = hypotheses;
   if (leader.confidence >= CONFIDENCE_THRESHOLD) return allowed(leader.code) ? leader.code : "";
-  if (preferred.includes(leader.code)) return "";
+  const best = () => (unsure && allowed(leader.code) ? leader.code : "");
+  if (preferred.includes(leader.code)) return best();
   const own = hypotheses.find((h) => preferred.includes(h.code) && allowed(h.code));
-  return own && own.confidence >= PREFERRED_FLOOR ? own.code : "";
+  return own && own.confidence >= PREFERRED_FLOOR ? own.code : best();
 }
 
 /* The languages the recognizer thought likeliest, for a reader who is
@@ -294,11 +302,14 @@ export function createTranslationBackend({ helperUrl, system = currentSystem() }
 
     /* The second of the three detection stages. Costs about 40 ms including
        the process start, against 1.4 s for a model round trip. */
-    async detect(text, candidates, preferred, onGuesses) {
+    async detect(text, candidates, preferred, report) {
       if (!(await running())) return "";
       try {
         const answer = await ask("/detect", { body: text });
-        if (onGuesses) onGuesses(readGuesses(answer));
+        /* Both readings of the one answer, so that the caller needs no
+           second question: what it thought likeliest, for a reader who
+           corrects it, and what it would say if nothing else could. */
+        if (report) report({ guesses: readGuesses(answer), unsure: readDetection(answer, candidates, preferred, true) });
         return readDetection(answer, candidates, preferred);
       } catch {
         return "";

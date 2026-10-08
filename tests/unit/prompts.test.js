@@ -17,7 +17,7 @@ import {
 import { alignVerbsPrompt, annotateVerbsPrompt, fieldName, findVerbsPrompt } from "../../src/prompts/verbs.js";
 import { alignWordsPrompt } from "../../src/prompts/words-align.js";
 import { glanceInput, glancePrompt } from "../../src/prompts/glance.js";
-import { alternativesPrompt, definitionPrompt, readerSpelling } from "../../src/prompts/translation.js";
+import { alternativesInput, alternativesPrompt, readerSpelling } from "../../src/prompts/translation.js";
 import { detectPrompt } from "../../src/prompts/detect.js";
 import { SUPPORTED, languagePack } from "../../src/languages/index.js";
 
@@ -30,11 +30,10 @@ const SETUP = {
 
 /* ---- the question about the difficult words ----
 
-   These used to pin the prompt character for character against a fixture.
-   Phase 6 replaced it, and measured the replacement: 18 texts in
-   seven languages against five models, twice over. So what is pinned here is the contract the
-   measurement settled on rather than a fixture — chiefly the two things the
-   old prompt got wrong and the one it got right. */
+   Not the prompt character for character against a fixture, but the
+   contract a measurement settled on — 18 texts in seven languages against
+   five models, twice over: chiefly the two things the calibrated prompt got
+   wrong and the one it got right. */
 
 test("the question names both languages and the reader's level in the text's", () => {
   const text = wordsPrompt({ code: "fr", languages: ["de", "fr"], levels: { fr: "A2" } });
@@ -53,6 +52,65 @@ test("an everyday word is an item for a beginner and for nobody else", () => {
   assert.ok(wordsPrompt({ code: "de", languages: ["de", "fr"], levels: {} }).includes(everyday));
   /* Never the clause that held the local model to half its items. */
   assert.ok(!wordsPrompt({ code: "fr", languages: ["de", "fr"], levels: {} }).includes("ONLY when"));
+});
+
+test("the level is said out loud, and nothing has to fill the three places", () => {
+  /* The level's name alone did not move the list: a native reader, one at
+     C2 and one at A2 got the same three items for the same plain text. */
+  assert.ok(wordsPrompt({ code: "fr", languages: ["de", "fr"], levels: { fr: "C2" } }).includes("At C2 they know the language nearly as a native speaker does"));
+  assert.ok(wordsPrompt({ code: "fr", languages: ["de", "fr"], levels: { fr: "A2" } }).includes("At A2 they know the basic vocabulary"));
+  for (const languages of [["de", "fr"], ["fr", "de"]]) {
+    assert.ok(wordsPrompt({ code: "fr", languages, levels: {} }).includes("the whole answer is NONE"));
+  }
+});
+
+test("a native reader gets a bar of their own and rates each term", () => {
+  const own = wordsPrompt({ code: "de", languages: ["de", "en"], levels: {} });
+  const learner = wordsPrompt({ code: "de", languages: ["en", "de"], levels: { de: "C2" } });
+  assert.ok(own.includes("<term> | <meaning> | <note> | <known>"));
+  assert.ok(own.includes("most, some or few"));
+  assert.ok(!learner.includes("<known>"));
+  /* The everyday domains are the best items for a learner and never one for
+     a native reader. */
+  assert.ok(learner.includes("very much including everyday domains"));
+  assert.ok(!own.includes("very much including everyday domains"));
+  assert.ok(own.includes("Rare, literary, old-fashioned or archaic words"));
+});
+
+test("a dictionary lookup asks the same question for one term", () => {
+  const long = wordsPrompt({ code: "es", languages: ["de", "es"], levels: { es: "B2" } });
+  const alone = wordsPrompt({ code: "es", languages: ["de", "es"], levels: { es: "B2" }, lookup: { inSentence: false } });
+  const inSentence = wordsPrompt({ code: "es", languages: ["de", "es"], levels: { es: "B2" }, lookup: { inSentence: true } });
+  for (const lookup of [alone, inSentence]) {
+    assert.ok(lookup.includes("At most 1 item, the hardest"));
+    assert.ok(!lookup.includes("At most 3 items"));
+    assert.ok(lookup.includes("dictionary translations of the words they looked up"));
+    assert.ok(!lookup.includes("a full translation"));
+    assert.ok(lookup.includes("the whole answer is NONE"), "nothing is still an answer");
+    assert.ok(lookup.includes("Judge difficulty against level B2"), "the same bar");
+  }
+  assert.ok(inSentence.includes("The item must contain at least one of them"));
+  for (const lookup of [alone, inSentence]) {
+    assert.ok(lookup.includes("A verb form counts like any other word"), "no verb table beside a lookup");
+    assert.ok(!lookup.includes("NOT a single verb"));
+  }
+  assert.ok(long.includes("NOT a single verb"), "a longer text's verbs have their table");
+  assert.ok(!alone.includes("Looked up"), "without a sentence the text is the words");
+  /* Everything else is the longer texts' question, line for line. */
+  const others = (prompt) => prompt.split("\n").filter((line) =>
+    !/At most|translation|Looked up|<known>|^<term>|single verb|A verb form counts/.test(line));
+  assert.deepStrictEqual(others(alone), others(long));
+  assert.deepStrictEqual(others(inSentence), others(long));
+  assert.ok(!long.includes("Looked up") && !long.includes("dictionary translations"), "a longer text's question is untouched");
+
+  for (const lookup of [alone, inSentence]) {
+    assert.ok(lookup.includes("<term> | <meaning> | <note> | <known>"), "a learner's lookup is rated");
+    assert.ok(lookup.includes("how many Spanish learners at level B2 know the term"));
+  }
+  assert.ok(!long.includes("<known>"), "a learner's list is not");
+
+  const beginner = wordsPrompt({ code: "es", languages: ["de", "es"], levels: { es: "A2" }, lookup: { inSentence: false } });
+  assert.ok(!beginner.includes("never an item"), "a beginner is helped by an everyday word here too");
 });
 
 test("a language with no level set is asked about at B1", () => {
@@ -173,8 +231,8 @@ test("the clicked verb is asked the same way the table is", () => {
 
 /* Every pack carries a grammar table now, so the fallback is what a
    language the app does not support gets — not what a supported one that
-   has not been calibrated gets. That was the state phase 6 ended: the names
-   are written out of a grammar, and there is nothing in them to measure. */
+   has not been calibrated gets. The names are written out of a grammar,
+   and there is nothing in them to measure. */
 test("the tense names come from the pack, with a plain fallback", () => {
   assert.ok(TENSES.startsWith("presente, pretérito indefinido"));
   assert.strictEqual(tenseNames("ru"), "настоящее время, прошедшее время, будущее время, " +
@@ -192,9 +250,9 @@ test("the persons come from the pack too, and say so where a language has none",
   assert.ok(PERSONS.startsWith("yo, tú, él/ella/usted, nosotros, vosotros, ellos/ustedes"));
   assert.ok(PERSONS.endsWith("- or infinitive, gerund, participle, impersonal"),
     "the four form names are grammatical categories, not pronouns, and stay");
-  /* They are English because the prompt around them is. They were Spanish
-     until phase 6, which put four Spanish words in the middle of a Russian
-     question — in the very prompt whose leak had just been measured shut. */
+  /* They are English because the prompt around them is. Spanish names would
+     put four Spanish words in the middle of a Russian question — in the very
+     prompt whose leak was measured shut. */
   assert.ok(!PERSONS.includes("infinitivo"));
   assert.ok(personNames("ru").startsWith("я, ты, он/она/оно, мы, вы, они"));
   assert.ok(personNames("xx").startsWith("the pronouns of that language"));
@@ -288,13 +346,18 @@ test("the word alignment prompt names no language at all", () => {
   assert.ok(text.includes("<original> | <A> | <B>"));
 });
 
-test("the definition prompt is character for character the original", () => {
-  /* Source and unknown marker were parameters from the start, so nothing in
-     it ever named a language it was not asked about. */
-  assert.strictEqual(
-    definitionPrompt({ source: RUN.source, unknown: "UNBEKANNT" }),
-    dynamic.meaning.system,
-  );
+test("a dictionary entry with its sentence asks for the sense there first, then the other senses", () => {
+  const bare = alternativesInput({ source: "French", target: "German", text: "prise" });
+  assert.strictEqual(bare, "Source: French | Target: German | Input: prise", "without a sentence, the input alone");
+  const input = alternativesInput({ source: "French", target: "German", text: "prise", sentence: "Je cherche une prise pour mon ordinateur." });
+  assert.ok(input.includes("The input stands in this sentence: Je cherche une prise pour mon ordinateur."));
+  assert.ok(input.includes("First line: the translation that fits the input in that sentence."));
+  assert.ok(input.includes("OTHER common meaning"));
+  assert.ok(input.includes("at most one near-synonym in all"), "one near-synonym, and only where it is used differently");
+  assert.ok(input.includes("names the field"), "a list in the reader's language: the note names where the meaning belongs");
+  const foreign = alternativesInput({ source: "French", target: "English", reader: "German", text: "prise", sentence: "Je cherche une prise." });
+  assert.ok(foreign.includes("that meaning in German"), "any other list: the meaning in the reader's language");
+  assert.ok(!/\bExample\b/.test(input) && !input.includes("Spanish"), "no example, no language but the ones asked about");
 });
 
 test("the dictionary note is the reader's language, and its pack says how to write it", () => {
@@ -304,6 +367,9 @@ test("the dictionary note is the reader's language, and its pack says how to wri
   const german = alternativesPrompt({ ...RUN, spelling: readerSpelling("de") });
   assert.ok(german.includes("umlauts (ä, ö, ü) and ß"));
   assert.ok(german.includes("<note> is in German, at most four words"));
+  assert.ok(german.includes("what sets this translation apart from the other lines"), "a note tells its line from the others");
+  assert.ok(german.includes("Only the first line may be the usual one"));
+  assert.ok(german.includes("leave <note> empty rather than write one"), "no note is better than one that fits any word");
 
   const english = alternativesPrompt({
     source: "Spanish", target: "Spanish", reader: "English",

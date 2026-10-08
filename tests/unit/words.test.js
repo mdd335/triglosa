@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { MAX_WORDS, parseMarkedWord, parseVerbGrammar, parseWordClass, parseWords, usableSpot, withoutNestedTerms } from "../../src/parse/words.js";
+import { MAX_WORDS, namesTheLookup, parseMarkedWord, withoutFormOpening, parseVerbGrammar, parseWordClass, parseWords, usableSpot, withoutNestedTerms } from "../../src/parse/words.js";
 import {
   MAX_SYNONYMS,
   MAX_SYNONYM_WORDS,
@@ -428,6 +428,26 @@ test("a clicked word is still asked with its text", async () => {
   assert.ok(asked.some((user) => user.includes("Hoy me da pereza")));
 });
 
+test("a place the aligner already found is not asked for, and is the place shown", async () => {
+  const asked = [];
+  const llm = {
+    async chat({ system }) {
+      asked.push(system);
+      return "pereza | Unlust | Umgangssprachlich für Antriebslosigkeit";
+    },
+  };
+  const marked = await explainMarked(llm, {
+    term: "pereza",
+    text: "Hoy me da pereza salir de casa.",
+    source: "es",
+    reader: "de",
+    others: [{ code: "de", text: "Heute habe ich keine Lust rauszugehen." }],
+    spot: "Lust | -",
+  });
+  assert.ok(asked.every((system) => !system.includes("Locate it in both translations")));
+  assert.strictEqual(marked.a, "Lust");
+});
+
 test("a clicked infinitive is a verb when the verb-form question calls it one", () => {
   /* The meaning question rightly repeats an infinitive as its own base form,
      which the repeat test used to take for "not a verb": tumbar, bosser,
@@ -469,6 +489,37 @@ test("an infinitive named in one field, or in the tense field, still counts", ()
   assert.strictEqual(it.infinitive, "sgranare");
   const en = parseMarkedWord({ meaningRaw: "rejig | umstellen | note", spotRaw: "", term: "rejig", code: "en", thirdRaw: "", grammarRaw: "they | infinitive", lang: "de", codes: ["de", "en", "es"] });
   assert.strictEqual(en.infinitive, "rejig");
+});
+
+test("a native reader's rating is a fourth column, and only a rating is", () => {
+  const [rated] = parseWords("caution | dépôt de garantie | somme versée au bailleur | most");
+  assert.strictEqual(rated.note, "somme versée au bailleur");
+  assert.strictEqual(rated.known, "most");
+  const [loud] = parseWords("écaillée | qui se détache | peinture ; bâtiment | Few.");
+  assert.strictEqual(loud.known, "few");
+  /* The local model's note behind a semicolon, and the rating after it. */
+  const [short] = parseWords("bleed | release trapped air; plumbing | some");
+  assert.strictEqual(short.meaning, "release trapped air");
+  assert.strictEqual(short.note, "plumbing");
+  assert.strictEqual(short.known, "some");
+  const [plain] = parseWords("caution | Kaution | Sicherheit beim Einzug");
+  assert.strictEqual(plain.known, undefined);
+});
+
+test("in the reader's own language a term most native speakers know is dropped", async () => {
+  /* The cloud model listed Reisebüro to a German reader of a German holiday
+     story, and rated it itself as known to most. */
+  const text = "Sie geht in ein Reisebüro. Die Versicherung verweist auf die Gewährleistung.";
+  const answer = "Reisebüro | Geschäft für Reisen | vermittelt Reisen; Tourismus | most\nGewährleistung | Haftung für Mängel | Pflicht, Fehler zu beheben; Recht | some";
+  const llm = { chat: async () => answer };
+  const own = await wordsFor(llm, { text, source: "de", languages: ["de", "en"], levels: {} });
+  assert.deepStrictEqual(own.map((w) => w.text), ["Gewährleistung"]);
+  /* Without a rating the item stays: the local model often leaves it out. */
+  const unrated = { chat: async () => "Reisebüro | Geschäft für Reisen | vermittelt Reisen; Tourismus" };
+  assert.deepStrictEqual((await wordsFor(unrated, { text, source: "de", languages: ["de", "en"], levels: {} })).map((w) => w.text), ["Reisebüro"]);
+  /* A learner is never judged by what native speakers know. */
+  const learner = await wordsFor(llm, { text, source: "de", languages: ["en", "de"], levels: { de: "C2" } });
+  assert.deepStrictEqual(learner.map((w) => w.text), ["Reisebüro", "Gewährleistung"]);
 });
 
 test("half a sentence handed back as a term is no term", async () => {
@@ -777,4 +828,232 @@ test("a nested term is found by its spot, and only as a word of its own", () => 
     { text: "Ensayo", spot: "ensayo" },
   ];
   assert.deepStrictEqual(withoutNestedTerms(list).map((w) => w.text), ["tirar la toalla", "ensayo", "en"]);
+});
+
+test("a verb's synonyms are asked about its base form, with the text", async () => {
+  /* The question goes out after the meaning answer rather than beside it,
+     because the base form is what that answer brings. A conjugated word asked
+     about itself comes back with conjugated synonyms whatever the rules say:
+     run twenty-five. */
+  const asked = [];
+  const llm = {
+    async chat({ system, user }) {
+      asked.push({ system, user });
+      if (system.includes("<note>")) return "lograr | erreichen | Verb der Erfolgssphäre.";
+      if (system.includes("<person>")) return "él/ella/usted | pretérito indefinido";
+      if (system.includes("Name synonyms")) return "conseguir | obtener | alcanzar";
+      return "";
+    },
+  };
+  const text = "El equipo logró terminar el trabajo antes de la fecha.";
+  const marked = await explainMarked(llm, {
+    term: "logró", text, source: "es", reader: "de", others: [], withoutSpot: true,
+  });
+  const synonyms = asked.filter((call) => call.system.includes("Name synonyms"));
+  assert.strictEqual(synonyms.length, 1);
+  assert.ok(synonyms[0].user.endsWith("Word: lograr"));
+  assert.ok(synonyms[0].user.includes(text), "the sense still comes from this sentence");
+  assert.deepStrictEqual(marked.synonyms, ["conseguir", "obtener", "alcanzar"]);
+});
+
+test("a word that is no verb is still asked about as the reader clicked it", async () => {
+  const asked = [];
+  const llm = {
+    async chat({ system, user }) {
+      asked.push({ system, user });
+      if (system.includes("<note>")) return "hogar | Haushalt | Wohneinheit einer Familie.";
+      if (system.includes("Name synonyms")) return "vivienda | casa";
+      return "-";
+    },
+  };
+  await explainMarked(llm, {
+    term: "hogar", text: "Cada hogar recibe una factura.", source: "es", reader: "de", others: [], withoutSpot: true,
+  });
+  const synonyms = asked.filter((call) => call.system.includes("Name synonyms"));
+  assert.ok(synonyms[0].user.endsWith("Word: hogar"));
+});
+
+test("a synonym that is only the base form again is the word itself", () => {
+  const marked = parseMarkedWord({
+    meaningRaw: "lograr | erreichen | Verb der Erfolgssphäre.",
+    spotRaw: "", term: "logró", code: "es", thirdRaw: "lograr | conseguir | obtener",
+    grammarRaw: "él/ella/usted | pretérito indefinido", lang: "de", codes: ["es", "de"],
+  });
+  assert.deepStrictEqual(marked.synonyms, ["conseguir", "obtener"]);
+});
+
+test("a looked-up term is the words themselves give or take a function word", () => {
+  assert.ok(namesTheLookup("meter la pata", "meter la pata", "es"));
+  assert.ok(namesTheLookup("alfombra", "la alfombra", "es"), "an article looked up along changes nothing");
+  assert.ok(namesTheLookup("Zascandil", "zascandil", "es"));
+  assert.ok(!namesTheLookup("metí la pata", "pata", "es"), "reaching into the sentence is a term of its own");
+  assert.ok(!namesTheLookup("cuenta atrás", "cuenta atrás final", "es"), "and so is a piece of the words");
+});
+
+test("a lookup's term is asked its word class, for its head line", async () => {
+  const asked = [];
+  const llm = {
+    async chat({ system }) {
+      asked.push(system);
+      return system.includes("WHAT COUNTS:") ? "zascandil | Wichtigtuer | jemand, der sich überall einmischt" : "noun";
+    },
+  };
+  const list = await wordsFor(llm, { text: "zascandil", source: "es", languages: ["de", "es"], levels: {},
+    lookup: { words: "zascandil", start: 0, end: 9 } });
+  assert.deepStrictEqual(list.map((word) => word.text), ["zascandil"]);
+  assert.strictEqual(asked.length, 3, "the term's question, the word class, and whether it is a verb form");
+  assert.strictEqual(list[0].verb, undefined, "not a verb: the table's question answered no line for it");
+});
+
+test("a lookup keeps one term, the first the model named", async () => {
+  const llm = { async chat({ system }) {
+    return system.includes("WHAT COUNTS:")
+      ? "zascandil | Wichtigtuer | jemand, der sich überall einmischt\nentrometido | neugierig | mischt sich ein"
+      : "-";
+  } };
+  const list = await wordsFor(llm, { text: "Ese zascandil entrometido", source: "es", languages: ["de", "es"], levels: {},
+    lookup: { words: "Ese zascandil entrometido", start: 0, end: 25 } });
+  assert.deepStrictEqual(list.map((word) => word.text), ["zascandil"]);
+});
+
+test("in its sentence a lookup keeps an idiom of six words, and one the model wrote in its dictionary form", async () => {
+  const answering = (term) => ({ async chat({ system }) { return system.includes("WHAT COUNTS:") ? term : "-"; } });
+  const ask = (term, sentence, word) => wordsFor(answering(term), {
+    text: sentence, source: sentence.startsWith("Il") ? "it" : "de", languages: ["pt", "it", "de"], levels: {},
+    lookup: { words: word, start: sentence.indexOf(word), end: sentence.indexOf(word) + word.length },
+  });
+  const idiom = await ask("fa acqua da tutte le parti | desmoronar | falha em todos os aspetos",
+    "Il progetto ormai fa acqua da tutte le parti.", "acqua");
+  assert.deepStrictEqual(idiom.map((word) => word.text), ["fa acqua da tutte le parti"]);
+  const base = await ask("Daumen drücken | torcer | desejar boa sorte",
+    "Ich drücke dir morgen die Daumen für die Prüfung.", "Daumen");
+  assert.deepStrictEqual(base.map((word) => word.text), ["Daumen drücken"], "found as drücke, and still naming the word");
+  const beside = await ask("für die Prüfung | para o exame | avaliação",
+    "Ich drücke dir morgen die Daumen für die Prüfung.", "Daumen");
+  assert.deepStrictEqual(beside, []);
+});
+
+test("a lookup drops a term the model rates as known to most readers at this level", async () => {
+  const answering = (term) => ({ async chat({ system }) { return system.includes("WHAT COUNTS:") ? term : "-"; } });
+  const ask = (term) => wordsFor(answering(term), { text: "alfombra", source: "es", languages: ["en", "es"],
+    levels: { es: "C1" }, lookup: { words: "alfombra", start: 0, end: 8 } });
+  assert.deepStrictEqual(await ask("alfombra | carpet | a floor covering | most"), []);
+  assert.deepStrictEqual((await ask("alfombra | carpet | a floor covering | some")).map((word) => word.text), ["alfombra"]);
+});
+
+test("a lookup drops the looked-up words named back with nothing to say", async () => {
+  const llm = { async chat({ system }) { return system.includes("WHAT COUNTS:") ? "zascandil | Wichtigtuer |" : "-"; } };
+  const list = await wordsFor(llm, { text: "zascandil", source: "es", languages: ["de", "es"], levels: {},
+    lookup: { words: "zascandil", start: 0, end: 9 } });
+  assert.deepStrictEqual(list, []);
+});
+
+/* The term question, the word class and the verb table's question, each
+   answered as given. */
+const lookingUp = (term, table, form = "él/ella/usted | presente", forms = "") => ({
+  async chat({ system }) {
+    if (system.includes("WHAT COUNTS:")) return term;
+    if (system.includes("choose and annotate")) return table;
+    if (system.includes("Name its person and tense")) return form;
+    if (system.includes("You extract verb forms")) return forms;
+    return "verb";
+  },
+});
+
+test("a looked-up verb form is drawn as a verb: base form, person and tense in place of a class", async () => {
+  const llm = lookingUp("indique | angeben | etwas schriftlich nennen; Verwaltungssprache",
+    "se indique | indicar | angeben | él/ella/usted | subjuntivo presente", "-", "Envía\nse indique");
+  const sentence = "Envía un documento donde se indique la tarea.";
+  const list = await wordsFor(llm, { text: sentence, source: "es", languages: ["de", "es"], levels: { es: "A2" },
+    lookup: { words: "indique", start: sentence.indexOf("indique"), end: sentence.indexOf("indique") + 7 } });
+  assert.deepStrictEqual(list.map((word) => word.verb),
+    [{ infinitive: "indicar", person: "él/ella/usted", tense: "subjuntivo presente" }]);
+  assert.strictEqual(list[0].text, "se indique", "the whole form the sentence's verb forms name");
+  assert.strictEqual(list[0].wordClass, undefined);
+  assert.strictEqual(list[0].note, "etwas schriftlich nennen; Verwaltungssprache", "the term's own explanation");
+});
+
+test("a looked-up verb of the first weeks is no term from B1 up", async () => {
+  const llm = lookingUp("fuimos | gehen | sich an einen Ort begeben", "fuimos | ir | gehen | nosotros | pretérito indefinido");
+  const ask = (level) => wordsFor(llm, { text: "fuimos", source: "es", languages: ["de", "es"], levels: { es: level },
+    lookup: { words: "fuimos", start: 0, end: 6 } });
+  assert.deepStrictEqual(await ask("B1"), []);
+  assert.deepStrictEqual((await ask("A2")).map((word) => word.verb?.infinitive), ["ir"], "a beginner is helped by it");
+});
+
+test("a looked-up noun gets no verb made up for it", async () => {
+  /* The verb table's question, handed a noun, answers with a verb anyway:
+     fehaciente → fehacer. The verb-form question says it is none. */
+  const llm = lookingUp("fehaciente | beweiskräftig | als Beweis ausreichend",
+    "fehaciente | fehacer | beweisen | él/ella/usted | presente", "-");
+  const list = await wordsFor(llm, { text: "fehaciente", source: "es", languages: ["de", "es"], levels: { es: "C1" },
+    lookup: { words: "fehaciente", start: 0, end: 10 } });
+  assert.deepStrictEqual(list.map((word) => [word.text, word.verb]), [["fehaciente", undefined]]);
+});
+
+test("an idiom is never taken for a looked-up verb form, and costs no verb question", async () => {
+  const asked = [];
+  const llm = { async chat({ system }) {
+    asked.push(system);
+    if (system.includes("WHAT COUNTS:")) return "encher linguiça | Zeit schinden | mit leeren Worten füllen";
+    if (system.includes("Name its person and tense")) return "ele/ela/você | presente";
+    return "encher linguiça | encher | füllen | ele/ela/você | presente";
+  } };
+  const list = await wordsFor(llm, { text: "encher linguiça", source: "pt", languages: ["de", "pt"], levels: {},
+    lookup: { words: "encher linguiça", start: 0, end: 15 } });
+  assert.strictEqual(list[0].verb, undefined);
+  assert.ok(!asked.some((system) => system.includes("Name its person and tense") || system.includes("choose and annotate")));
+});
+
+test("a looked-up verb says no person where its form has none", async () => {
+  const llm = lookingUp("ressasser | grübeln | immer wieder durchdenken", "ressasser | ressasser | grübeln | infinitive | infinitif",
+    "infinitive | infinitif");
+  const [word] = await wordsFor(llm, { text: "ressasser", source: "fr", languages: ["de", "fr"], levels: { fr: "A2" },
+    lookup: { words: "ressasser", start: 0, end: 9 } });
+  assert.deepStrictEqual(word.verb, { infinitive: "ressasser", person: "", tense: "infinitif" });
+});
+
+test("a participle looked up by itself is no verb row, in its sentence it may be", async () => {
+  const llm = lookingUp("tomada | Steckdose | Anschluss für Strom", "foi tomada | tomar | treffen | ele/ela/você | particípio",
+    "participle | particípio", "foi tomada");
+  const alone = await wordsFor(llm, { text: "tomada", source: "pt", languages: ["de", "pt"], levels: { pt: "A2" },
+    lookup: { words: "tomada", start: 0, end: 6 } });
+  assert.strictEqual(alone[0].verb, undefined, "alone it is the noun");
+  const sentence = "A decisão foi tomada ontem.";
+  const within = await wordsFor(llm, { text: sentence, source: "pt", languages: ["de", "pt"], levels: { pt: "A2" },
+    lookup: { words: "tomada", start: 13, end: 19 } });
+  assert.strictEqual(within[0].verb?.infinitive, "tomar");
+  assert.strictEqual(within[0].verb.person, "", "a participle carries no person, whatever came with it");
+});
+
+test("in its sentence a looked-up verb is the whole form, its meaning the infinitive, its note about the verb", async () => {
+  const sentence = "No pudo explicar cómo había llegado a dicho estado.";
+  const llm = lookingUp("llegado | gekommen | Partizip von llegar; an einen Ort oder Zustand gelangen",
+    "había llegado | llegar | ankommen, gelangen | él/ella/usted | pretérito pluscuamperfecto", "-", "pudo\nexplicar\nhabía llegado");
+  const [word] = await wordsFor(llm, { text: sentence, source: "es", languages: ["de", "es"], levels: { es: "A2" },
+    lookup: { words: "llegado", start: sentence.indexOf("llegado"), end: sentence.indexOf("llegado") + 7 } });
+  assert.strictEqual(word.text, "había llegado", "the auxiliary with it, as the verb table has it");
+  assert.strictEqual(word.meaning, "ankommen, gelangen", "infinitives, as on every verb row");
+  assert.strictEqual(word.note, "an einen Ort oder Zustand gelangen", "the explanation, without naming the form");
+  assert.deepStrictEqual(word.verb, { infinitive: "llegar", person: "él/ella/usted", tense: "pretérito pluscuamperfecto" });
+});
+
+test("a participle standing as an adjective in its sentence stays a term", async () => {
+  const sentence = "El escritor estaba muy angustiado.";
+  const llm = lookingUp("angustiado | verzweifelt | in großer seelischer Not", "angustiado | angustiar | ängstigen | él/ella/usted | participio",
+    "él/ella/usted | participio", "estaba");
+  const [word] = await wordsFor(llm, { text: sentence, source: "es", languages: ["de", "es"], levels: { es: "B1" },
+    lookup: { words: "angustiado", start: sentence.indexOf("angustiado"), end: sentence.indexOf("angustiado") + 10 } });
+  assert.deepStrictEqual([word.text, word.verb, word.meaning], ["angustiado", undefined, "verzweifelt"]);
+});
+
+test("a note opening with the form and its base form loses the opening, in every language's words", () => {
+  assert.strictEqual(withoutFormOpening("Form von inducir: jemanden zu etwas bringen; gehoben", "inducir", "es"),
+    "jemanden zu etwas bringen; gehoben");
+  assert.strictEqual(withoutFormOpening("Partizip von „ridurre“; kleiner machen", "ridurre", "it"), "kleiner machen");
+  assert.strictEqual(withoutFormOpening("Participio de pedir; solicitar algo", "pedir", "es"), "solicitar algo");
+  assert.strictEqual(withoutFormOpening("jemanden zu etwas bringen; gehoben", "inducir", "es"),
+    "jemanden zu etwas bringen; gehoben", "nothing to take where the base form is not named");
+  assert.strictEqual(withoutFormOpening("Eine lange Einleitung, die inducir erwähnt und noch weiter geht: Rest", "inducir", "es"),
+    "Eine lange Einleitung, die inducir erwähnt und noch weiter geht: Rest", "only a short opening");
 });

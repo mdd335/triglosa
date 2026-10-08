@@ -326,6 +326,25 @@ test("the window is not pinned and the app sits in the menu bar unless told othe
   assert.strictEqual(normalizeSettings({ search: "altavista" }).search, "system");
   assert.strictEqual(normalizeSettings({ fitWindow: false }).fitWindow, false);
   assert.strictEqual(normalizeSettings({ fitWindow: "no" }).fitWindow, true);
+  assert.strictEqual(normalizeSettings({}).kept, 5);
+  assert.strictEqual(normalizeSettings({ kept: 10 }).kept, 10);
+  assert.strictEqual(normalizeSettings({ kept: 0 }).kept, 0);
+  assert.strictEqual(normalizeSettings({ kept: 7 }).kept, 5);
+  assert.strictEqual(normalizeSettings({ kept: "10" }).kept, 5);
+  assert.strictEqual(normalizeSettings({}).forceClick, false);
+  assert.strictEqual(normalizeSettings({ forceClick: true }).forceClick, true);
+  assert.strictEqual(normalizeSettings({ forceClick: "yes" }).forceClick, false);
+  assert.strictEqual(normalizeSettings({}).withSentence, true);
+  assert.strictEqual(normalizeSettings({ withSentence: false }).withSentence, false);
+  assert.strictEqual(normalizeSettings({ withSentence: 0 }).withSentence, true);
+  assert.strictEqual(normalizeSettings({}).nextSentence, false);
+  assert.strictEqual(normalizeSettings({ nextSentence: true }).nextSentence, true);
+  assert.strictEqual(normalizeSettings({ nextSentence: "yes" }).nextSentence, false);
+  /* A file from before the switch says nothing, and that is kept apart
+     from an explicit no. */
+  assert.strictEqual(normalizeSettings({}).directSelection, null);
+  assert.strictEqual(normalizeSettings({ directSelection: false }).directSelection, false);
+  assert.strictEqual(normalizeSettings({ directSelection: "yes" }).directSelection, null);
   assert.strictEqual(normalizeSettings({}).appIcon, "menubar");
   assert.strictEqual(normalizeSettings({ appIcon: "both" }).appIcon, "both");
   assert.strictEqual(normalizeSettings({ appIcon: "taskbar" }).appIcon, "menubar");
@@ -335,15 +354,15 @@ test("a first start reads English with Spanish and no third language", () => {
   assert.deepStrictEqual(normalizeSettings({}).languages, ["en", "es"]);
 });
 
-test("the two further shortcuts start empty, and are kept or cleared like the first", async () => {
+test("the further shortcuts start empty, and are kept or cleared like the first", async () => {
   const { HOTKEYS } = await import("../../src/settings.js");
-  assert.deepStrictEqual(HOTKEYS, ["hotkey", "freshHotkey", "cardHotkey"]);
+  assert.deepStrictEqual(HOTKEYS, ["hotkey", "freshHotkey", "cardHotkey", "wordHotkey", "sentenceHotkey"]);
   const first = normalizeSettings({});
-  assert.strictEqual(first.freshHotkey, null);
-  assert.strictEqual(first.cardHotkey, null);
+  for (const key of HOTKEYS.slice(1)) assert.strictEqual(first[key], null, key);
   const kept = { accelerator: "Control+Alt+KeyK", label: "⌃⌥K" };
   assert.deepStrictEqual(normalizeSettings({ cardHotkey: kept }).cardHotkey, kept);
   assert.strictEqual(normalizeSettings({ cardHotkey: "junk" }).cardHotkey, null);
+  assert.deepStrictEqual(normalizeSettings({ sentenceHotkey: kept }).sentenceHotkey, kept);
   assert.deepStrictEqual(normalizeSettings({ freshHotkey: null }).hotkey, DEFAULT_HOTKEY, "the first keeps its preset");
 });
 

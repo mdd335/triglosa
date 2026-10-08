@@ -4,9 +4,8 @@
    Two model calls sit around this. The first only finds forms, the second
    annotates them. The choice in between happens here, without a further
    call: it is on the critical path of the whole run, and a language pack
-   answers it for free. Where a pack has no verb model — every language but
-   Spanish today — the model's own order decides, which shows fewer
-   interesting rows but no wrong ones. */
+   answers it for free. Where a pack has no verb model, the forms are
+   ranked by what every pack carries (`plainDifficulty`). */
 
 import { cleanLine, containsWord, orderByTextPosition, stripDiacritics, stripQuotes, wordIndexOf } from "../text.js";
 import { formInText } from "../match/positions.js";
@@ -63,6 +62,18 @@ export function parseVerbForms(raw, text, code) {
   const meaningful = withoutCopula.filter((f) => !auxiliaries.has(stripDiacritics(f).toLowerCase()));
   const kept = meaningful.length ? meaningful : withoutCopula.length ? withoutCopula : joined;
   return orderByTextPosition(kept, text, "");
+}
+
+/* How many words of a form carry meaning, auxiliaries and function words
+   aside. One verb form carries exactly one: "avons pris", "se indique",
+   "will appeal" — and "encher linguiça" or "кот наплакал", which the local
+   model took for verb forms, carry two. */
+export function meaningWordCount(form, code) {
+  const auxiliaries = wordSet(code, "auxiliaries");
+  return String(form || "").split(/\s+/)
+    .map((word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+    .filter((word) => word && !isFunctionWord(word, [code]) && !auxiliaries.has(stripDiacritics(word).toLowerCase()))
+    .length;
 }
 
 function isClitic(text, form) {
@@ -183,13 +194,24 @@ export function knownPerson(field, code) {
    the text as it should, "infinitive · infinitivo", which reads like two
    different findings. The four form names are not persons at all; they stand
    in that field only because the question offers them for a form that has no
-   person. So where the tense says what the form is, the person field goes. */
+   person. So where the tense says what the form is, the person field goes.
+   And where the tense is one of the forms the pack lists as carrying no
+   person, whatever person came with it goes too: "él/ella/usted ·
+   participio" for a participle standing as an adjective. */
 export function grammarOf(personField, tenseField, code) {
   const person = knownPerson(personField, code);
   const tense = String(tenseField || "").trim();
-  const fold = (s) => stripDiacritics(s).toLowerCase();
-  const noPerson = FORM_PERSONS.some((label) => fold(label) === fold(person));
+  const noPerson = FORM_PERSONS.some((label) => fold(label) === fold(person)) || isNonFinite(tense, code);
   return { person: tense && (noPerson || fold(person) === fold(tense)) ? "" : person, tense };
+}
+
+const fold = (s) => stripDiacritics(String(s || "")).toLowerCase().trim();
+
+/* Is this tense one of the forms the language's pack lists as carrying no
+   person: its infinitive, participles, gerund? */
+export function isNonFinite(tense, code) {
+  const names = languagePack(code).grammar?.nonFinite || [];
+  return !!tense && names.some((name) => fold(name) === fold(tense));
 }
 
 /* One verb, one row. A form the text splits — "hat sich … geeinigt" — can
@@ -214,12 +236,28 @@ export function mergeSameVerb(rows, text) {
   return out;
 }
 
+/* How hard a form is where its pack cannot say: the length of its longest
+   word that is none of the pack's function words, auxiliaries or verbs of
+   the first weeks — nothing where it holds no other. A rare verb tends to
+   be a long one, and the three lists are what every pack carries. Taking
+   the first forms of a long text instead left the annotation "to get",
+   "come" and "to make" to choose from, with "had burned" and "hurried"
+   further down (run forty-three). */
+function plainDifficulty(form, code) {
+  const plain = wordSet(code, "functionWords", "auxiliaries", "basicVerbs");
+  return String(form || "")
+    .split(/[\s+]+/)
+    .map((word) => stripDiacritics(word).toLowerCase())
+    .filter((word) => word && !plain.has(word))
+    .reduce((longest, word) => Math.max(longest, [...word].length), 0);
+}
+
 /* Pick the hardest forms and put them back into the order of the text. A tie
    is decided by position, so the earlier one comes first. */
 export function selectVerbForms(forms, count, code) {
-  const difficulty = languagePack(code).verbs?.difficulty;
-  const list = forms || [];
-  if (!difficulty) return list.slice(0, count);
+  const difficulty = languagePack(code).verbs?.difficulty || ((form) => plainDifficulty(form, code));
+  /* A form the text holds twice is one candidate. */
+  const list = (forms || []).filter((form, i, all) => all.indexOf(form) === i);
   return list
     .map((form, i) => ({ form, i, score: difficulty(form) }))
     .sort((a, b) => b.score - a.score || a.i - b.i)
@@ -250,7 +288,7 @@ export function withoutVerbs(words, verbs) {
          against "habia exigido" — same word, so it goes.
          A multipart expression STAYS, even when a verb form occurs in it:
          "tiramos la toalla" is a different entry from the verb "tiramos".
-         It used to fall out here, and with it exactly the kind of entry that
+         Dropped here, it would take exactly the kind of entry with it that
          is worth the most. The verb colour then wins the highlighting, but
          the row in the table stays. */
       return single && containsWord(f, t);

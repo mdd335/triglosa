@@ -59,3 +59,12 @@ test("a language name standing on its own begins with a capital, inside a senten
   assert.strictEqual(languageLabel("en", "ru"), "Английский");
   assert.strictEqual(languageLabel("es", "de"), "Spanisch");
 });
+
+test("an unencrypted address is said in every interface language, in the shape of every message", async () => {
+  const { faultText } = await import("../../src/ui/labels.js");
+  for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
+    const said = faultText(code, { kind: "insecure" });
+    assert.match(said, /\(http\)\./, code);
+    assert.strictEqual(said.split(/(?<=\.)\s+/).length, 2, `${code}: two sentences`);
+  }
+});

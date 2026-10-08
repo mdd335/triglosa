@@ -17,7 +17,9 @@ export function asksForSynonyms(term) {
   return wordCount(term) <= MAX_SYNONYM_WORDS;
 }
 
-export function parseSynonyms(raw, term, codes) {
+/* base is the form the question was asked about where the term is a verb: a
+   synonym that comes back as the base form itself is the word again. */
+export function parseSynonyms(raw, term, codes, base = "") {
   const line = String(raw || "")
     .split(/\r?\n/)
     .map(cleanLine)
@@ -28,7 +30,7 @@ export function parseSynonyms(raw, term, codes) {
      length of the term rather than on a fixed number. One meaning-carrying
      word more than the term is allowed — beyond that it is the paraphrase
      the prompt forbids. */
-  const limit = contentWordCount(term, codes) + 1;
+  const limit = Math.max(contentWordCount(term, codes), base ? contentWordCount(base, codes) : 0) + 1;
   const seen = new Set();
   const out = [];
   for (const field of line.split("|")) {
@@ -42,9 +44,12 @@ export function parseSynonyms(raw, term, codes) {
     if (contentWordCount(s, codes) > limit) continue;
     /* A word is no synonym of itself. The check is independent of accents
        and capitalisation and catches a part of a phrase at the same time:
-       "crédito" is no synonym of "línea de crédito". An inflected form goes
-       unrecognized — only the prompt stands against that. */
+       "crédito" is no synonym of "línea de crédito". Tested against the base
+       form too, because that is what a verb's question was asked about:
+       "lograr" under "logró" is the word again. Another verb's inflected
+       form goes unrecognized — only the prompt stands against that. */
     if (isPartOfTerm(s, term)) continue;
+    if (base && isPartOfTerm(s, base)) continue;
     const key = stripDiacritics(s).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);

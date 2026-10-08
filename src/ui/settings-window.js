@@ -1,9 +1,9 @@
 /* The settings, in a window of their own.
 
-   They used to take over the reading window, which meant a reader could not
-   look at a setting and at what it did to the text at the same time, and that
-   leaving them was a thing to remember rather than a thing to close. A window
-   of its own costs one page and one event.
+   Inside the reading window a reader could not look at a setting and at what
+   it did to the text at the same time, and leaving them would be a thing to
+   remember rather than a thing to close. A window of its own costs one page
+   and one event.
 
    Everything it knows it reads from the same places the other window does —
    the settings file and the system's key store — so the two cannot drift

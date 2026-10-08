@@ -7,7 +7,17 @@
 
    The promise throughout: no highlight is better than the wrong one. */
 
-import { containsWord, flattenField, isWordChar, stripDiacritics, toTokens, wordIndexOf } from "../text.js";
+import {
+  containsWord,
+  flattenField,
+  isUnspaced,
+  isWordChar,
+  stripDiacritics,
+  toTokens,
+  wordIndexOf,
+  wordMayEnd,
+  wordMayStart,
+} from "../text.js";
 import { contentWordCount, isFunctionWord } from "../vocabulary.js";
 
 /* First occurrence at word boundaries, as a range. The same rule as
@@ -18,6 +28,17 @@ export function rangeOf(fullText, fragment) {
   const at = wordIndexOf(String(fullText).toLowerCase(), f.toLowerCase());
   return at === -1 ? null : { start: at, end: at + f.length };
 }
+
+/* A Hangul block is a syllable of two or three letters, and a Korean word
+   of two blocks is as long as a Latin one of six. Counted as three letters
+   wherever a length is a bar. */
+const HANGUL = /\p{Script=Hangul}/gu;
+const letters = (word) => word.length + 2 * (word.match(HANGUL) || []).length;
+
+/* A run of two letters is too short to be found by itself — "de", "in" —
+   while in a script without spaces a word of one or two characters is most
+   words, and found only where it stands as a word of its own. */
+const tooShort = (candidate) => (isUnspaced(candidate) ? candidate.length < 1 : letters(candidate) < 3);
 
 /* The longest run of words from an entry that really stands in the text.
    Tried from the first word, then the second, and so on: the model hands
@@ -37,17 +58,19 @@ export function longestRunInText(text, item, codes) {
   }
   for (let i = 0; i < parts.length; i++) {
     const candidate = parts.slice(i).join(" ");
-    if (candidate.length < 3 || isFunctionWord(candidate, codes)) continue;
+    if (tooShort(candidate) || isFunctionWord(candidate, codes)) continue;
     const at = wordIndexOf(low, candidate.toLowerCase());
     if (at === -1) continue;
     return String(text).slice(at, at + candidate.length);
   }
   /* Only once nothing stands there verbatim: the same words with another
      ending. Kept a stage apart so an exact spot always wins over an
-     inflected one, even when the inflected one comes first in the text. */
+     inflected one, even when the inflected one comes first in the text.
+     Not in a script without spaces: two words there that start alike are
+     two words, not one word with two endings. */
   for (let i = 0; i < parts.length; i++) {
     const candidate = parts.slice(i).join(" ");
-    if (candidate.length < 3 || isFunctionWord(candidate, codes)) continue;
+    if (tooShort(candidate) || isUnspaced(candidate) || isFunctionWord(candidate, codes)) continue;
     const run = stemRunInText(text, candidate);
     if (run) return run;
   }
@@ -84,7 +107,14 @@ function sharedPrefix(a, b) {
 function stemAgreement(one, other) {
   const a = stripDiacritics(one).toLowerCase();
   const b = stripDiacritics(other).toLowerCase();
-  if (a === b) return a.length;
+  if (a === b) return letters(a);
+  /* Korean writes its particles and endings onto the word: 경제가 is 경제
+     and a particle. The whole word has to stand in front, and what follows
+     is at most an ending's three blocks — 경제학 is another word, and a verb
+     whose stem changes as it is conjugated is left unmarked. */
+  if (a.match(HANGUL)) {
+    return a.length >= 2 && b.startsWith(a) && b.length - a.length <= STEM_TAIL ? letters(a) : -1;
+  }
   const shared = sharedPrefix(a, b);
   if (shared < STEM_MIN_WORD) return -1;
   if (shared < Math.max(a.length, b.length) - STEM_TAIL) return -1;
@@ -121,7 +151,10 @@ function stemRunInText(text, candidate) {
    them and stay inside one sentence: ab before winkte is a different
    sentence, not this verb. */
 export function formInText(text, form) {
-  const f = String(form || "").trim();
+  /* A plus the model wrote itself is a boundary like a space: it named
+     "had + vanished" for a form the text has in one piece, and the plus,
+     looked for as a word, lost the form. */
+  const f = String(form || "").trim().split(/\s*\+\s*/).filter(Boolean).join(" ");
   if (!f) return "";
   if (containsWord(text, f)) return f;
   const parts = f.split(/\s+/);
@@ -177,8 +210,8 @@ export function spotsFor(fullText, fragment) {
     let at;
     while ((at = haystack.indexOf(needle, from)) !== -1) {
       const end = at + needle.length;
-      const left = !isWordChar(needle.charAt(0)) || !isWordChar(raw.charAt(at - 1));
-      const right = !isWordChar(needle.charAt(needle.length - 1)) || !isWordChar(raw.charAt(end));
+      const left = !isWordChar(needle.charAt(0)) || wordMayStart(raw, at);
+      const right = !isWordChar(needle.charAt(needle.length - 1)) || wordMayEnd(raw, end);
       if ((left && right) || (inside && right && needle.length >= 4)) {
         out.push({ start: at, end });
       }
@@ -194,17 +227,18 @@ export function spotsFor(fullText, fragment) {
   return out;
 }
 
-/* Claim the first spot still free. Nothing may overlap — one place in the
-   text carries one colour. */
-export function claimSpot(marks, fullText, fragment, cls) {
-  for (const spot of spotsFor(fullText, fragment)) {
-    const free = !marks.some((m) => spot.start < m.end && spot.end > m.start);
-    if (free) {
-      marks.push({ start: spot.start, end: spot.end, cls });
-      return true;
-    }
-  }
-  return false;
+/* Claim the first spot still free — or, where the word aligner said
+   whereabouts the fragment stands, the free one nearest to there: a word
+   that stands twice in a translation is marked where it was meant. Nothing
+   may overlap — one place in the text carries one colour. */
+export function claimSpot(marks, fullText, fragment, cls, near = null) {
+  const free = spotsFor(fullText, fragment).filter((spot) => !marks.some((m) => spot.start < m.end && spot.end > m.start));
+  if (!free.length) return false;
+  const spot = near === null
+    ? free[0]
+    : free.reduce((best, other) => (Math.abs(other.start - near) < Math.abs(best.start - near) ? other : best));
+  marks.push({ start: spot.start, end: spot.end, cls });
+  return true;
 }
 
 /* Turn field A or B into the spots inside one panel's text.
@@ -247,4 +281,17 @@ export function rangesOf(fullText, fragment, entry, codes, { passage = false } =
     if (range) out.push(range);
   }
   return out.length ? mergeRanges(fullText, out) : null;
+}
+
+/* Does the fragment, at some place it stands in the text, cover a
+   meaning-carrying word of text[range.start, range.end)? A term found for
+   a looked-up word in its sentence has to: the rest of the sentence is its
+   context, and a function word shared with it is no reason to explain a
+   phrase next to it. */
+export function coversRange(text, fragment, range, codes) {
+  return spotsFor(text, fragment).some((spot) => {
+    const from = Math.max(spot.start, range.start);
+    const to = Math.min(spot.end, range.end);
+    return from < to && contentWordCount(String(text).slice(from, to), codes) > 0;
+  });
 }

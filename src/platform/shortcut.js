@@ -12,8 +12,10 @@
 
 import { insideApp } from "./env.js";
 
-/* Register the three, or give up the ones held before — `hotkey`,
-   `freshHotkey` and `cardHotkey` as the settings name them. A combination
+/* Register the combinations, or give up the ones held before — `hotkey`,
+   `freshHotkey`, `cardHotkey`, `wordHotkey` and `sentenceHotkey` as the
+   settings name them; the last two on the Mac only where the permission is
+   used, the one way there to what is under the pointer. A combination
    left out, or null, is not held: that is how a reader who cleared a field
    is honoured, and how the recorder lets go of all of them at once.
 
@@ -35,12 +37,37 @@ export async function registerShortcuts(hotkeys = {}) {
         capture: accelerator(hotkeys.hotkey),
         fresh: accelerator(hotkeys.freshHotkey),
         card: accelerator(hotkeys.cardHotkey),
+        word: accelerator(hotkeys.wordHotkey),
+        sentence: accelerator(hotkeys.sentenceHotkey),
       },
     });
     return "";
   } catch (error) {
     return (error && error.message) || String(error);
   }
+}
+
+/* A force click on the Mac's trackpad, listened for or not. What it reads
+   arrives the way a shortcut's selection does (onCapture). Answers whether
+   clicks are heard now — not before the permission is there, so it is asked
+   again when that changes. */
+export async function listenForForceClick(on) {
+  if (!insideApp()) return false;
+  const { invoke } = await import("@tauri-apps/api/core");
+  try {
+    return await invoke("set_force_click", { on: !!on });
+  } catch {
+    return false;
+  }
+}
+
+/* The stretch of the text around the word under the pointer that was cut
+   out as its sentence, or grown to the whole word, lit up where it stands
+   on the screen — [start, end) in that text. */
+export async function lightUp(start, end) {
+  if (!insideApp()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("light_up", { start, end }).catch(() => {});
 }
 
 /* What the shell sends when the combination was pressed: either the selection

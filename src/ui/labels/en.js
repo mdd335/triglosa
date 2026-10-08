@@ -7,12 +7,21 @@ export default {
      button in one place. */
   translate: "Translate",
   translateKeys: "Translate (⌘↩)",
+  enterKey: "⌘↩",
   edit: "Edit",
   settings: "Settings",
   original: "Original",
   terms: "Terms",
+  /* A dictionary lookup's one term. */
+  term: "Term",
   verbs: "Verbs",
   marked: "Selection",
+  /* The first line of a dictionary entry looked up with its sentence: the
+     meaning it has there. And the way from the entry to the whole
+     sentence read. */
+  inSentence: "here",
+  previousSentence: "Previous sentence",
+  nextSentenceLine: "Next sentence",
   synonyms: "related",
   wordClasses: {
     noun: "noun",
@@ -37,6 +46,7 @@ export default {
   /* Both say that they lead out of the window: what they open is a page in
      the browser and nothing that stands here. */
   search: "Look up (external)",
+  speak: "Say aloud",
   opened: "Opened",
   conjugation: "Conjugation (external)",
   /* Named after what it shows rather than after a program: what it opens
@@ -78,6 +88,7 @@ export default {
      only there. The reader's own sentence comes first, because "cannot
      create note because it is empty" alone tells nobody what to do. */
   ankiSaved: "The card is in the deck.",
+  cardClosing: "The window will close.",
   ankiDuplicate: "This card is already in the deck — Anki compares the note type's first field.",
   ankiSending: "Adding …",
   ankiFailed: ({ kind, detail } = {}) => {
@@ -110,11 +121,12 @@ export default {
   cardImproveNothing: "No usable improvement received. The card stays as it was.",
   linking: "linking…",
   noTerms: "no difficult terms found",
+  noTerm: "no difficult term found",
   noVerbs: "no difficult verbs found",
   /* A locked area says what would stand in it — the same hint three times
      over reads as noise. How to open it stands once, underneath. */
   lockedHow:
-    "Connect an AI model in the settings for more accurate translations, verbs, terms, explanations and other features.",
+    "Connect an AI model in the settings for more accurate translations, terms, verbs, explanations and other features.",
   /* Both ways were tried and neither answered. What must not stand here is
      the note about language packs: that one is only true where the device
      was the only engine there was. */
@@ -130,6 +142,8 @@ export default {
   faults: {
     unreachable:
       "No connection to the AI model. Please check your internet connection and the settings.",
+    insecure:
+      "The AI model's address is unencrypted (http). Please use https or an address in your own network, in the settings.",
     timeout: "The AI model took too long. Please try again.",
     key: (f) =>
       `The API key was rejected${why(f)}. Please check it in the settings.`,
@@ -162,15 +176,17 @@ export default {
     `The language pack ${from} → ${to} is missing. Please set up an AI model in the settings, or download the language pack there under Translations.`,
 
   groupLanguages: "Languages",
-  groupSections: "Verbs and terms",
+  groupSections: "Terms and verbs",
   groupModel: "AI model",
   groupTranslation: "Translations",
   groupWindow: "Window",
   groupShortcuts: "Shortcuts",
+  groupReading: "Text from other programs",
   groupCards: "Flashcards",
   groupAbout: "About Triglosa",
   aboutVersion: (version) => `Version ${version}`,
-  aboutProject: "Triglosa on GitHub",
+  /* The way to the project, as a sentence with its links in it. */
+  aboutLinks: (link) => ["Triglosa lives on ", link("project", "GitHub"), "; help is in its ", link("help", "README"), ". If you run into a problem or would like a feature, feel free to open an ", link("issues", "issue"), "."],
   updatesCheck: "Check for updates",
   updatesChecking: "Checking …",
   updatesHint: "Asks GitHub for the newest version only when you click here. An update is downloaded only when you click “Install now”.",
@@ -183,6 +199,8 @@ export default {
   updatesInstallNone: "This version cannot be installed from here. Please use “Go to download”.",
   updatesInstallUnreachable: "The update could not be downloaded. Please try again later.",
   updatesInstallFailed: (detail) => `The update was not installed${detail ? ` (${detail})` : ""}. Please use “Go to download”.`,
+  diagnosticsCopy: "Copy diagnostics",
+  diagnosticsHint: "For a problem report: version, system, languages, AI model and recent failures. Never your texts or your API key. Nothing is sent; you paste it yourself.",
   updatesFailed: (status) => `No answer from GitHub${status ? ` (${status})` : ""}. Please try again later.`,
 
   /* Two switches rather than one: the card itself never leaves the machine
@@ -190,7 +208,7 @@ export default {
      decision. */
   optionOn: "on",
   optionOff: "off",
-  cardsEnabled: "Option to create flashcards",
+  cardsEnabled: "Offer flashcards",
   cardModes: {
     never: "never",
     second: "only for the second language",
@@ -260,20 +278,19 @@ export default {
     foreign: "for all foreign languages",
     all: "for all languages",
   },
-  showVerbsHint: "Base form, person and tense for the three hardest verb forms in the text.",
+  showVerbsHint: "Base form, person and tense for up to three advanced verb forms in the text.",
   showTermsHint: "Explanations for up to three advanced words or idioms in the text.",
   underline: "Coloured underlines in the text",
-  underlineHint: "Underlines the verbs and terms in the original and the translations.",
   searchEngine: "Search engine",
-  searchHint: "For “Look up (external)” on verbs, terms and marked words. Opens in the default browser.",
+  searchHint: "For “Look up (external)” on terms, verbs and marked words. Opens in the default browser.",
   searchSystem: "as set in Safari",
   glance: "Translation on hover",
-  glanceHint: "Shows over a word of the original what it corresponds to in your language.",
+  glanceHint: "Shows over words in foreign languages what they correspond to in your language.",
   /* What the three rows decide between them stands above them rather than
      in one row's hint: without a model half the app is gone, and that
      belongs at the head of the group. */
   modelIntro:
-    "Without an AI model, only Apple's on-device translation is available, if set up below. Connect an AI model for more accurate translations, verbs, terms, explanations and other features.",
+    "Without an AI model, only Apple's on-device translation is available, where its language pack is downloaded. Connect an AI model for more accurate translations, terms, verbs, explanations and other features.",
   /* For anyone who has never set up access to a model. The answer is three
      paragraphs — what the model is for here, how cloud and local differ,
      what goes in which field — and they live in the README rather than in
@@ -281,18 +298,18 @@ export default {
      and in the window they would have pushed the three fields off screen. */
   modelHelpAsk: "Never set up an AI model?",
   modelHelpLink: "Read the guide",
-  endpoint: "Model endpoint",
+  endpoint: "AI model's address",
   endpointHint:
     "Any address with an OpenAI-compatible interface — in the cloud or local.",
   model: "Model",
-  modelHint: "If left empty, the app takes the first model the endpoint offers.",
-  apiKey: "Key",
+  modelHint: "If left empty, the app takes the first model offered at that address.",
+  apiKey: "API key",
   apiKeyEmpty: "none stored",
   apiKeyHint:
     "Goes into the system's key store, never into the settings file. A local model usually needs none.",
   forgetKey: "Forget",
   keySaveFailed: (detail) =>
-    `The key was not saved${detail ? ` (${detail})` : ""}. Please try again.`,
+    `The API key was not saved${detail ? ` (${detail})` : ""}. Please try again.`,
   testConnection: "Test connection",
   testing: "Testing…",
   testOk: (name) => `Answers, with “${name}”.`,
@@ -303,21 +320,33 @@ export default {
      one translation in four, a cloud model in one of three hundred. What
      speaks for it is speed, and that it works offline. */
   deviceIntro:
-    "Optionally, you can set up Apple's on-device translation for the translations themselves. It is very fast and works offline, but often imprecise.",
-  translatorHint: "If one of the two cannot translate, the other steps in, if it is set up.",
-  translatorNoModel: "No AI model is set up yet. Until then, Apple translates where its language packs are installed.",
-  translatedBy: { device: "translated by Apple", model: "translated by the AI model" },
+    "Apple's translation is part of macOS: very fast and offline, but often imprecise. With the language pack downloaded, it steps in automatically whenever the AI model does not answer.",
+  translatorHint: "If one of the two cannot translate, the other steps in automatically.",
+  translatorNoModel: "No AI model is set up yet. Until then, Apple translates where its language packs are downloaded.",
+  /* Who did what, under the pointer on a heading: who wrote a panel (said
+     outright where it was not the reader's choice), who named the language
+     and matched the words, who explained and placed a section's rows. Put
+     together in labels.js (`creditLine`): `by` answers the word in front of
+     a name and the name. */
+  credits: {
+    verbs: { translated: "translated", explained: "explained", assigned: "matched", detected: "Language detected", words: "words matched" },
+    and: "and",
+    by: ({ kind, name }) => ({ device: ["by", "Apple (on device)"], triglosa: ["by", "Triglosa"] })[kind] || ["by", name || "the AI model"],
+    line: (verbs, who) => `${verbs} ${who}`,
+    chosen: "Language chosen by you",
+  },
   foldPanel: "Fold away",
   unfoldPanel: "Unfold",
   more: "Explain in more detail",
   moreWorking: "Explaining in more detail …",
   addExample: "Add an example sentence",
   exampleWorking: "Writing an example sentence…",
-  devicePairs: "Use Apple's on-device translation",
+  devicePairs: "Apple's on-device translation",
   pairsChecking: "Checking…",
-  pairsAllInstalled: "Every language pack for your languages is installed.",
+  pairsAllInstalled: "Every language pack for your languages is downloaded.",
   pairsNoDevice:
     "Apple's translation is not answering right now.",
+  pairsRecheck: "Check again",
   pairsDownloadable: (pairs) => `Not downloaded yet: ${pairs}.`,
   pairsUnsupported: (pairs) =>
     `Not possible with Apple's translation: ${pairs}. That cannot be downloaded.`,
@@ -332,12 +361,14 @@ export default {
   pairArrow: (from, to) => `${from} → ${to}`,
 
   fitWindow: "Fit the window's height to what it holds",
+  kept: "Remember past translations",
+  keptLast: (n) => `the last ${n}`,
   appIcon: "Icon while Triglosa is running",
   appIcons: { menubar: "in the menu bar", dock: "in the Dock", both: "in the menu bar and the Dock" },
   shortcutsLead:
-    "If nothing happens here in the window when you press a combination, it is already taken. Pick another one.",
+    "If nothing happens here in the window when you press a shortcut, it is already taken. Pick another one.",
   hotkey: "Start translation",
-  hotkeyEmpty: "none set",
+  hotkeyEmpty: "no shortcut set",
   hotkeyRecording: "Press a combination…",
   hotkeyClear: "Clear",
   hotkeyLead:
@@ -350,28 +381,51 @@ export default {
     "Creates a flashcard from the copied text (⌘C). Opens a blank flashcard window when nothing new was copied.",
   cardHotkeyLeadSelected:
     "Creates a flashcard from the selected text. Opens a blank flashcard window when no text is selected.",
-  hotkeyTakenHere: (name) => `This combination is already set for “${name}”. Please choose another one.`,
+  hotkeyTakenHere: (name) => `This shortcut is already set for “${name}”. Please choose another one.`,
   /* What the shell says about it helps rarely, so the sentence that helps
      comes first and the shell's own words follow it in brackets. */
   hotkeyFailed: (reason) =>
     "The shortcut is probably taken already"
-    + (reason ? ` (${reason})` : "") + ". Please choose another combination.",
+    + (reason ? ` (${reason})` : "") + ". Please choose another one.",
   hotkeyTakenSystem:
-    "This combination is taken by macOS. Please choose another one.",
+    "This shortcut is taken by macOS. Please choose another one.",
   hotkeyTakenEverywhere:
-    "Every program uses this combination itself. Please choose another one.",
+    "Every program uses this shortcut itself. Please choose another one.",
+
+  /* A force click is the Mac trackpad's own gesture, so it is named the way
+     macOS names it, and so are the trackpad settings the hint sends the
+     reader to (from the Trackpad pane's own string table). */
+  wordHotkey: "Word under the pointer",
+  wordHotkeyLead: "Looks up the word the pointer is on.",
+  sentenceHotkey: "Sentence under the pointer",
+  sentenceHotkeyLead: "Translates the whole sentence the pointer is on.",
+  forceClick: "Look up a word with Force Click",
+  forceClickLead:
+    "A firm click on the trackpad looks up the word under the pointer.",
+  forceClickHint:
+    "So that Apple’s Look Up does not open as well, turn off “Look up & data detectors” in System Settings, Trackpad.",
+  pointerUnreliable: "The features below do not work reliably in every program.",
+  /* The sentence around a looked-up word, which goes along unless this is
+     switched off: it is more than the reader selected, so it says how much. */
+  withSentence: "Send the sentence along",
+  withSentenceLead:
+    "When you look up three words or fewer, their sentence goes to the AI model with them (30 words at most). That improves language detection and translations.",
+  nextSentence: "Offer the next sentence",
+  nextSentenceLead:
+    "Shows the sentence that follows in the source text under the original. A click translates it.",
 
   /* The permission is an extra, not a requirement. It is explained before
      the system dialog comes: what it adds, what Triglosa uses it for and
      what not, and where that can be checked. macOS describes it so
      broadly that without this sentence it sounds like far more than it
      does here. */
-  permission: "Use selected text directly",
-  permissionWhy:
-    "Optionally, you can translate selected text or take it into a flashcard without copying it first, and insert translations straight into other programs.",
-  permissionHave: "Switched on.",
+  permission: "macOS permission",
+  directSelection: "Read selected text and insert translations directly",
+  directSelectionLead:
+    "The shortcuts take the selected text without you copying it first, and translations can be inserted straight into other programs.",
+  permissionHave: "The permission is granted in macOS.",
   permissionTrust:
-    "For this, Triglosa needs the macOS permission “Device Control and Data Access” under Privacy & Security (“Accessibility” up to macOS 26). Triglosa uses it only for reading the selected text and for inserting, and only when you ask it to. Triglosa is open source, so you can verify this:",
+    "Optional: with the macOS permission “Device Control and Data Access” (under Privacy & Security, “Accessibility” up to macOS 26), Triglosa can read selected text directly, read the word or the sentence under the pointer, and insert translations straight into other programs. Triglosa uses the permission only for these features and only when you switch them on. Triglosa is open source, so you can verify this:",
   permissionCode: "see the code",
   permissionAsk: "Allow…",
   permissionOpen: "Open System Settings",
@@ -413,17 +467,18 @@ export const windows = {
   onlyKnownLanguages: "No AI model is set up. Please set one up in the settings.",
   pairMissing: () => "No AI model is set up. Please set one up in the settings.",
   modelIntro:
-    "Triglosa translates and explains with an AI model. Connect one for translations, verbs, terms, explanations and other features.",
+    "Triglosa translates and explains with an AI model. Connect one for translations, terms, verbs, explanations and other features.",
   lockedHow:
-    "Connect an AI model in the settings for translations, verbs, terms, explanations and other features.",
+    "Connect an AI model in the settings for translations, terms, verbs, explanations and other features.",
   apiKeyHint:
     "Kept in the Windows Credential Manager, never in the settings file. A local model usually needs none.",
   hotkeyLead:
     "Translates the selected text in any program. Opens the last translation when no text is selected.",
   cardHotkeyLead:
     "Creates a flashcard from the selected text. Opens a blank flashcard window when no text is selected.",
-  hotkeyTakenSystem: "This combination is taken by Windows. Please choose another one.",
+  hotkeyTakenSystem: "This shortcut is taken by Windows. Please choose another one.",
   appIcons: { menubar: "only in the notification area", both: "also in the taskbar" },
   copyFirst: (key) => `Tip: select some text in any program, then press ${key}.`,
   translateKeys: "Translate (Ctrl+Enter)",
+  enterKey: "Ctrl+Enter",
 };

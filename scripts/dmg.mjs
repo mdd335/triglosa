@@ -6,13 +6,15 @@
    was signed instead, next to a link to /Applications so the window that
    opens says what to do with it.
 
-   The name carries the version and the architecture: Apple silicon and
+   The name carries the architecture but not the version: Apple silicon and
    Intel get a download each, and a file called Triglosa.dmg says nothing
-   about which one it is. A target triple as the argument packs that
+   about which one it is, while the README links straight to the newest
+   release's file by its name, which must therefore stay the same from one
+   release to the next. A target triple as the argument packs that
    target's build; without one, this machine's own. */
 
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -33,12 +35,11 @@ const run = (command, args) =>
    Mac, which is a far worse first sentence than the usual warning. */
 run("codesign", ["--verify", "--deep", "--strict", APP]);
 
-const { version } = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
 /* In the words About This Mac uses, so that nobody needs to know what arm64
    means to pick the right one. */
 const machine = target ? target.split("-")[0] : execFileSync("uname", ["-m"], { encoding: "utf8" }).trim();
 const arch = machine === "x86_64" ? "Intel" : "Apple-Silicon";
-const image = join(OUT, `Triglosa-${version}-${arch}.dmg`);
+const image = join(OUT, `Triglosa-${arch}.dmg`);
 
 const stage = join(tmpdir(), `triglosa-dmg-${process.pid}`);
 rmSync(stage, { recursive: true, force: true });

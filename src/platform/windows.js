@@ -146,19 +146,40 @@ export async function fitCardWindow(height, grow = false) {
    two different moments of it. */
 let frameChrome = null;
 
+/* More than any frame adds. A page measured before its window was ever
+   shown may not have its height yet, and the difference is then the whole
+   window: kept, every fit of the session would ask for a window that much
+   too tall (seen on Windows, once). */
+const MOST_CHROME = 100;
+
+/* What the frame adds, from the frame and the page's own height — or null
+   where the two cannot be of the same moment. */
+export function frameChromeOf(outerHeight, pageHeight) {
+  const chrome = outerHeight - pageHeight;
+  /* A page taller than its window is as much of another moment as one
+     without a height: kept as no frame at all, every fit came out a frame
+     too short and the page scrolled. */
+  return pageHeight > 0 && chrome >= -2 && chrome <= MOST_CHROME ? Math.max(0, chrome) : null;
+}
+
 async function measureReadingFrame() {
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   const self = getCurrentWindow();
   const scale = await self.scaleFactor();
   const outer = (await self.outerSize()).toLogical(scale);
-  frameChrome = Math.max(0, outer.height - window.innerHeight);
+  frameChrome = frameChromeOf(outer.height, window.innerHeight);
+  if (frameChrome !== null) return frameChrome;
+  /* For this once, what the window itself says of its frame; measured again
+     at the next fit. */
+  const inner = (await self.innerSize()).toLogical(scale);
+  return Math.min(MOST_CHROME, Math.max(0, outer.height - inner.height));
 }
 
 export async function fitReadingWindow(page, grow = false) {
   if (!insideApp()) return;
-  if (frameChrome === null) await measureReadingFrame();
+  const chrome = frameChrome === null ? await measureReadingFrame() : frameChrome;
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke("fit_reading_window", { height: page + frameChrome, grow });
+  return invoke("fit_reading_window", { height: page + chrome, grow });
 }
 
 /* Whether to resize at all, and to what — or null for leaving it alone.

@@ -4,7 +4,7 @@
    text and the language the reader gets their answer in, and every field
    carries a rule saying which of the two it is written in. No examples: the
    examples these four carried were Spanish with German answers, which is the
-   mechanism behind the leak rather than a cure for it — measured in phase 6
+   mechanism behind the leak rather than a cure for it — measured
    on the word and verb prompts, and the same shape of fault here.
 
    Why the abbreviation gets a question of its own instead of a rule inside
@@ -269,17 +269,16 @@ export function tenseNames(code) {
   return names ? names.join(", ") : "usual name in that language";
 }
 
-/* The same question for the grammatical person. It used to stand in the two
-   verb prompts as a fixed Spanish list, which put "ellos/ustedes" under an
-   English sentence and "tú" under a German one — measured on the everyday
-   corpus, that was the single largest source of wrong output in the whole
-   run.
+/* The same question for the grammatical person. A fixed Spanish list in the
+   two verb prompts puts "ellos/ustedes" under an English sentence and "tú"
+   under a German one — measured on the everyday corpus, the single largest
+   source of wrong output in the whole run.
 
    The four form names stay, because they are grammatical categories rather
    than pronouns and nothing in the code reads them. They are English because
-   the prompt around them is: they were Spanish until phase 6, which is to say
-   there were four Spanish words in the middle of a Russian question, in the
-   very prompt whose leak had just been measured shut. */
+   the prompt around them is: Spanish names would put four Spanish words in
+   the middle of a Russian question, in the very prompt whose leak was
+   measured shut. */
 const FORM_PERSONS = "infinitive, gerund, participle, impersonal";
 
 export function personNames(code) {

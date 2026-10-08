@@ -176,7 +176,9 @@ if (process.env.TRIGLOSA_HOVER) {
        pointer is where it is being put, and then nothing changes at all. */
     await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 0, y: 0, buttons: 0 });
     await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y, buttons: 0 });
-    await sleep(700);
+    /* Past the slowest hover in the window and its fade: a heading's,
+       800 ms and 120 more. */
+    await sleep(1600);
   }
 }
 

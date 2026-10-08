@@ -41,11 +41,13 @@ export function parseImprovedCard(raw, card) {
 
   /* A translation the model put on a line of its own belongs to the example
      above it: one example, one line. And a translation in square brackets is
-     one in round ones that the local model wrote the other way. */
+     one in round ones that the local model wrote the other way. Every line
+     then an item of its own, a blank line between them: two examples one
+     under the other read as one block on a card. */
   let note = lines.slice(rule + 1).join("\n")
-    .replace(/ \[([^\[\]\n]+)\](?=[.!?]?[ \t]*$)/gm, " ($1)")
+    .replace(/ \[([^[\]\n]+)\](?=[.!?]?[ \t]*$)/gm, " ($1)")
     .replace(/\n[ \t]*(?=\([^\n]*\)[ \t]*$)/gm, " ")
-    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]*\n\s*/g, "\n\n")
     .trim();
   if (!note) return null;
 
@@ -53,5 +55,7 @@ export function parseImprovedCard(raw, card) {
   if (context && context.sentence && !note.includes(context.sentence)) {
     note = `${exampleLine(context)}\n\n${note}`;
   }
-  return { term, meaning, note };
+  /* Two senses one under the other, the semicolon kept at the end of the
+     first line. */
+  return { term, meaning: meaning.replace(/\s*;\s*/g, ";\n"), note };
 }

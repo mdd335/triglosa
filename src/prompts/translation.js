@@ -1,14 +1,12 @@
-/* The two questions asked about a single word or short phrase: what it
-   means in its own language, and what it becomes in another.
+/* The question asked about a single word or short phrase: what it becomes
+   in another language.
 
    The dictionary prompt was already written with its source and target as
-   parameters. What phase 6 fixed is everything the parameters did not reach:
-   its six examples all wrote their note in German, and rule 4 told every
-   reader of the app to write umlauts and ß. Both are the reader's language,
-   so both come from the reader's pack now. */
+   parameters. What they do not reach comes from the reader's pack as well:
+   examples written in one language make every note come back in it, and a
+   spelling rule (umlauts and ß) belongs to one reader's language only. */
 
 import { languagePack } from "../languages/index.js";
-import { strings } from "../strings.js";
 
 /* The whole text, when the device cannot do it.
 
@@ -37,14 +35,6 @@ export function translatePrompt({ target }) {
   );
 }
 
-/* A monolingual definition first. It outranks the impression the spelling
-   gives — that is what stops a look-alike from deciding the translation. */
-export function definitionPrompt({ source, unknown }) {
-  return [
-    `You define a word or short phrase. Reply with ONE short sentence in ${source}, the way a monolingual ${source} dictionary would define it. Define the exact spelling you are given, not a similar-looking word in another language. If you do not know the word, reply with exactly: ${unknown}. No translation, no commentary, nothing else.`,
-  ].join("\n");
-}
-
 /* How the reader's own language has to be written, where it says so. German
    asks for its umlauts and its ß, because a model that drops them writes a
    note the reader reads as a typo; English asks for nothing. A language that
@@ -60,7 +50,14 @@ export function readerSpelling(code) {
    German. Gone with the examples in every other prompt, and for the same
    measured reason. What is left is the rule: the note is in the reader's
    language, and the reader's own pack says how that language wants to be
-   written. */
+   written.
+
+   A note tells its line from the others, and may be left out: asked to
+   say "what marks the word", the models wrote "usual" beside two lines of
+   three, or "general", which marks nothing. Allowed an empty note, the
+   cloud model leaves one line in three without and writes such a note in
+   one entry of twenty-five instead of one of six; the local model never
+   leaves one out (run thirty-nine). */
 export function alternativesPrompt({ source, target, reader, spelling, capitalisesNouns }) {
   const capitals = capitalisesNouns
     ? "Write a noun with a capital first letter and every other word in lower case."
@@ -73,7 +70,7 @@ export function alternativesPrompt({ source, target, reader, spelling, capitalis
     "2. Output only 2 lines if there is no third good option. Never pad the list.",
     "3. Format per line, nothing else: <translation> | <note>",
     `4. <note> is in ${reader}, at most four words: register, region or usage.${spelling ? ` ${spelling}` : ""}`,
-    `5. Where regional usage differs, say so in <note>, naming the region in ${reader}. Where it does not, say what marks the word instead - that it is the usual one, more formal, colloquial, dated, technical.`,
+    `5. Where regional usage differs, say so in <note>, naming the region in ${reader}. Where it does not, say what sets this translation apart from the other lines - what it is said of, or that it is more formal, colloquial, dated, technical. Only the first line may be the usual one. A note that would fit any word says nothing: leave <note> empty rather than write one.`,
     `6. <note> is ALWAYS in ${reader}, even though the translation is not. Never write it in ${target}, and never in a third language.`,
     "7. No numbering, no bullets, no quotation marks, no headings, no extra text.",
     `8. Spell every translation correctly in ${target}, including all accents and special characters. ${capitals}`,
@@ -83,19 +80,37 @@ export function alternativesPrompt({ source, target, reader, spelling, capitalis
   ].join("\n");
 }
 
-export function alternativesInput({ source, target, text, meaning }) {
+/* The sentence the input stands in, where the reader let it come along.
+   With it the first line is the sense the input has there — half the wrong
+   first lines of the entry without it, on both models, and the definition
+   step that used to stand in front of this question added nothing more
+   (runs twenty-eight and twenty-nine). The lines after it are the input's
+   other meanings, so that the entry stays a dictionary: without that rule
+   the sentence turned them into near-synonyms of the one sense. Allowed two
+   near-synonyms where there was no other meaning, the cloud model gave them
+   in two entries of three, and dressed some up as meanings of their own;
+   held to one in all, and fewer lines called a good answer, it gives them
+   in one of ten (run thirty).
+
+   The note of another meaning is that meaning in the reader's language,
+   which the window sets like a translation. The "=" in front tells it from
+   the note of a near-synonym, which says how that one is used. Where the
+   list is in the reader's language already the line says the meaning
+   itself, and the note names where it belongs. */
+export function alternativesInput({ source, target, reader = target, text, sentence }) {
   const lines = [`Source: ${source} | Target: ${target} | Input: ${text}`];
-  if (meaning) {
-    lines.push(`Meaning of the input in ${source}: ${meaning}`);
-    lines.push("Translate that meaning. It outranks any impression the spelling gives you.");
+  if (sentence) {
+    const note = reader === target
+      ? "for those, <note> names the field or situation that meaning belongs to"
+      : `for those, <note> is = and that meaning in ${reader}, in one to three words, nothing else`;
+    lines.push(
+      `The input stands in this sentence: ${sentence}`,
+      "First line: the translation that fits the input in that sentence.",
+      `Then one line for each OTHER common meaning of the input, at most two, most common first; ${note}.`,
+      "A near-synonym of the first line is not another meaning. Give at most one near-synonym in all, and only if it is used differently (more formal, colloquial, regional). One or two lines are a good answer.",
+    );
   }
   return lines.join("\n");
-}
-
-/* The sentinel the definition prompt asks for when it does not know the
-   word. It has to match what the parser looks for. */
-export function unknownMarker(readerCode) {
-  return strings(readerCode).unknownWord;
 }
 
 export function englishName(code) {

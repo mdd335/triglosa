@@ -38,6 +38,7 @@ import {
   applyTray,
   hideWindow,
   fitTo,
+  frameChromeOf,
   onSettingsChanged,
   openSettings,
   settingsChanged,
@@ -60,7 +61,6 @@ function fakeAnki(answers) {
     return JSON.stringify({ result: answers[action] ?? null });
   };
 }
-const jsonResponse = (body) => ({ ok: true, json: async () => body });
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const corpus = JSON.parse(fs.readFileSync(path.join(here, "..", "corpus.json"), "utf8"));
@@ -593,6 +593,46 @@ test("a server that keeps refusing is given up on rather than hung on", async ()
   assert.strictEqual(impl.calls.length, RETRIES + 1);
 });
 
+/* OpenRouter answers a rate limit upstream with 200 and the 429 in the body.
+   Answers with those bodies in order, then the real answer. */
+function wrapped(codes) {
+  const calls = [];
+  const impl = async () => {
+    calls.push(1);
+    const code = codes[calls.length - 1];
+    const body = code
+      ? { error: { message: "temporarily rate-limited upstream", code } }
+      : { choices: [{ message: { content: "fine" } }] };
+    return { ok: true, status: 200, json: async () => body };
+  };
+  impl.calls = calls;
+  return impl;
+}
+
+test("a rate limit inside a 200 answer is waited out like a real one", async () => {
+  const impl = wrapped([429]);
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  assert.strictEqual(await llm.chat({ system: "s", user: "u" }), "fine");
+  assert.strictEqual(impl.calls.length, 2, "asked again once");
+});
+
+test("a rate limit inside a 200 answer that persists is a busy service, not a refusal", async () => {
+  const impl = wrapped([429, 429, 429, 429]);
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  await assert.rejects(
+    () => llm.chat({ system: "s", user: "u" }),
+    (error) => error.fault.kind === "busy" && error.fault.status === 429,
+  );
+  assert.strictEqual(impl.calls.length, RETRIES + 1);
+});
+
+test("an error inside a 200 answer that waiting cannot help is refused at once", async () => {
+  const impl = wrapped([400, 400]);
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  await assert.rejects(() => llm.chat({ system: "s", user: "u" }), (error) => error.fault.kind === "refused");
+  assert.strictEqual(impl.calls.length, 1, "not asked twice");
+});
+
 test("a server that says how long to wait is believed, within reason", () => {
   assert.strictEqual(retryDelay("", 0), 1200, "no header means the plain backoff");
   assert.strictEqual(retryDelay("3", 0), 3000);
@@ -830,4 +870,13 @@ test("the Mac's language list is read the way defaults prints it", () => {
   const report = '(\n    "de-DE",\n    en,\n    "fr-CA"\n)\n';
   assert.deepStrictEqual(languagesFromReport(report), ["de-DE", "en", "fr-CA"]);
   assert.deepStrictEqual(languagesFromReport(""), []);
+});
+
+test("a frame measured against a page without its height yet is not kept", () => {
+  assert.strictEqual(frameChromeOf(455, 455), 0, "no frame");
+  assert.strictEqual(frameChromeOf(483, 455), 28, "a title bar");
+  assert.strictEqual(frameChromeOf(455, 0), null, "the page has no height yet");
+  assert.strictEqual(frameChromeOf(455, 120), null, "nor the window's");
+  assert.strictEqual(frameChromeOf(455, 457), 0, "a pixel of noise");
+  assert.strictEqual(frameChromeOf(455, 700), null, "a page still as tall as the window was");
 });

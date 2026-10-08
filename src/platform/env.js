@@ -22,6 +22,47 @@ export async function appFetch() {
 
 export const insideApp = () => !!globalThis.__TAURI_INTERNALS__;
 
+/* The fetch the AI model is asked through. Inside the app that is the shell's
+   kept connection (see model-fetch.js); the translation helper and the update
+   check stay on appFetch, which gains nothing from it. */
+let modelCached = null;
+
+export async function modelFetch() {
+  if (modelCached) return modelCached;
+  if (!insideApp()) return (modelCached = globalThis.fetch);
+  const [{ invoke }, { shellFetch }] = await Promise.all([
+    import("@tauri-apps/api/core"),
+    import("./model-fetch.js"),
+  ]);
+  return (modelCached = shellFetch(invoke));
+}
+
+/* The word aligner, where there is a shell to hold it. */
+let alignerCached = null;
+
+export async function wordAligner() {
+  if (alignerCached) return alignerCached;
+  if (!insideApp()) return null;
+  const [{ invoke }, { createAligner }] = await Promise.all([
+    import("@tauri-apps/api/core"),
+    import("./aligner.js"),
+  ]);
+  return (alignerCached = createAligner(invoke));
+}
+
+/* The language identifier, where there is a shell to hold it. */
+let identifierCached = null;
+
+export async function languageIdentifier() {
+  if (identifierCached) return identifierCached;
+  if (!insideApp()) return null;
+  const [{ invoke }, { createIdentifier }] = await Promise.all([
+    import("@tauri-apps/api/core"),
+    import("./identifier.js"),
+  ]);
+  return (identifierCached = createIdentifier(invoke));
+}
+
 /* The translation helper stops itself when it has been idle, so it may well
    be gone by the time someone comes back to the window. Asking for it again
    costs nothing when it is already there. */
@@ -135,4 +176,20 @@ export async function openUrl(url) {
   if (!insideApp()) return window.open(url, "_blank");
   const { openUrl: open } = await import("@tauri-apps/plugin-opener");
   return open(url);
+}
+
+/* The installation's side of a problem report (src-tauri/src/diagnostics.rs):
+   the system version and the reading window's last failures. Outside the app
+   there is nothing to ask. */
+export async function systemReport() {
+  if (!insideApp()) return { system: "", arch: "", faults: [] };
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke("system_report");
+}
+
+/* One failure, kept for the report — in memory, the last few. */
+export async function noteFault(line) {
+  if (!insideApp()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("note_fault", { line }).catch(() => {});
 }

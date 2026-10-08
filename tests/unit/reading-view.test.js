@@ -28,7 +28,7 @@ globalThis.Node = dom.window.Node;
 
 const { MARKED, renderHeading, renderReading } = await import("../../src/ui/reading-view.js");
 const { languageFromName, languageGroups } = await import("../../src/ui/language-choice.js");
-const { labels } = await import("../../src/ui/labels.js");
+const { creditLine, labels } = await import("../../src/ui/labels.js");
 
 const de = labels("de");
 
@@ -93,6 +93,9 @@ function draw(state, settings = SETTINGS, handlers = {}) {
     onFold: handlers.onFold,
     onMore: handlers.onMore,
     onExample: handlers.onExample,
+    onReadSentence: handlers.onReadSentence,
+    sentences: handlers.sentences,
+    onSentence: handlers.onSentence,
   });
   return { sheet, heading };
 }
@@ -314,12 +317,160 @@ const SHORT = () => ({
   busy: false,
 });
 
+test("a word in the sentence under a short text can be picked, and is framed there", () => {
+  const sentence = { text: "No quiero meter la pata otra vez.", start: 10, end: 23 };
+  const picked = [];
+  const drawn = draw({ ...SHORT(), sentence }, SETTINGS, { onPick: (choice) => picked.push(choice) });
+  const line = drawn.sheet.querySelector(".looked-up-in");
+  const word = [...line.querySelectorAll(".w")].find((node) => node.textContent === "quiero");
+  word.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  word.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  const last = picked[picked.length - 1];
+  assert.deepStrictEqual([last.panel, last.start, last.end, last.inSentence], [0, 3, 9, true]);
+
+  const state = { ...SHORT(), sentence, selection: { panel: 0, start: 3, end: 9, inSentence: true, term: "quiero" } };
+  const framed = draw(state, SETTINGS).sheet;
+  assert.strictEqual(framed.querySelector(".looked-up-in .sel.picked")?.textContent, "quiero");
+  assert.ok(!framed.querySelector(".pane .box .sel"), "not in the original, where 3 to 9 is something else");
+});
+
 test("short mode holds a dictionary entry and nothing about a verb table", () => {
   const drawn = draw(SHORT());
   assert.deepStrictEqual(titles(drawn), ["Deutsch"]);
   const entries = drawn.sheet.querySelector(".box.rows.entries");
   assert.ok(entries, "the translations are a list of fields");
   assert.strictEqual(entries.querySelectorAll(".row").length, 2);
+});
+
+test("a word looked up in its sentence shows the sentence and marks the first line", () => {
+  const sentence = { text: "No quiero meter la pata otra vez.", start: 10, end: 23 };
+  const drawn = draw({ ...SHORT(), sentence });
+  const line = drawn.sheet.querySelector(".looked-up-in");
+  assert.strictEqual(line.textContent, sentence.text);
+  assert.strictEqual([...line.querySelectorAll(".looked-up")].map((node) => node.textContent).join(""), "meter la pata");
+  assert.ok(!line.querySelector("button"), "a line to read, nothing to press");
+  const notes = [...drawn.sheet.querySelectorAll(".entries .row .grammar")].map((node) => node.textContent);
+  assert.deepStrictEqual(notes, [de.inSentence, "neutral"], "the first line is the meaning there, instead of its note");
+
+  const plain = draw(SHORT());
+  assert.ok(!plain.sheet.querySelector(".looked-up-in"), "without a sentence, the entry as it was");
+  assert.strictEqual(plain.sheet.querySelector(".entries .grammar").textContent, "umgangssprachlich");
+});
+
+test("a looked-up term that is the words themselves has its head line and all its buttons", () => {
+  const state = { ...SHORT(), words: [{ text: "meter la pata", spot: "meter la pata", meaning: "sich blamieren",
+    note: "einen peinlichen Fehler machen; umgangssprachlich" }] };
+  const drawn = draw(state, SETTINGS, { onMore: () => {}, onExample: () => {}, onFold: () => {},
+    tools: { ...TOOLS, speak: () => {}, canSpeak: () => true, card: () => {}, cardFor: () => true, search: () => {} } });
+  const term = sectionNamed(drawn, de.term);
+  assert.ok(term, "under the entry, headed in the singular");
+  assert.deepStrictEqual(titles(drawn), ["Deutsch", de.term]);
+  assert.strictEqual(term.rows.length, 1);
+  assert.strictEqual(term.rows[0].querySelector(".term").textContent, "meter la pata", "a head line like every term's");
+  assert.strictEqual(term.rows[0].querySelector(".explanation").textContent, "einen peinlichen Fehler machen; umgangssprachlich");
+  assert.deepStrictEqual(iconsOf(term.rows[0]), ["speak", "more", "example", "search", "card"],
+    "every button a term has, though the entry above has voice and card too");
+  assert.ok(!term.rows[0].querySelector(".mark"), "no line under it and nothing to light up, as above");
+  assert.ok(!drawn.sheet.querySelector(".pane:first-child .mark"), "nothing underlined: the term is what stands there");
+  assert.ok(term.node.querySelector(".fold"), "it folds like every section");
+});
+
+test("a looked-up term reaching into its sentence is a row of its own, coloured in the sentence", () => {
+  const sentence = { text: "Otra vez metí la pata delante de todos.", start: 17, end: 21 };
+  const state = { ...SHORT(), text: "pata", sentence,
+    words: [{ text: "metí la pata", spot: "metí la pata", meaning: "sich blamieren", note: "einen peinlichen Fehler machen" }] };
+  state.panels[0] = { ...state.panels[0], text: "pata" };
+  const drawn = draw(state);
+  const row = sectionNamed(drawn, de.term).rows[0];
+  assert.strictEqual(row.querySelector(".term").textContent, "metí la pata");
+  const line = drawn.sheet.querySelector(".looked-up-in");
+  assert.strictEqual(line.textContent, sentence.text, "the sentence reads as it did");
+  const marks = [...line.querySelectorAll(".mark.tmark0")];
+  assert.deepStrictEqual(marks.map((node) => node.textContent), ["metí la pata"], "one piece, so the pointer lights it as one");
+  assert.deepStrictEqual([marks[0].dataset.markFrom, marks[0].dataset.markTo], ["9", "21"]);
+  const lifted = line.querySelector(".looked-up");
+  assert.strictEqual(lifted.textContent, "pata", "the looked-up word still stands out");
+  assert.ok(lifted.closest(".tmark0"), "inside the term's mark");
+  assert.ok(!drawn.sheet.querySelector(".pane:first-child .box .mark"), "with a sentence, marked there alone");
+  assert.strictEqual(row.dataset.hl, "tmark0", "in the app's accent, row and line alike");
+
+  const folded = draw({ ...state, folded: new Set(["terms"]) });
+  assert.ok(!folded.sheet.querySelector(".looked-up-in .tmark0"), "folded away, the colour goes with it");
+});
+
+test("a lookup's term that is part of the words is marked among them, and is a row of its own", () => {
+  const state = { ...SHORT(), text: "ese zascandil entrometido",
+    words: [{ text: "zascandil", spot: "zascandil", meaning: "Wichtigtuer", note: "jemand, der sich überall einmischt" }] };
+  state.panels[0] = { ...state.panels[0], text: "ese zascandil entrometido" };
+  const tools = { ...TOOLS, speak: () => {}, canSpeak: () => true, card: () => {}, cardFor: () => true, search: () => {} };
+  const drawn = draw(state, SETTINGS, { tools, onMore: () => {}, onExample: () => {} });
+  const marked = drawn.sheet.querySelector(".pane:first-child .box .tmark0");
+  assert.strictEqual(marked?.textContent, "zascandil", "without a sentence, in the words themselves");
+  assert.deepStrictEqual(iconsOf(sectionNamed(drawn, de.term).rows[0]), ["speak", "more", "example", "search", "card"],
+    "its own voice and card: the entry above is about all three words");
+});
+
+test("a lookup's term among the words is marked there, not in the sentence", () => {
+  const sentence = { text: "Muchos años más tarde, sus restos fueron trasladados a un monumento.", start: 27, end: 52 };
+  const state = { ...SHORT(), text: "restos fueron trasladados", sentence,
+    words: [{ text: "fueron trasladados", spot: "fueron trasladados", meaning: "verlegen", note: "an einen anderen Ort bringen",
+              verb: { infinitive: "trasladar", person: "ellos/ellas/ustedes", tense: "pretérito indefinido" } }] };
+  state.panels[0] = { ...state.panels[0], text: "restos fueron trasladados" };
+  const drawn = draw(state);
+  assert.strictEqual(drawn.sheet.querySelector(".pane:first-child .box .tmark0")?.textContent, "fueron trasladados");
+  assert.ok(!drawn.sheet.querySelector(".looked-up-in .tmark0"), "the sentence only lifts the looked-up words");
+  assert.ok(sectionNamed(drawn, de.term).rows[0].querySelector(".term.mark.tmark0"), "marked below as above");
+});
+
+test("in short mode the looked-up word and every foreign line can be said aloud", () => {
+  const said = [];
+  const tools = { ...TOOLS, reader: "de", speak: (word, code) => said.push([word, code]), canSpeak: () => true };
+  const state = SHORT();
+  state.panels.push({ code: "en", name: "Englisch", status: "alternatives", alternatives: [{ text: "to put one's foot in it" }] });
+  const drawn = draw(state, SETTINGS, { tools });
+  const original = drawn.sheet.querySelector(".pane:first-child .actions button[data-icon='speak']");
+  assert.ok(original, "the word itself");
+  original.dispatchEvent(new window.MouseEvent("click"));
+  assert.deepStrictEqual(said[0], ["meter la pata", "es"]);
+  const lines = [...drawn.sheet.querySelectorAll(".entries .row")];
+  assert.deepStrictEqual(lines.map((row) => iconsOf(row).includes("speak")), [false, false, true],
+    "the English line, never the reader's own German ones");
+  assert.ok(!draw(reading(), SETTINGS, { tools }).sheet.querySelector(".pane:first-child .actions button[data-icon='speak']"),
+    "a longer text is read, not listened to");
+});
+
+test("a looked-up verb form is a verb row under the term's heading", () => {
+  const state = { ...SHORT(), text: "indique",
+    words: [{ text: "indique", spot: "indique", meaning: "angeben", note: "etwas schriftlich nennen",
+              verb: { infinitive: "indicar", person: "él/ella/usted", tense: "presente de subjuntivo" } }] };
+  state.panels[0] = { ...state.panels[0], text: "indique" };
+  const tools = { ...TOOLS, speak: () => {}, canSpeak: () => true, card: () => {}, cardFor: () => true, search: () => {} };
+  const row = sectionNamed(draw(state, SETTINGS, { tools, onMore: () => {}, onExample: () => {} }), de.term).rows[0];
+  assert.strictEqual(row.querySelector(".base").textContent, "indicar");
+  assert.strictEqual(row.querySelector(".grammar").textContent, "él/ella/usted · presente de subjuntivo");
+  assert.strictEqual(row.querySelector(".explanation").textContent, "etwas schriftlich nennen");
+  assert.deepStrictEqual(iconsOf(row), ["speak", "more", "example", "conjugation", "card"],
+    "a verb's buttons: its conjugation, no search");
+});
+
+test("a lookup with nothing to explain says so in one line", () => {
+  const drawn = draw({ ...SHORT(), words: [] });
+  const term = sectionNamed(drawn, de.term);
+  assert.ok(term.node.classList.contains("empty"));
+  assert.strictEqual(term.node.querySelector(".empty-note").textContent, de.noTerm);
+  assert.strictEqual(de.noTerm, "kein schwieriger Begriff gefunden");
+
+  const off = draw({ ...SHORT(), words: [] }, { ...SETTINGS, show: { verbs: "foreign", terms: "never" } });
+  assert.ok(!sectionNamed(off, de.term), "switched off, not drawn");
+});
+
+test("another meaning said in the reader's language stands like a translation", () => {
+  const state = SHORT();
+  state.panels[1].alternatives[1] = { text: "einen Fehler machen", note: "a mistake", gloss: true };
+  const notes = draw(state).sheet.querySelectorAll(".entries .row .grammar");
+  assert.ok(!notes[0].classList.contains("gloss"));
+  assert.ok(notes[1].classList.contains("gloss"));
+  assert.strictEqual(notes[1].textContent, "a mistake");
 });
 
 test("a marked word in short mode is drawn, because it is asked for", () => {
@@ -383,9 +534,9 @@ test("short mode without a model shows the device's translation and the one line
 const VERB = { form: "impugnó", infinitive: "impugnar", meaning: "anfechten",
                person: "3. Person Singular", tense: "Indefinido" };
 
-test("a verb offers its conjugation and a search, in that order", () => {
+test("a verb offers its conjugation and no search", () => {
   const drawn = draw(reading({ verbs: [VERB] }));
-  assert.deepStrictEqual(iconsOf(sectionNamed(drawn, de.verbs).rows[0]), ["conjugation", "search"]);
+  assert.deepStrictEqual(iconsOf(sectionNamed(drawn, de.verbs).rows[0]), ["conjugation"]);
 });
 
 test("a term offers the search alone", () => {
@@ -405,7 +556,7 @@ test("a marked word that is a verb is treated as one", () => {
     markedStatus: "",
   }));
   const row = sectionNamed(drawn, markedIn("Spanisch")).rows[0];
-  assert.deepStrictEqual(iconsOf(row), ["conjugation", "search"]);
+  assert.deepStrictEqual(iconsOf(row), ["conjugation"]);
   assert.deepStrictEqual(
     [...row.querySelectorAll(".row-head > span")].map((s) => s.className),
     ["term", "arrow", "base", "equivalent", "grammar"],
@@ -587,8 +738,8 @@ test("every row with a foreign word offers a card", () => {
   }), SETTINGS, { tools: { ...TOOLS, card: (card) => cards.push(card), cardFor: () => true } });
 
   const buttons = [...drawn.sheet.querySelectorAll("button[data-icon='card']")];
-  assert.strictEqual(buttons.length, 2, "one on the verb, one on the term");
-  buttons[0].dispatchEvent(new window.MouseEvent("click"));
+  assert.strictEqual(buttons.length, 2, "one on the term, one on the verb");
+  buttons[1].dispatchEvent(new window.MouseEvent("click"));
   assert.strictEqual(cards.length, 1, "it opens a card rather than filing one");
   assert.strictEqual(cards[0].term, "andar", "the base form, not the one in the text");
   assert.strictEqual(cards[0].termLanguage, "es");
@@ -660,19 +811,101 @@ test("a reading in the reader's own language offers none there either", () => {
 
 /* ---- which engine translated a panel ---- */
 
-test("a panel says who translated it only where that was not the reader's choice", () => {
+/* Who translated a panel stands at the far end of its heading: always where
+   it was not the reader's choice, otherwise only for a pointer resting on
+   the name. One place for both. */
+const statusOf = (drawn, title) => sectionNamed(drawn, title).node.querySelector(".label .status");
+
+test("a panel says who translated it outright only where that was not the reader's choice", () => {
   const state = reading();
   state.panels[1] = { ...state.panels[1], engine: "device", fallback: true };
-  state.panels[2] = { ...state.panels[2], engine: "model", fallback: false };
+  state.panels[2] = { ...state.panels[2], engine: "model", model: "gemma-4-e4b-it", fallback: false };
   const drawn = draw(state);
-  assert.strictEqual(sectionNamed(drawn, "Deutsch").status, de.translatedBy.device);
-  assert.strictEqual(sectionNamed(drawn, "Englisch").status, "");
+  assert.strictEqual(statusOf(drawn, "Deutsch").textContent, "übersetzt von Apple (auf dem Gerät)");
+  assert.ok(!statusOf(drawn, "Deutsch").classList.contains("on-hover"), "said outright");
+  assert.strictEqual(statusOf(drawn, "Englisch").textContent, "übersetzt von gemma-4-e4b-it");
+  assert.ok(statusOf(drawn, "Englisch").classList.contains("on-hover"), "under the pointer only");
+  /* The name itself stays the name. */
+  assert.deepStrictEqual(titles(drawn).slice(0, 2), ["Deutsch", "Englisch"]);
+  assert.strictEqual(creditLine(labels("en"), [["translated", [{ kind: "model", name: "" }]]]), "translated by the AI model");
+  /* A model by the name a person would use, without its provider. */
+  state.panels[2].model = "deepseek/deepseek-v4.1-flash";
+  assert.strictEqual(statusOf(draw(state), "Englisch").textContent, "übersetzt von deepseek-v4.1-flash");
+});
+
+test("a section says under the pointer who explained its rows and who placed them", () => {
+  const state = reading({
+    words: [{ text: "impugnó", spot: "impugnó", meaning: "anfechten", note: "Rechtlich angreifen." }],
+    verbs: [{ form: "impugnó", infinitive: "impugnar", meaning: "anfechten" }],
+  });
+  state.model = "deepseek/deepseek-v4.1-flash";
+  const hint = (title, change) => {
+    const status = statusOf(draw({ ...state, ...change }), title);
+    assert.ok(status.classList.contains("on-hover"), "under the pointer only");
+    return status.textContent;
+  };
+  const placed = (by) => ({ a: [], b: [], by });
+  assert.strictEqual(hint("Begriffe", { wordAlign: placed("aligner") }), "erklärt von deepseek-v4.1-flash · zugeordnet von Triglosa");
+  assert.strictEqual(hint("Begriffe", { wordAlign: placed("both") }),
+    "erklärt von deepseek-v4.1-flash · zugeordnet von Triglosa und deepseek-v4.1-flash");
+  assert.strictEqual(hint("Verben", { verbAlign: placed("model") }), "erklärt und zugeordnet von deepseek-v4.1-flash");
+  assert.strictEqual(hint("Verben", { verbAlign: null }), "erklärt von deepseek-v4.1-flash");
+  /* While the marks are being looked for the heading says that instead. */
+  const busy = statusOf(draw({ ...state, status: { ...state.status, words: "linking" } }), "Begriffe");
+  assert.ok(!busy.classList.contains("on-hover"));
+  assert.strictEqual(busy.textContent, de.linking);
+});
+
+test("who did what is said together where it was the same one, in every language", () => {
+  const model = { kind: "model", name: "gemma" };
+  const line = (code, parts) => creditLine(labels(code, "mac"), parts);
+  assert.strictEqual(line("en", [["explained", [model]], ["assigned", [model]]]), "explained and matched by gemma");
+  assert.strictEqual(line("pt", [["explained", [model]], ["assigned", [{ kind: "triglosa" }, model]]]),
+    "explicado por gemma · associado pelo Triglosa e por gemma");
+  assert.strictEqual(line("it", [["translated", [{ kind: "model", name: "" }]]]), "tradotto dal modello di IA");
+  assert.strictEqual(line("ru", [["detected", [{ kind: "triglosa" }]], ["words", [{ kind: "triglosa" }]]]),
+    "Язык определён и слова сопоставлены: Triglosa");
+  /* A part nobody did is left out. */
+  assert.strictEqual(line("fr", [["explained", [model]], ["assigned", []]]), "expliqué par gemma");
+  for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
+    assert.ok(line(code, [["detected", [{ kind: "device" }]], ["words", [{ kind: "triglosa" }]]]).includes(" · "), code);
+  }
 });
 
 test("a panel still waiting says nothing about an engine", () => {
   const state = reading({ busy: true });
   state.panels[1] = { ...state.panels[1], status: "waiting", text: "", engine: undefined, fallback: undefined };
   assert.strictEqual(sectionNamed(draw(state), "Deutsch").status, "");
+});
+
+test("the heading above the sheet names who found the language", () => {
+  const heading = (source) => {
+    const node = document.createElement("div");
+    const state = { ...reading(), source };
+    renderHeading(node, state, { text: de, settings: SETTINGS, editing: false, onLanguage: () => {} });
+    return node.querySelector(".heading-note")?.textContent;
+  };
+  assert.strictEqual(heading({ code: "es", by: "text" }), "Sprache erkannt von Triglosa");
+  assert.strictEqual(heading({ code: "es", by: "device" }), "Sprache erkannt von Apple (auf dem Gerät)");
+  assert.strictEqual(heading({ code: "es", by: "model", model: "google/gemma-4-e4b-it" }), "Sprache erkannt von gemma-4-e4b-it");
+  assert.strictEqual(heading({ code: "es", by: "reader" }), "Sprache von dir gewählt");
+  /* And who said which word became which, once the hover has its answer:
+     said together where it was the same one. */
+  const matched = (source, glance) => {
+    const node = document.createElement("div");
+    const state = { ...reading(), source, glance, model: "deepseek/deepseek-v4.1-flash" };
+    renderHeading(node, state, { text: de, settings: SETTINGS, editing: false, onLanguage: () => {} });
+    return node.querySelector(".heading-note")?.textContent;
+  };
+  assert.strictEqual(matched({ code: "es", by: "text" }, { sentences: [], by: "aligner" }), "Sprache erkannt und Wörter zugeordnet von Triglosa");
+  assert.strictEqual(matched({ code: "es", by: "device" }, { sentences: [], by: "aligner" }),
+    "Sprache erkannt von Apple (auf dem Gerät) · Wörter zugeordnet von Triglosa");
+  assert.strictEqual(matched({ code: "es", by: "text" }, { sentences: [], by: "model" }),
+    "Sprache erkannt von Triglosa · Wörter zugeordnet von deepseek-v4.1-flash");
+  assert.strictEqual(matched({ code: "es", by: "reader" }, { sentences: [], by: "aligner" }), "Sprache von dir gewählt · Wörter zugeordnet von Triglosa");
+  assert.strictEqual(matched({ code: "es", by: "text" }, { pending: true }), "Sprache erkannt von Triglosa");
+  assert.strictEqual(heading({ code: "es" }), undefined, "nobody named, nobody said");
+
 });
 
 /* ---- folding a translation away ---- */
@@ -750,12 +983,12 @@ test("underlines switched off keep the marked spans and lose only the line", () 
   assert.ok(!draw(MARKED_READING()).sheet.querySelector(".unlined"));
 });
 
-test("the picked word stands above the verbs and the terms", () => {
+test("the picked word stands above the terms, and the terms above the verbs", () => {
   const state = MARKED_READING();
   state.selection = { panel: 0, start: 17, end: 24, term: "impugnó" };
   state.marked = { text: "impugnó", meaning: "anfechten", note: "Rechtssprache.", synonyms: [] };
   state.markedStatus = "";
-  assert.deepStrictEqual(titles(draw(state)), ["Deutsch", "Englisch", markedIn("Spanisch"), de.verbs, de.terms]);
+  assert.deepStrictEqual(titles(draw(state)), ["Deutsch", "Englisch", markedIn("Spanisch"), de.terms, de.verbs]);
 });
 
 test("the picked word, a verb and a term offer a longer explanation and show it once it came", () => {
@@ -1026,4 +1259,104 @@ test("a list opened with the pointer shows no ground once its menu is closed; a 
   assert.ok(holder.classList.contains("by-pointer"));
   list.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   assert.ok(!holder.classList.contains("by-pointer"));
+});
+
+/* ---- saying a word aloud ---- */
+
+test("a verb, a term and a picked word can be said aloud, in their own language, as they stand", () => {
+  const said = [];
+  const tools = { ...TOOLS, speak: (word, code) => said.push([word, code]), canSpeak: () => true };
+  const state = reading({
+    verbs: [{ form: "anduvo", infinitive: "andar", meaning: "gehen" }],
+    words: [{ text: "fianza", meaning: "Kaution" }],
+    selection: { panel: 0, start: 16, end: 23, term: "impugnó" },
+    marked: { text: "impugnó", infinitive: "impugnar", meaning: "anfechten", note: "", synonyms: [] },
+    markedStatus: "",
+    status: { words: "", verbs: "", panels: "" },
+  });
+  const drawn = draw(state, SETTINGS, { tools });
+  const buttons = [...drawn.sheet.querySelectorAll("button[data-icon='speak']")];
+  assert.strictEqual(buttons.length, 3, "the picked word, the verb and the term");
+  for (const node of buttons) node.dispatchEvent(new window.MouseEvent("click"));
+  assert.deepStrictEqual(said.map(([word]) => word).sort(), ["anduvo", "fianza", "impugnó"]);
+  assert.ok(said.every(([, code]) => code === "es"));
+  assert.strictEqual(buttons[0].getAttribute("aria-label"), de.speak);
+});
+
+test("no loudspeaker where the system has no voice for the language", () => {
+  const tools = { ...TOOLS, speak: () => {}, canSpeak: (code) => code !== "es" };
+  const drawn = draw(reading({
+    verbs: [{ form: "anduvo", infinitive: "andar", meaning: "gehen" }],
+    status: { words: "", verbs: "", panels: "" },
+  }), SETTINGS, { tools });
+  assert.strictEqual(drawn.sheet.querySelectorAll("button[data-icon='speak']").length, 0);
+});
+
+test("a marked passage can be said aloud whole", () => {
+  const said = [];
+  const tools = { ...TOOLS, speak: (word) => said.push(word), canSpeak: () => true };
+  const drawn = draw(reading({
+    selection: { panel: 0, start: 0, end: 35, term: "Ayer el gobierno impugnó el acuerdo" },
+    marked: { text: "Ayer el gobierno impugnó el acuerdo", passage: true, meaning: "Gestern focht die Regierung die Vereinbarung an" },
+    markedStatus: "",
+  }), SETTINGS, { tools });
+  drawn.sheet.querySelector("button[data-icon='speak']").dispatchEvent(new window.MouseEvent("click"));
+  assert.deepStrictEqual(said, ["Ayer el gobierno impugnó el acuerdo"]);
+});
+
+test("no loudspeaker for a word in the reader's own language", () => {
+  /* A word picked in the German panel, for a German reader: nobody needs
+     their own language read out to them. */
+  const tools = { ...TOOLS, speak: () => {}, canSpeak: () => true };
+  const drawn = draw(reading({
+    selection: { panel: 1, start: 0, end: 7, term: "Gestern" },
+    marked: { text: "Gestern", meaning: "", note: "Am Tag vor heute.", synonyms: [] },
+    markedStatus: "",
+  }), SETTINGS, { tools });
+  assert.strictEqual(drawn.sheet.querySelectorAll("button[data-icon='speak']").length, 0);
+});
+
+/* ---- stepping on through the text a sentence was read out of ---- */
+
+test("the next sentence stands under the original, the one before over it only once there is one", () => {
+  const stepped = [];
+  const first = draw(reading(), SETTINGS, { sentences: { back: "", next: "El Congreso\n lo debatirá mañana." }, onSentence: (delta) => stepped.push(delta) });
+  const lines = [...first.sheet.querySelectorAll(".neighbour")];
+  assert.strictEqual(lines.length, 1, "at the start, only the way on");
+  assert.strictEqual(lines[0].getAttribute("aria-label"), de.nextSentenceLine);
+  assert.strictEqual(lines[0].lastChild.textContent, "El Congreso lo debatirá mañana.", "one line, whatever the text's own breaks");
+  const pane = first.sheet.querySelector(".pane");
+  assert.strictEqual(pane.lastElementChild, lines[0], "after the field");
+  assert.ok(!pane.querySelector(".frame").contains(lines[0]), "and outside it");
+  lines[0].click();
+  assert.deepStrictEqual(stepped, [1]);
+
+  const later = draw(reading(), SETTINGS, { sentences: { back: "Ayer llovió.", next: "" }, onSentence: (delta) => stepped.push(delta) });
+  const back = [...later.sheet.querySelectorAll(".neighbour")];
+  assert.strictEqual(back.length, 1);
+  assert.strictEqual(back[0].getAttribute("aria-label"), de.previousSentence);
+  assert.strictEqual(later.sheet.querySelector(".pane").firstElementChild, back[0], "before the field");
+  back[0].click();
+  assert.deepStrictEqual(stepped, [1, -1]);
+});
+
+test("the sentences around the original stand while the reading stepped to is still being found", () => {
+  const sheet = document.createElement("div");
+  const stepped = [];
+  renderReading(sheet, null, {
+    settings: SETTINGS,
+    tools: TOOLS,
+    edit: { editing: false, draft: "El Congreso lo debatirá mañana.", onDraft() {}, onEdit() {}, onTranslate() {} },
+    sentences: { back: "Ayer llovió.", next: "Nadie espera un acuerdo." },
+    onSentence: (delta) => stepped.push(delta),
+  });
+  const lines = [...sheet.querySelectorAll(".neighbour")];
+  assert.deepStrictEqual(lines.map((line) => line.getAttribute("aria-label")), [de.previousSentence, de.nextSentenceLine]);
+  lines[1].click();
+  assert.deepStrictEqual(stepped, [1]);
+});
+
+test("a reading with no text to step through has no such line", () => {
+  assert.strictEqual(draw(reading()).sheet.querySelector(".neighbour"), null);
+  assert.strictEqual(draw(reading(), SETTINGS, { sentences: null }).sheet.querySelector(".neighbour"), null);
 });

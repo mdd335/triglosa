@@ -7,12 +7,17 @@ export default {
   placeholder: "Incolla o scrivi un testo",
   translate: "Traduci",
   translateKeys: "Traduci (⌘↩)",
+  enterKey: "⌘↩",
   edit: "Modifica",
   settings: "Impostazioni",
   original: "Originale",
   terms: "Termini",
+  term: "Termine",
   verbs: "Verbi",
   marked: "Selezione",
+  inSentence: "qui",
+  previousSentence: "Frase precedente",
+  nextSentenceLine: "Frase successiva",
   synonyms: "affini",
   wordClasses: {
     noun: "sostantivo",
@@ -35,6 +40,7 @@ export default {
   insert: "Inserisci",
   copied: "Copiato",
   search: "Cerca (esterno)",
+  speak: "Pronuncia",
   opened: "Aperto",
   conjugation: "Coniugazione (esterno)",
   card: "Flashcard",
@@ -58,6 +64,7 @@ export default {
   cardAnkiSetup: "Scegli un mazzo",
   cardNoteUnmapped: "Nessun campo assegnato — queste righe non andranno in Anki.",
   ankiSaved: "La flashcard è nel mazzo.",
+  cardClosing: "La finestra si chiude.",
   ankiDuplicate: "Questa flashcard è già nel mazzo — Anki confronta il primo campo del tipo di nota.",
   ankiSending: "Aggiunta in corso…",
   ankiFailed: ({ kind, detail } = {}) => {
@@ -90,13 +97,16 @@ export default {
   cardImproveNothing: "Nessun miglioramento utilizzabile ricevuto. La flashcard resta com’era.",
   linking: "collegamento…",
   noTerms: "nessun termine difficile trovato",
+  noTerm: "nessun termine difficile trovato",
   noVerbs: "nessun verbo difficile trovato",
   lockedHow:
-    "Collega un modello di IA nelle impostazioni per traduzioni più precise, verbi, termini, spiegazioni e altre funzioni.",
+    "Collega un modello di IA nelle impostazioni per traduzioni più precise, termini, verbi, spiegazioni e altre funzioni.",
   noAnswer: "Nessuna risposta ricevuta.",
   faults: {
     unreachable:
       "Nessuna connessione al modello di IA. Controlla la connessione a internet e le impostazioni.",
+    insecure:
+      "L’indirizzo del modello di IA non è cifrato (http). Usa https o un indirizzo della tua rete nelle impostazioni.",
     timeout: "Il modello di IA ci ha messo troppo. Riprova.",
     key: (f) =>
       `La chiave API è stata rifiutata${why(f)}. Controllala nelle impostazioni.`,
@@ -127,15 +137,17 @@ export default {
     `Manca il pacchetto lingua ${from} → ${to}. Configura un modello di IA nelle impostazioni oppure scarica lì il pacchetto lingua, sotto «Traduzioni».`,
 
   groupLanguages: "Lingue",
-  groupSections: "Verbi e termini",
+  groupSections: "Termini e verbi",
   groupModel: "Modello di IA",
   groupTranslation: "Traduzioni",
   groupWindow: "Finestra",
   groupShortcuts: "Scorciatoie da tastiera",
+  groupReading: "Testo da altri programmi",
   groupCards: "Flashcard",
   groupAbout: "Informazioni su Triglosa",
   aboutVersion: (version) => `Versione ${version}`,
-  aboutProject: "Triglosa su GitHub",
+  /* The way to the project, as a sentence with its links in it. */
+  aboutLinks: (link) => ["Triglosa si trova su ", link("project", "GitHub"), ", l’aiuto nel suo ", link("help", "README"), ". Se trovi un problema o desideri una funzione, apri pure una ", link("issues", "issue"), "."],
   updatesCheck: "Cerca aggiornamenti",
   updatesChecking: "Ricerca…",
   updatesHint: "Chiede a GitHub la versione più recente solo quando fai clic qui. L’aggiornamento viene scaricato solo quando fai clic su «Installa ora».",
@@ -148,11 +160,13 @@ export default {
   updatesInstallNone: "Questa versione non si può installare da qui. Usa «Vai al download».",
   updatesInstallUnreachable: "Non è stato possibile scaricare l’aggiornamento. Riprova più tardi.",
   updatesInstallFailed: (detail) => `L’aggiornamento non è stato installato${detail ? ` (${detail})` : ""}. Usa «Vai al download».`,
+  diagnosticsCopy: "Copia diagnostica",
+  diagnosticsHint: "Per segnalare un problema: versione, sistema, lingue, modello di IA e ultimi errori. Mai i tuoi testi né la tua chiave API. Non viene inviato nulla; lo incolli tu.",
   updatesFailed: (status) => `Nessuna risposta da GitHub${status ? ` (${status})` : ""}. Riprova più tardi.`,
 
   optionOn: "sì",
   optionOff: "no",
-  cardsEnabled: "Possibilità di creare flashcard",
+  cardsEnabled: "Offrire flashcard",
   cardModes: {
     never: "mai",
     second: "solo per la seconda lingua",
@@ -212,31 +226,30 @@ export default {
     foreign: "per tutte le lingue straniere",
     all: "per tutte le lingue",
   },
-  showVerbsHint: "Forma base, persona e tempo delle tre forme verbali più difficili del testo.",
+  showVerbsHint: "Forma base, persona e tempo di al massimo tre forme verbali avanzate del testo.",
   showTermsHint: "Spiegazioni di al massimo tre parole o espressioni avanzate del testo.",
   underline: "Sottolineatura colorata nel testo",
-  underlineHint: "Sottolinea i verbi e i termini nell’originale e nelle traduzioni.",
   searchEngine: "Motore di ricerca",
-  searchHint: "Per «Cerca (esterno)» su verbi, termini e parole selezionate. Si apre nel browser predefinito.",
+  searchHint: "Per «Cerca (esterno)» su termini, verbi e parole selezionate. Si apre nel browser predefinito.",
   searchSystem: "quello impostato in Safari",
   glance: "Traduzione al passaggio del puntatore",
-  glanceHint: "Mostra sopra una parola dell’originale a cosa corrisponde nella tua lingua.",
+  glanceHint: "Mostra sopra le parole in lingua straniera a cosa corrispondono nella tua lingua.",
   modelIntro:
-    "Senza un modello di IA è disponibile solo la traduzione di Apple sul dispositivo, se configurata qui sotto. Collega un modello di IA per traduzioni più precise, verbi, termini, spiegazioni e altre funzioni.",
+    "Senza un modello di IA è disponibile solo la traduzione di Apple sul dispositivo, se il pacchetto lingua è scaricato. Collega un modello di IA per traduzioni più precise, termini, verbi, spiegazioni e altre funzioni.",
   modelHelpAsk: "Non hai mai configurato un modello di IA?",
   modelHelpLink: "Leggi la guida",
-  endpoint: "Indirizzo del modello",
+  endpoint: "Indirizzo del modello di IA",
   endpointHint:
     "Qualsiasi indirizzo con un’interfaccia compatibile con OpenAI — nel cloud o in locale.",
   model: "Modello",
   modelHint: "Se il campo resta vuoto, l’app usa il primo modello offerto dall’indirizzo.",
-  apiKey: "Chiave",
+  apiKey: "Chiave API",
   apiKeyEmpty: "nessuna salvata",
   apiKeyHint:
     "Finisce nel portachiavi del sistema, mai nel file delle impostazioni. Un modello locale di solito non ne ha bisogno.",
   forgetKey: "Dimentica",
   keySaveFailed: (detail) =>
-    `La chiave non è stata salvata${detail ? ` (${detail})` : ""}. Riprova.`,
+    `La chiave API non è stata salvata${detail ? ` (${detail})` : ""}. Riprova.`,
   testConnection: "Verifica connessione",
   testing: "Verifica in corso…",
   testOk: (name) => `Risponde, con «${name}».`,
@@ -244,21 +257,33 @@ export default {
   translator: "Traduzione con",
   translatorModes: { model: "Modello di IA", device: "Apple (sul dispositivo)" },
   deviceIntro:
-    "Se vuoi, puoi configurare la traduzione di Apple sul dispositivo per le traduzioni vere e proprie. È molto veloce e funziona offline, ma spesso è imprecisa.",
-  translatorHint: "Se uno dei due non può tradurre, subentra l’altro, se è configurato.",
-  translatorNoModel: "Non è ancora configurato nessun modello di IA. Fino ad allora traduce Apple, dove i suoi pacchetti lingua sono installati.",
-  translatedBy: { device: "tradotto da Apple", model: "tradotto dal modello di IA" },
+    "La traduzione di Apple fa parte di macOS: molto veloce e offline, ma spesso imprecisa. Con il pacchetto lingua scaricato, subentra automaticamente quando il modello di IA non risponde.",
+  translatorHint: "Se uno dei due non può tradurre, subentra automaticamente l’altro.",
+  translatorNoModel: "Non è ancora configurato nessun modello di IA. Fino ad allora traduce Apple, dove i suoi pacchetti lingua sono scaricati.",
+  /* Who did what, under the pointer on a heading: who wrote a panel (said
+     outright where it was not the reader's choice), who named the language
+     and matched the words, who explained and placed a section's rows. Put
+     together in labels.js (`creditLine`): `by` answers the word in front of
+     a name and the name. */
+  credits: {
+    verbs: { translated: "tradotto", explained: "spiegato", assigned: "abbinato", detected: "Lingua rilevata", words: "parole abbinate" },
+    and: "e",
+    by: ({ kind, name }) => ({ device: ["da", "Apple (sul dispositivo)"], triglosa: ["da", "Triglosa"] })[kind] || (name ? ["da", name] : ["dal", "modello di IA"]),
+    line: (verbs, who) => `${verbs} ${who}`,
+    chosen: "Lingua scelta da te",
+  },
   foldPanel: "Comprimi",
   unfoldPanel: "Espandi",
   more: "Spiega più nel dettaglio",
   moreWorking: "Spiegazione più dettagliata…",
   addExample: "Aggiungi una frase d’esempio",
   exampleWorking: "Scrittura di una frase d’esempio…",
-  devicePairs: "Usa la traduzione di Apple sul dispositivo",
+  devicePairs: "La traduzione di Apple sul dispositivo",
   pairsChecking: "Verifica…",
-  pairsAllInstalled: "Tutti i pacchetti lingua per le tue lingue sono installati.",
+  pairsAllInstalled: "Tutti i pacchetti lingua per le tue lingue sono scaricati.",
   pairsNoDevice:
     "La traduzione di Apple al momento non risponde.",
+  pairsRecheck: "Verifica di nuovo",
   pairsDownloadable: (pairs) => `Non ancora scaricati: ${pairs}.`,
   pairsUnsupported: (pairs) =>
     `Non possibile con la traduzione di Apple: ${pairs}. Non si può scaricare.`,
@@ -273,12 +298,14 @@ export default {
   pairArrow: (from, to) => `${from} → ${to}`,
 
   fitWindow: "Adatta l’altezza della finestra al contenuto",
+  kept: "Ricordare le traduzioni precedenti",
+  keptLast: (n) => `le ultime ${n}`,
   appIcon: "Icona mentre Triglosa è aperto",
   appIcons: { menubar: "nella barra dei menu", dock: "nel Dock", both: "nella barra dei menu e nel Dock" },
   shortcutsLead:
-    "Se premendo una combinazione qui nella finestra non succede nulla, è già occupata. Scegline un’altra.",
+    "Se premendo una scorciatoia qui nella finestra non succede nulla, è già occupata. Scegline un’altra.",
   hotkey: "Avvia traduzione",
-  hotkeyEmpty: "nessuna",
+  hotkeyEmpty: "nessuna scorciatoia",
   hotkeyRecording: "Premi una combinazione…",
   hotkeyClear: "Cancella",
   hotkeyLead:
@@ -291,21 +318,39 @@ export default {
     "Crea una flashcard dal testo copiato (⌘C). Apre una finestra di flashcard vuota se non è stato copiato nulla di nuovo.",
   cardHotkeyLeadSelected:
     "Crea una flashcard dal testo selezionato. Apre una finestra di flashcard vuota se non c’è testo selezionato.",
-  hotkeyTakenHere: (name) => `Questa combinazione è già assegnata a «${name}». Scegline un’altra.`,
+  hotkeyTakenHere: (name) => `Questa scorciatoia è già assegnata a «${name}». Scegline un’altra.`,
   hotkeyFailed: (reason) =>
     "Probabilmente la scorciatoia è già occupata"
-    + (reason ? ` (${reason})` : "") + ". Scegli un’altra combinazione.",
+    + (reason ? ` (${reason})` : "") + ". Scegline un’altra.",
   hotkeyTakenSystem:
-    "Questa combinazione è occupata da macOS. Scegline un’altra.",
+    "Questa scorciatoia è occupata da macOS. Scegline un’altra.",
   hotkeyTakenEverywhere:
-    "Ogni programma usa questa combinazione per sé. Scegline un’altra.",
+    "Ogni programma usa questa scorciatoia per sé. Scegline un’altra.",
 
-  permission: "Usa direttamente il testo selezionato",
-  permissionWhy:
-    "Se vuoi, puoi tradurre il testo selezionato o farne una flashcard senza copiarlo prima, e inserire le traduzioni direttamente in altri programmi.",
-  permissionHave: "Attivato.",
+  wordHotkey: "Parola sotto il puntatore",
+  wordHotkeyLead: "Cerca la parola su cui si trova il puntatore.",
+  sentenceHotkey: "Frase sotto il puntatore",
+  sentenceHotkeyLead: "Traduce l’intera frase su cui si trova il puntatore.",
+  forceClick: "Cerca una parola con clic deciso",
+  forceClickLead:
+    "Un clic deciso sul trackpad cerca la parola sotto il puntatore.",
+  forceClickHint:
+    "Perché non si apra anche la ricerca di Apple, disattiva «Cerca info e rilevatori dati» in Impostazioni di Sistema, Trackpad.",
+  pointerUnreliable: "Le funzioni qui sotto non vanno in modo affidabile in tutti i programmi.",
+  withSentence: "Inviare la frase",
+  withSentenceLead:
+    "Quando cerchi fino a tre parole, la loro frase va con loro al modello di IA (al massimo 30 parole). Migliora il riconoscimento della lingua e le traduzioni.",
+  nextSentence: "Proporre la frase successiva",
+  nextSentenceLead:
+    "Mostra sotto l’originale la frase che segue nel testo di partenza. Un clic la traduce.",
+
+  permission: "Autorizzazione di macOS",
+  directSelection: "Leggi il testo selezionato e inserisci le traduzioni direttamente",
+  directSelectionLead:
+    "Le scorciatoie prendono il testo selezionato senza che tu lo copi prima, e le traduzioni si possono inserire direttamente in altri programmi.",
+  permissionHave: "L’autorizzazione è concessa in macOS.",
   permissionTrust:
-    "Per questo Triglosa ha bisogno dell’autorizzazione di macOS «Controllo del dispositivo e accesso ai dati» in Privacy e sicurezza («Accessibilità» fino a macOS 26). Triglosa la usa solo per leggere il testo selezionato e per inserire, e solo quando glielo chiedi. Triglosa è open source, quindi puoi verificarlo:",
+    "Facoltativo: con l’autorizzazione di macOS «Controllo del dispositivo e accesso ai dati» (in Privacy e sicurezza, «Accessibilità» fino a macOS 26), Triglosa può leggere direttamente il testo selezionato, leggere la parola o la frase sotto il puntatore e inserire le traduzioni direttamente in altri programmi. Triglosa usa l’autorizzazione solo per queste funzioni e solo se le attivi. Triglosa è open source, quindi puoi verificarlo:",
   permissionCode: "vedi il codice",
   permissionAsk: "Consenti…",
   permissionOpen: "Apri Impostazioni di Sistema",
@@ -345,17 +390,18 @@ export const windows = {
   onlyKnownLanguages: "Nessun modello di IA configurato. Configurane uno nelle impostazioni.",
   pairMissing: () => "Nessun modello di IA configurato. Configurane uno nelle impostazioni.",
   modelIntro:
-    "Triglosa traduce e spiega con un modello di IA. Collegane uno per traduzioni, verbi, termini, spiegazioni e altre funzioni.",
+    "Triglosa traduce e spiega con un modello di IA. Collegane uno per traduzioni, termini, verbi, spiegazioni e altre funzioni.",
   lockedHow:
-    "Collega un modello di IA nelle impostazioni per traduzioni, verbi, termini, spiegazioni e altre funzioni.",
+    "Collega un modello di IA nelle impostazioni per traduzioni, termini, verbi, spiegazioni e altre funzioni.",
   apiKeyHint:
     "Finisce in Gestione credenziali di Windows, mai nel file delle impostazioni. Un modello locale di solito non ne ha bisogno.",
   hotkeyLead:
     "Traduce il testo selezionato in qualsiasi programma. Apre l’ultima traduzione se non c’è testo selezionato.",
   cardHotkeyLead:
     "Crea una flashcard dal testo selezionato. Apre una finestra di flashcard vuota se non c’è testo selezionato.",
-  hotkeyTakenSystem: "Questa combinazione è occupata da Windows. Scegline un’altra.",
+  hotkeyTakenSystem: "Questa scorciatoia è occupata da Windows. Scegline un’altra.",
   appIcons: { menubar: "solo nell’area di notifica", both: "anche nella barra delle applicazioni" },
   copyFirst: (key) => `Suggerimento: seleziona un testo in qualsiasi programma, poi premi ${key}.`,
   translateKeys: "Traduci (Ctrl+Invio)",
+  enterKey: "Ctrl+Invio",
 };

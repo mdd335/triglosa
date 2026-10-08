@@ -7,16 +7,16 @@
 
    Nothing here decides what to ask for. That is run.js. */
 
-import { cleanLine, orderByTextPosition, wordCount } from "./text.js";
+import { orderByTextPosition, wordCount } from "./text.js";
 import { englishName, languagePack } from "./languages/index.js";
-import { formInText, longestRunInText } from "./match/positions.js";
+import { coversRange, longestRunInText } from "./match/positions.js";
 import { contentWordCount, isBasicWord, isLoanword } from "./vocabulary.js";
-import { VERB_CANDIDATES, mergeSameVerb, parseVerbForms, parseVerbTable, selectVerbForms, withoutBasicVerbs } from "./parse/verbs.js";
-import { MAX_WORDS, firstFieldLine, isPassage, parseMarkedWord, parsePassage, asksForWordClass, parseWordClass, parseWords, withoutNestedTerms } from "./parse/words.js";
+import { VERB_CANDIDATES, grammarOf, isNonFinite, knownPerson, meaningWordCount, mergeSameVerb, parseVerbForms, parseVerbTable, selectVerbForms, withoutBasicVerbs } from "./parse/verbs.js";
+import { MAX_PHRASE_WORDS, MAX_WORDS, firstFieldLine, isPassage, parseMarkedWord, parsePassage, asksForWordClass, parseWordClass, parseVerbGrammar, parseWords, namesTheLookup, withoutFormOpening, sharesContentWord, verbFormOf, withoutNestedTerms } from "./parse/words.js";
+import { isBaseForm } from "./parse/terms.js";
 import { asksForSynonyms } from "./parse/synonyms.js";
 import { abbreviationParts, looksLikeAbbreviation, parseAbbreviation, withoutSecondMeaning } from "./parse/abbreviations.js";
 import { parseAlign } from "./parse/align.js";
-import { startsUnknown } from "./strings.js";
 import {
   findVerbsPrompt,
   annotateVerbsPrompt,
@@ -24,7 +24,7 @@ import {
   alignVerbsSinglePrompt,
   fieldName,
 } from "./prompts/verbs.js";
-import { wordsPrompt } from "./prompts/words.js";
+import { lookupInput, wordsPrompt } from "./prompts/words.js";
 import { alignWordsPrompt, alignWordsSinglePrompt, alignWordsInput } from "./prompts/words-align.js";
 import {
   abbreviationPrompt,
@@ -45,12 +45,11 @@ import {
 } from "./prompts/marked.js";
 import {
   translatePrompt,
-  definitionPrompt,
   alternativesPrompt,
   readerSpelling,
   alternativesInput,
-  unknownMarker,
 } from "./prompts/translation.js";
+import { readTranslation } from "./parse/translation.js";
 import { parseAlternatives } from "./parse/alternatives.js";
 import { headwordPrompt, improveCardPrompt, improveCardInput } from "./prompts/card.js";
 import { parseImprovedCard } from "./parse/card.js";
@@ -63,42 +62,21 @@ import { parseGlance, parseGlanceWide } from "./parse/glance.js";
 /* A whole text through the model — first or as the stand-in, whichever the
    reader chose. */
 export async function translateText(llm, { text, target }) {
-  return llm.chat({
+  const answer = await llm.chat({
     system: translatePrompt({ target: englishName(target) }),
     user: text,
     maxTokens: 2000,
   });
-}
-
-/* Step one towards the alternatives: have the word explained in its own
-   language.
-
-   Without it the model guesses rare words from their shape — soslayable came
-   back as "sozialisierbar", truculent as "truchtig", Kladderadatsch
-   unchanged. With the definition in front it hits the meaning. Once per run,
-   not once per target language.
-
-   An empty answer is a fine answer: the alternatives are then asked without
-   it, which is what the whole path did before this step existed. */
-export async function defineWord(llm, { text, source, reader }) {
-  const unknown = unknownMarker(reader);
-  try {
-    const answer = cleanLine(await llm.chat({
-      system: definitionPrompt({ source: englishName(source), unknown }),
-      user: text,
-      maxTokens: 90,
-    }));
-    if (!answer || startsUnknown(answer)) return "";
-    return answer;
-  } catch {
-    return "";
-  }
+  return readTranslation(answer, text);
 }
 
 /* Up to three translations of one word, each with a note on register or
    region. Which of three words to use is exactly what a dictionary is for,
-   and picking one for the reader throws that away. */
-export async function alternativesFor(llm, { text, source, target, reader, meaning }) {
+   and picking one for the reader throws that away. With the sentence the
+   word stands in, the first is the one meant there (alternativesInput), and
+   a note that begins with "=" is another meaning in the reader's language:
+   a `gloss`, set like a translation. */
+export async function alternativesFor(llm, { text, source, target, reader, sentence = "" }) {
   const raw = await llm.chat({
     system: alternativesPrompt({
       source: englishName(source),
@@ -110,12 +88,29 @@ export async function alternativesFor(llm, { text, source, target, reader, meani
     user: alternativesInput({
       source: englishName(source),
       target: englishName(target),
+      reader: englishName(reader),
       text,
-      meaning,
+      sentence,
     }),
     maxTokens: 200,
   });
-  return parseAlternatives(raw, text, reader, target);
+  const entries = parseAlternatives(raw, text, reader, target, source);
+  if (!sentence) return entries;
+  return entries.map((entry, i) => {
+    if (!i || !entry.note) return entry;
+    const gloss = MEANING_MARK.test(entry.note);
+    const note = withoutLabel(entry.note.replace(MEANING_MARK, ""));
+    return gloss && note && reader !== target ? { ...entry, note, gloss } : { ...entry, note };
+  });
+}
+
+const MEANING_MARK = /^[=＝]\s*/;
+
+/* A meaning written as "Meaning: edited", in whatever language: one word and
+   a colon in front of the rest is a label, not part of it. */
+function withoutLabel(note) {
+  const bare = note.replace(/^[\p{L}\p{M}]+\s*[:：]\s*/u, "");
+  return bare || note;
 }
 
 /* Step one of the verbs: the bare forms, nothing annotated.
@@ -140,6 +135,14 @@ export async function findVerbForms(llm, { text, source }) {
    the model's line order, and that strays from "in the given order" now and
    then. */
 export async function annotateVerbs(llm, { text, source, reader, level, forms }) {
+  const verbs = withoutBasicVerbs(await verbTable(llm, { text, source, reader, level, forms }), source,
+                                  { level, own: source === reader });
+  return orderByTextPosition(mergeSameVerb(verbs, text), text, "form");
+}
+
+/* The verb table's own question about the given forms, every line it
+   answers kept. */
+async function verbTable(llm, { text, source, reader, level, forms }) {
   const raw = await llm.chat({
     system: annotateVerbsPrompt({
       source: englishName(source),
@@ -151,8 +154,61 @@ export async function annotateVerbs(llm, { text, source, reader, level, forms })
     user: ["Text: " + text, "Forms: " + forms.join(", ")].join("\n"),
     maxTokens: 380,
   });
-  const verbs = withoutBasicVerbs(parseVerbTable(raw, source), source, { level, own: source === reader });
-  return orderByTextPosition(mergeSameVerb(verbs, text), text, "form");
+  return parseVerbTable(raw, source);
+}
+
+/* A lookup's term that is a verb form: the whole form, its base form,
+   person and tense, and its meaning as infinitives.
+
+   In its sentence the verb table's first question decides, the one that
+   picks a text's verb forms: it names a compound tense whole with its
+   auxiliary (*había llegado* for a looked-up *llegado*), and it leaves out a
+   participle standing as an adjective (*muy angustiado*). The form holding
+   the looked-up words is then asked about as a table row.
+
+   Without a sentence there is no text to find forms in, and whether the term
+   is one verb form at all is asked of the question a clicked word's person
+   and tense come from, which answers a hyphen for anything else. Handed a
+   noun straight away, the table's question makes up a verb for it
+   (*fehaciente → fehacer*, *Fernweh → fernsehen*: nearly every rare word of
+   run thirty-four). A participle looked up by itself is nearly always a noun
+   or an adjective (*prise*, *tomada*) and is not taken for one.
+
+   Either way a form carries one word of meaning (meaningWordCount): an
+   idiom taken for a verb form reaches no question. `basic` where it is one
+   of the verbs of the first weeks, which from B1 up is not worth a row
+   (withoutBasicVerbs). Nothing where a question fails: the term stays as it
+   came. */
+async function lookupVerb(llm, { word, text, source, reader, level, lookup, inSentence }) {
+  if (meaningWordCount(word.text, source) !== 1 || !languagePack(source).grammar) return {};
+  let form = word.text;
+  let said = null;
+  if (inSentence) {
+    const forms = await findVerbForms(llm, { text, source }).catch(() => []);
+    form = forms.find((found) => found.split(/\s*\+\s*/).some((part) => coversRange(text, part, lookup, [source])));
+    if (!form) return {};
+  } else {
+    said = parseVerbGrammar(await llm.chat({
+      system: verbFormPrompt({ source: englishName(source), reader: englishName(reader), tenses: tenseNames(source), persons: personNames(source) }),
+      user: [`Text (${englishName(source)}): ${text}`, "Word: " + word.text].join("\n"),
+      maxTokens: 30,
+    }).catch(() => ""));
+    if (!said) return {};
+  }
+  const [verb] = await verbTable(llm, { text, source, reader, level, forms: [form] }).catch(() => []);
+  if (!verb?.infinitive || !isBaseForm(verb.infinitive, source)) return {};
+  /* Alone, a form that carries no person and is not the dictionary form
+     itself is nearly always the noun or adjective it also is: *prise*,
+     *tomada*, *empedernido* came back as participles. The dictionary form
+     stays a verb (*madrugar*). */
+  const tense = said ? said.tense : verb.tense;
+  if (!inSentence && (knownPerson(said.person, source) === "participle" || isNonFinite(tense, source))
+      && !namesTheLookup(verb.infinitive, word.text, source)) return {};
+  /* Alone, person and tense from the question that judged the form: the
+     table's gave a person to an infinitive — *madrugar*, "yo, presente". */
+  const grammar = said ? grammarOf(said.person, said.tense, source) : { person: verb.person, tense: verb.tense };
+  return { verb: { ...verb, ...grammar, form },
+           basic: !withoutBasicVerbs([verb], source, { level, own: source === reader }).length };
 }
 
 /* The whole verb section in one call, both stages. run.js uses the stages
@@ -257,20 +313,34 @@ async function askedInReaderLanguage(ask, notesOf, source, reader) {
   return second && wrong(second) < missed ? second : first;
 }
 
+/* In the reader's own language a term the model itself rates as known to
+   most native speakers is no term, whatever it was listed for; in a lookup,
+   one it rates as known to most learners at the reader's level. Only a
+   rating given counts: a list without one keeps its items. */
+export const knownToReader = (word, source, languages, lookup = null) =>
+  (!!lookup || source === languages[0]) && word.known === "most";
+
 /* The difficult words of a text.
 
    Invented words are dropped — highlighting works from the exact spot in the
    text, so what is not in it is useless. Basic vocabulary goes too: the ban in
-   the prompt demonstrably does not hold on its own. */
-export async function wordsFor(llm, { text, source, sourceName = "", languages, levels, retry }) {
+   the prompt demonstrably does not hold on its own.
+
+   A dictionary lookup asks for one term (`lookup`: the looked-up words and
+   where they stand in `text`, which is their sentence where one came along
+   and the words themselves otherwise). A term from the sentence has to
+   cover one of them. */
+export async function wordsFor(llm, { text, source, sourceName = "", languages, levels, retry, lookup = null }) {
   /* A language the app does not support has no pack and no English name; the
      name the detection found stands in for it. */
   const name = sourceName || englishName(source);
+  const inSentence = !!lookup && lookup.words !== text;
   const raw = await askedInReaderLanguage((again = {}) => llm.chat({
     temperature: again.temperature,
-    system: wordsPrompt({ code: source, name, languages, levels, retry }),
+    system: wordsPrompt({ code: source, name, languages, levels, retry, lookup: lookup && { inSentence } }),
     user: [
       `Text (${name}): ${text}`,
+      ...(inSentence ? [lookupInput(lookup.words)] : []),
       ...(again.remind ? [writtenIn(englishName(languages[0]), "<meaning> and <note>")] : []),
     ].join("\n"),
     maxTokens: 800,
@@ -283,31 +353,62 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
       let reason = "";
       if (!word.spot) reason = "not in the text";
       else if (isBasicWord(word.text, source)) reason = "basic vocabulary";
+      else if (knownToReader(word, source, languages, lookup)) reason = "known to most readers like this one";
       else if (isLoanword(word.text, source)) reason = "a loanword";
       /* "rimborso potrebbe essere decurtato": half a sentence handed back as
-         a term. A fixed expression carries three meaning words at most. */
-      else if (contentWordCount(word.text, [source]) > MAX_TERM_WORDS) reason = "a piece of a sentence";
+         a term. A fixed expression carries three meaning words at most — in
+         a longer text. Around a looked-up word the term is held to that
+         word, and an idiom of five or six words is exactly what it is for
+         ("fa acqua da tutte le parti"). */
+      else if (lookup ? wordCount(word.text) > MAX_PHRASE_WORDS : contentWordCount(word.text, [source]) > MAX_TERM_WORDS) {
+        reason = "a piece of a sentence";
+      }
+      /* Where it stands, or by its own words: "Daumen drücken" is found in
+         the sentence as "drücke" alone, and still names the word. */
+      /* The looked-up words named back without a note add nothing to the
+         entry above them. */
+      else if (lookup && !word.note && namesTheLookup(word.text, lookup.words, source)) reason = "the looked-up words, unexplained";
+      else if (inSentence && !coversRange(text, word.spot, lookup, [source])
+               && !sharesContentWord(word.text, lookup.words, source)) reason = "beside the looked-up words";
       if (reason) dropped.push(`${word.text} (${reason})`);
       return !reason;
     }))
     .map((word) => ({ ...word, meaning: withoutSecondMeaning(word.meaning, word.text) }))
-    .slice(0, MAX_WORDS);
+    .slice(0, lookup ? 1 : MAX_WORDS);
 
   /* Trim first, then sort: which three terms it becomes is a question of
      difficulty, and only the model knows that. The order they stand in is a
      question of the text. */
   list = orderByTextPosition(list, text, "spot");
-  [list] = await Promise.all([
+  let found;
+  [list, , found] = await Promise.all([
     resolveAbbreviations(llm, { list, text, source, reader: languages[0] }),
     classifyTerms(llm, { list, text, source }),
+    lookup && list.length
+      ? lookupVerb(llm, { word: list[0], text, source, reader: languages[0], level: (levels || {})[source], lookup, inSentence })
+      : {},
   ]);
+  /* A looked-up verb is drawn as one — base form, person and tense in place
+     of a word class — or not at all where it is too plain for this reader. */
+  if (found.basic) {
+    dropped.push(`${list[0].text} (a basic verb)`);
+    list = [];
+  } else if (found.verb) {
+    /* The whole form where the sentence has more of it, the meaning as the
+       verb table gives it — infinitives, as on every verb row — and the
+       note without an opening that names the form. */
+    const { infinitive, person, tense, form, meaning } = found.verb;
+    list = [{ ...list[0], text: form, spot: form.includes("+") ? list[0].spot : form,
+              meaning: meaning || list[0].meaning, note: withoutFormOpening(list[0].note, infinitive, source),
+              verb: { infinitive, person, tense }, wordClass: undefined }];
+  }
 
   /* Nothing left after the loanword filter means the model only saw the
      foreign chunks — typical of university and government letters. A note in
      the prompt did not help, asking again pointedly did. Exactly once, and
      only in this case. */
   if (!list.length && !retry && dropped.some((entry) => entry.endsWith("(a loanword)"))) {
-    return wordsFor(llm, { text, source, sourceName, languages, levels, retry: true });
+    return wordsFor(llm, { text, source, sourceName, languages, levels, retry: true, lookup });
   }
   return list;
 }
@@ -335,7 +436,7 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
    explanation down with it. */
 export async function explainMarked(
   llm,
-  { term, text, source, reader, others, withoutSpot, inText = true, onParagraph },
+  { term, text, source, reader, others, withoutSpot, spot: knownSpot = "", inText = true, onParagraph },
 ) {
   const head = `Text (${englishName(source)}): ${text}`;
   if (inText && isPassage(term)) {
@@ -353,15 +454,12 @@ export async function explainMarked(
 
   const quiet = (promise) => promise.catch(() => "");
 
-  /* Synonyms are asked for up to two words only. Above that the term is a
-     phrase or a technical one, and what comes back is a paraphrase rather
-     than a replacement. Not asked also means not paid for: the call is
-     dropped entirely. */
-  const extra = looksLikeAbbreviation(term)
+  /* An abbreviation has no synonyms, so the slot carries its expansion
+     instead — a question that needs nothing but the term and goes out with
+     the rest. */
+  const expansion = looksLikeAbbreviation(term)
     ? quiet(llm.chat({ system: abbreviationPrompt({ source: englishName(source), reader: englishName(reader) }), user: meaningInput, maxTokens: 60 }))
-    : asksForSynonyms(term)
-      ? quiet(llm.chat({ system: synonymPrompt({ source: englishName(source), inText }), user: meaningInput, maxTokens: 60 }))
-      : Promise.resolve("");
+    : Promise.resolve("");
 
   /* Person and tense go to exactly the prompt that fills the verb table — it
      answers the same question already. Whether the word is a verb at all
@@ -379,8 +477,12 @@ export async function explainMarked(
     ? quiet(llm.chat({ system: wordClassPrompt({ source: englishName(source), genders: languagePack(source).grammar?.genders, inText }), user: meaningInput, maxTokens: 30 }))
     : Promise.resolve("");
 
-  const asksSpot = !withoutSpot && inText;
-  const spot = asksSpot
+  /* A place the word aligner already found (match/links.js) is not asked
+     for, and the paragraph has nothing to wait on. */
+  const asksSpot = !withoutSpot && inText && !knownSpot;
+  const spot = knownSpot
+    ? Promise.resolve(knownSpot)
+    : asksSpot
     ? quiet(llm.chat({ system: spotPrompt({ source: englishName(source), reader: englishName(reader) }), user: spotInput, maxTokens: 60 }))
     : Promise.resolve("");
 
@@ -392,18 +494,50 @@ export async function explainMarked(
     ? quiet(llm.chat({ system: passagePrompt({ source: englishName(source), target: englishName(reader) }), user: [head, "Passage: " + term].join("\n"), maxTokens: 200 }))
     : Promise.resolve("");
 
-  const [meaningRaw, thirdRaw, grammarRaw, wholeRaw, kindRaw] = await Promise.all([
+  const [meaningRaw, expansionRaw, grammarRaw, wholeRaw, kindRaw] = await Promise.all([
     askedInReaderLanguage((again = {}) => llm.chat({
       temperature: again.temperature,
       system: meaningPrompt({ source: englishName(source), reader: englishName(reader), inText }),
       user: again.remind ? [meaningInput, writtenIn(englishName(reader), "<meaning> and <note>")].join("\n") : meaningInput,
       maxTokens: 160,
     }), (answer) => [firstFieldLine(answer).split("|").slice(2).join("|").trim()], source, reader),
-    extra,
+    expansion,
     grammar,
     whole,
     kind,
   ]);
+
+  /* The one question that cannot go out with the others: a verb's synonyms
+     belong to its base form, and the base form is what the meaning answer
+     brings. Asked about the form in the text, the model answers in that same
+     form however plainly the rules ask for a dictionary one — run
+     twenty-five measured 9 % of them in the base form on the cloud model and
+     22 % on the local one, against 95 % and 98 % when the base form is what
+     goes in. Wording alone reached 48 % and 79 %, and on the cloud model it
+     left German, Spanish and French exactly where they were.
+
+     The text still goes with it: the sense the word carries in THIS sentence
+     is what the rules pick a synonym for, and that is not the base form's
+     most common one. It costs about half a second on the cloud model and a
+     third of one locally, because this call waits for the meaning answer
+     instead of running beside it. Nothing is asked twice, and a word that is
+     not a verb is asked about as the reader clicked it.
+
+     Synonyms are asked for up to two words only. Above that the term is a
+     phrase or a technical one, and what comes back is a paraphrase rather
+     than a replacement. Not asked also means not paid for: the call is
+     dropped entirely. */
+  const base = verbFormOf({ meaningRaw, grammarRaw, term, code: source }).infinitive;
+  const asked = base || term;
+  const thirdRaw = looksLikeAbbreviation(term)
+    ? expansionRaw
+    : asksForSynonyms(term)
+      ? await quiet(llm.chat({
+        system: synonymPrompt({ source: englishName(source), inText }),
+        user: inText ? [head, "Word: " + asked].join("\n") : `Word (${englishName(source)}): ${asked}`,
+        maxTokens: 60,
+      }))
+      : "";
 
   const parse = (spotRaw) => parseMarkedWord({
     meaningRaw,
@@ -414,7 +548,6 @@ export async function explainMarked(
     grammarRaw,
     wholeRaw,
     kindRaw,
-    lang: reader,
     codes: [source, ...others.map((o) => o.code)],
   });
 
@@ -614,10 +747,7 @@ export async function completeCard(llm, card) {
     : [meaning, card.meaningLanguage, card.termLanguage];
   let found = [];
   if (wordCount(text) <= LOOKED_UP_WORDS) {
-    const definition = await defineWord(llm, { text, source, reader: card.meaningLanguage });
-    const entries = await alternativesFor(llm, {
-      text, source, target, reader: card.meaningLanguage, meaning: definition,
-    });
+    const entries = await alternativesFor(llm, { text, source, target, reader: card.meaningLanguage });
     found = entries.map((entry) => entry.text).filter(Boolean);
   }
   if (!found.length) {
@@ -645,6 +775,7 @@ export async function improveCard(llm, card, { level }) {
       readerCapitals: !!theirs.capitalisesNouns,
       spelling: readerSpelling(card.meaningLanguage),
       hasSentence: !!card.context?.sentence,
+      hasTranslation: !!card.context?.translation,
     }),
     user: improveCardInput({ term, reader, card }),
     maxTokens: 900,

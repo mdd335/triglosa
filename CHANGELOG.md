@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.0
+
+### New
+- Two new shortcuts look up the word under the pointer or translate the
+  whole sentence under it, without selecting anything. On the Mac, a Force
+  Click on the trackpad can look up a word, too. Set them up in the settings
+  under "Text from other programs"; on the Mac they need the optional
+  permission explained there.
+- A word you look up takes the sentence it stands in along to the AI model,
+  at most 30 words, so the meaning that fits your text comes first. You can
+  switch this off in the settings.
+- Looking up one to three words now explains them under the translations
+  where they are hard at your level.
+- Read on sentence by sentence: the next sentence of the text you read from
+  can be shown under the original and translated with a click. Switch it on
+  in the settings under "Text from other programs".
+- Text to speech: press the loudspeaker to hear a word aloud, with a voice
+  your system already has.
+- An AI model on another computer in your own network can be used.
+- The settings say how many past translations Triglosa remembers: the last
+  5, the last 10, or none.
+
+### Changed
+- The translation on hover is there as soon as the translations are, and
+  where a word went in the translations is marked at once: a small model
+  that comes with Triglosa works this out on your computer. The download is
+  about 150 MB larger for it.
+- Faster and cheaper: a dictionary entry arrives in about half the time,
+  a text's language is mostly recognized on your own computer, and a
+  translation asks the AI model fewer questions.
+- The terms and verbs explained fit your language level better, and in a
+  long text they are no longer taken from its first sentences only.
+
+### Fixed
+- Texts in Chinese, Japanese, Korean, Thai and other scripts written without
+  spaces are now translated as text and their difficult terms are marked.
+- When the AI model is briefly overloaded, Triglosa waits and asks again
+  instead of leaving parts of the translation empty.
+
 ## 0.4.3
 
 ### New

@@ -19,11 +19,13 @@ import {
   APP_ICONS,
   CARD_MODES,
   HOTKEYS,
+  KEPT_READINGS,
   SHOW_MODES,
   TRANSLATORS,
   choosableLanguages,
   collapsePairs,
   neededPairs,
+  usesPermission,
 } from "../settings.js";
 import { displayName, languageLabel } from "../languages/index.js";
 import { createLlmBackend } from "../platform/llm.js";
@@ -39,6 +41,9 @@ import {
   appVersion,
   ensureTranslationHelper,
   insideApp,
+  copyText,
+  systemReport,
+  modelFetch,
   openUrl,
   openLanguageSettings,
   prepareLanguages,
@@ -59,6 +64,7 @@ import { CAPTURE_CODE_URL, HELP_URL, ISSUES_URL, MODEL_HELP_URL, PROJECT_URL, ch
 import { faultText, labels } from "./labels.js";
 import { keyHint } from "../platform/keychain.js";
 import { installUpdate } from "../platform/update.js";
+import { diagnosticsText } from "../diagnostics.js";
 import { SEARCH_NAMES, SYSTEM_SEARCH, WINDOWS_SEARCH } from "../platform/search.js";
 import { element, field, group, reportOn, select, secretInput, textInput } from "./elements.js";
 
@@ -78,7 +84,7 @@ let requested = false;
    this window is open is not a case worth carrying state for. */
 let keyboard = { layout: null, taken: [] };
 
-export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
+export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { permission = accessibilityGranted } = {}) {
   const reader = settings.languages[0];
   const text = labels(reader);
   const view = element("div", "settings");
@@ -170,10 +176,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
      not three paragraphs pushing these three fields off the screen. A link
      that opens it: somebody who downloaded the app has no README beside it. */
   const modelHint = element("p", "hint group-hint", `${text.modelIntro} ${text.modelHelpAsk} `);
-  const guide = element("button", "inline-link", text.modelHelpLink);
-  guide.type = "button";
-  guide.addEventListener("click", () => openUrl(MODEL_HELP_URL));
-  modelHint.append(guide);
+  modelHint.append(textLink(text.modelHelpLink, MODEL_HELP_URL));
   view.append(modelHint);
 
   const endpoint = textInput(settings.endpoint, ENDPOINT_PRESETS[0].endpoint);
@@ -244,7 +247,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
           apiKey: typed === null ? apiKey : typed,
           model: model.value,
         },
-        await appFetch(),
+        await modelFetch(),
       );
       const { chosen } = await backend.test();
       result.textContent = text.testOk(chosen);
@@ -262,10 +265,10 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   /* ---- the translations ---- */
 
   view.append(group(text.groupTranslation));
-  /* Apple's translation is an extra: the model translates by default, and
-     the device is set up here only by a reader who wants it fast or
-     offline. So the group says that first, then how to set it up, then who
-     goes first. */
+  /* Apple's translation is not set up anywhere: it is part of the system and
+     wants nothing but a language pack per pair, which is what this list is
+     about. The group says that first, then which packs are there, then who
+     translates by default and that the other steps in. */
   /* What the device can translate, and what it cannot yet. The three answers
      are different in kind and only one of them is actionable: a pair that is
      merely not downloaded can be fetched from here, while a pair the device
@@ -291,19 +294,28 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   }
   if (onDevice) view.append(translatorField);
   /* What a word became, on hover — a translation too, of one word at a time,
-     and the last thing this group has to say. */
+     and after it how many readings stay to step back to. */
   view.append(field({
     label: text.glance,
     hint: text.glanceHint,
     control: switchFor(settings.glance, text, (on) => onChange({ ...settings, glance: on })),
   }));
+  /* How many readings the title bar's chevrons step back through. */
+  const kept = select(
+    KEPT_READINGS.map((count) => ({ value: String(count), label: count ? text.keptLast(count) : text.optionOff })),
+    String(settings.kept),
+  );
+  kept.classList.add("short");
+  kept.addEventListener("change", () => onChange({ ...settings, kept: Number(kept.value) }));
+  view.append(field({ label: text.kept, control: kept }));
   let fetchButton = null;
   let gaps = false;
   if (onDevice) showPairs();
 
   /* Asked again when the reader comes back to this window — from System
      Settings, or from the system's own prompt — and only while something was
-     missing: that is when the answer can have changed. Not on a timer. */
+     missing or nothing answered: that is when the answer can have changed.
+     Not on a timer. */
   const recheck = () => {
     if (!pairs.isConnected) return window.removeEventListener("focus", recheck);
     if (!gaps) return;
@@ -318,7 +330,10 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
        holds the port and answers in a shape this window no longer reads.
        Retiring it is part of finding out whether the device is there. */
     if (!(await ensureTranslationHelper(device))) {
+      if (!pairs.isConnected) return;
       pairs.textContent = text.pairsNoDevice;
+      gaps = true;
+      offerRecheck();
       return;
     }
     const name = (code) => displayName(code, reader) || code;
@@ -349,6 +364,21 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
     fetchButton?.remove();
     fetchButton = null;
     if (gaps) offerDownload(missing.downloadable);
+  }
+
+  /* Nothing answered: the reader asks again from here, which also starts
+     the helper once more. */
+  function offerRecheck() {
+    fetchButton?.remove();
+    const button = element("button", null, text.pairsRecheck);
+    fetchButton = button;
+    button.addEventListener("click", () => {
+      button.remove();
+      pairs.textContent = text.pairsChecking;
+      device = null;
+      showPairs();
+    });
+    pairsRow.append(button);
   }
 
   /* The system's own download prompt, asked for by the app. One request per
@@ -398,11 +428,10 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
       onChange({ ...settings, show: { ...settings.show, [section]: node.value } }));
     view.append(field({ label, hint, control: node }));
   };
-  showRow("verbs", text.verbs, text.showVerbsHint);
   showRow("terms", text.terms, text.showTermsHint);
+  showRow("verbs", text.verbs, text.showVerbsHint);
   view.append(field({
     label: text.underline,
-    hint: text.underlineHint,
     control: switchFor(settings.underline, text, (on) => onChange({ ...settings, underline: on })),
   }));
   /* On a Mac the system's own engine comes first; Windows has none, and its
@@ -452,11 +481,28 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
 
   /* Windows asks no permission for reading a selection, so there is nothing
      to explain and the shortcuts always take the selection along. */
-  const leads = (granted) => {
-    for (const one of shortcuts) if (one.selected) one.lead.textContent = granted ? one.selected : one.lead0;
+  const leads = (direct) => {
+    for (const one of shortcuts) if (one.selected) one.lead.textContent = direct ? one.selected : one.lead0;
   };
-  if (onWindows()) leads(true);
-  else view.append(permissionField(text, leads));
+
+  /* ---- text from other programs ---- */
+
+  /* What reads another program's text or writes into it, in a group of its
+     own: on the Mac the system's permission first and, once it is granted,
+     what it is used for; on Windows the same without anything to grant. */
+  view.append(group(text.groupReading));
+  const pointer = [
+    { key: "wordHotkey", label: text.wordHotkey, lead: text.wordHotkeyLead },
+    { key: "sentenceHotkey", label: text.sentenceHotkey, lead: text.sentenceHotkeyLead },
+  ].map((one) => ({ ...one, ...shortcutField(one, { settings, text, onChange }) }));
+  shortcuts.push(...pointer);
+  const reading = readingFields({ settings, text, onChange, pointer: pointer.map((one) => one.row) });
+  if (onWindows()) {
+    leads(true);
+    view.append(...reading);
+  } else {
+    view.append(...permissionFields({ settings, text, onChange, onDirect: leads, reading, permission }));
+  }
 
   /* Asked the first time this view is built, and the fields written again
      once the answers are in — a field would otherwise show a key by its
@@ -495,7 +541,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }) {
   }));
   if (settings.cards.mode !== "never") view.append(ankiFields(settings, text, onChange));
 
-  view.append(...aboutFields(text));
+  view.append(...aboutFields(text, { settings, apiKey }));
 
   return view;
 }
@@ -576,7 +622,7 @@ function shortcutField({ key, label, lead }, { settings, text, onChange }) {
   return { row, lead0: lead, lead: row.querySelector(".hint"), refresh };
 }
 
-const HOTKEY_NAMES = (text) => ({ hotkey: text.hotkey, freshHotkey: text.freshHotkey, cardHotkey: text.cardHotkey });
+const HOTKEY_NAMES = (text) => Object.fromEntries(HOTKEYS.map((key) => [key, text[key]]));
 
 /* What an update check found, kept past a redraw: every change in this window
    rebuilds the view, and the answer would otherwise vanish with it. */
@@ -585,7 +631,7 @@ let update = null;
 /* Which version this is, whether there is a newer one, and the way to the
    project. The group the menu bar's update entry opens this window at — see
    showAbout in settings-window.js. */
-function aboutFields(text) {
+function aboutFields(text, { settings, apiKey }) {
   const heading = group(text.groupAbout);
   heading.id = "about";
 
@@ -657,15 +703,40 @@ function aboutFields(text) {
   row.append(version, buttons, result, element("p", "hint", text.updatesHint));
   show();
 
-  const links = element("div", "with-presets");
-  for (const [label, url] of [[text.aboutProject, PROJECT_URL], [text.trayHelp, HELP_URL], [text.trayProblem, ISSUES_URL]]) {
-    const link = element("button", "quiet", label);
-    link.addEventListener("click", () => openUrl(url));
-    links.append(link);
-  }
+  /* The way to the project as a sentence, its three places as links in it:
+     three buttons in a row read as three things to do, and none of them is
+     a setting. */
+  const urls = { project: PROJECT_URL, help: HELP_URL, issues: ISSUES_URL };
+  const links = element("p", "about-links");
+  links.append(...text.aboutLinks((place, word) => textLink(word, urls[place])));
+  /* What a problem report needs, copied for the reader to paste — nothing is
+     sent from here. Under the sentence that leads to the issues. */
+  const diagnostics = element("button", "quiet", text.diagnosticsCopy);
+  diagnostics.addEventListener("click", () => reportOn(diagnostics, async () => copyText(diagnosticsText({
+    version: await appVersion(),
+    report: await systemReport(),
+    settings,
+    keySet: !!apiKey,
+    permission: onWindows() ? false : await accessibilityGranted(),
+    system: onWindows() ? "windows" : "mac",
+  })), text.copied));
+  const diagnosticsRow = element("div", "with-presets diagnostics");
+  diagnosticsRow.append(diagnostics);
   const linkRow = element("div", "field");
-  linkRow.append(links);
+  linkRow.append(links, diagnosticsRow, element("p", "hint", text.diagnosticsHint));
   return [heading, row, linkRow];
+}
+
+/* A link inside a sentence, opened in the browser rather than in this
+   window. */
+function textLink(word, url) {
+  const link = element("a", "text-link", word);
+  link.href = url;
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    openUrl(url);
+  });
+  return link;
 }
 
 /* A setting with two answers. The window has no switch of its own and one
@@ -913,31 +984,47 @@ function mappingField(config, settings, text, save, backend) {
   return box;
 }
 
-/* The one permission this app can ask for, and does not need. Without it the
-   reader copies before pressing the shortcut; with it selecting is enough.
-   Explained before the system asks: what it adds, that Triglosa uses it for
-   those two things only, and where the code is that shows it — the system's
-   own description of the permission sounds like a great deal more.
+/* Whether macOS grants the permission, as last heard. Every change in this
+   window rebuilds the view, and what hangs on the answer would otherwise go
+   and come back each time. */
+let permissionGranted = false;
+
+/* The one permission this app can ask for, and does not need.
+
+   The permission stands first: what it adds, that Triglosa uses it for
+   those things only and where the code is that shows it — the system's own
+   description sounds like a great deal more — and the buttons that grant it.
+   Nothing else until macOS grants it. Then what it is used for, each with a
+   switch or a field of its own: the selection read without copying and the
+   translation inserted (`directSelection`, on unless switched off), and
+   under the line saying they do not work everywhere, what reads around a
+   selection or under the pointer.
 
    It watches rather than asking once: the reader leaves for System Settings,
-   turns the switch and comes back, and the window should already know. */
-function permissionField(text, onGranted = () => {}) {
+   turns the switch there and comes back, and the window should already know. */
+function permissionFields({ settings, text, onChange, onDirect = () => {}, reading = [], permission }) {
   const box = element("div", "field");
   box.append(element("label", null, text.permission));
-  const why = element("p", "hint", text.permissionWhy);
   const trust = element("p", "hint", `${text.permissionTrust} `);
-  const code = element("button", "inline-link", text.permissionCode);
-  code.type = "button";
-  code.addEventListener("click", () => openUrl(CAPTURE_CODE_URL));
-  trust.append(code);
+  trust.append(textLink(text.permissionCode, CAPTURE_CODE_URL));
   const buttons = element("div", "with-presets");
-  /* Whether it is on, under the buttons that change it. */
+  /* Whether macOS grants it, under the buttons that change that. */
   const state = element("p", "hint");
   const note = element("p", "hint");
-  box.append(why, trust, buttons, state, note);
+  box.append(trust, buttons, state, note);
+
+  const direct = field({
+    label: text.directSelection,
+    hint: text.directSelectionLead,
+    control: switchFor(usesPermission(settings), text, (on) => onChange({ ...settings, directSelection: on })),
+  });
+  const options = [direct, ...reading];
 
   const draw = (granted, pending) => {
-    onGranted(granted);
+    /* Inline, because `.field` sets its own display and would show a
+       hidden one all the same. */
+    for (const row of options) row.style.display = granted ? "" : "none";
+    onDirect(granted && usesPermission(settings));
     buttons.replaceChildren();
     const open = element("button", "quiet", text.permissionOpen);
     open.addEventListener("click", () => openAccessibilitySettings());
@@ -957,13 +1044,14 @@ function permissionField(text, onGranted = () => {}) {
     buttons.append(ask, open);
   };
 
-  let granted = false;
-  draw(false, false);
+  let granted = permissionGranted;
+  draw(granted, false);
 
   /* Only redraw on a change: the two buttons must not lose a press to a
      rebuild happening underneath them. */
   const check = async () => {
-    const now = await accessibilityGranted();
+    const now = await permission();
+    permissionGranted = now;
     if (now === granted) return;
     granted = now;
     draw(now, false);
@@ -979,5 +1067,42 @@ function permissionField(text, onGranted = () => {}) {
   }, 1500);
   check();
 
-  return box;
+  return [box, ...options];
+}
+
+/* What reads another program's text around a selection or under the
+   pointer: said once over all of it that it does not work in every
+   program, whether the sentence goes along with a looked-up word, the
+   word's shortcut, on the Mac its force click, and the sentence's
+   shortcut. */
+function readingFields({ settings, text, onChange, pointer }) {
+  /* What the word's shortcut does, with a click instead of keys. Apple's Look
+     Up answers the same click, which the last line says how to move. */
+  const forceClick = field({
+    label: text.forceClick,
+    control: switchFor(settings.forceClick, text, (on) => onChange({ ...settings, forceClick: on })),
+    hint: text.forceClickLead,
+  });
+  /* Only while it is on: that is when Look Up answers the same click. */
+  if (settings.forceClick) forceClick.append(element("p", "hint", text.forceClickHint));
+
+  /* Said once over everything below it that reads another program's text
+     around the selection or under the pointer; the selection itself, above
+     it on the Mac, is read reliably. */
+  const unreliable = element("p", "hint group-hint", text.pointerUnreliable);
+
+  /* What goes to the model with a looked-up word: the switch says how much. */
+  const withSentence = field({
+    label: text.withSentence,
+    control: switchFor(settings.withSentence, text, (on) => onChange({ ...settings, withSentence: on })),
+    hint: text.withSentenceLead,
+  });
+
+  const nextSentence = field({
+    label: text.nextSentence,
+    control: switchFor(settings.nextSentence, text, (on) => onChange({ ...settings, nextSentence: on })),
+    hint: text.nextSentenceLead,
+  });
+
+  return [unreliable, withSentence, pointer[0], onWindows() ? null : forceClick, pointer[1], nextSentence].filter(Boolean);
 }

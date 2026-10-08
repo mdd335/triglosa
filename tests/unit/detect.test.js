@@ -3,7 +3,7 @@ import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { MIN_WORDS, chosenLanguage, detectByStopwords, detectLanguage, keepsChosenLanguage } from "../../src/detect.js";
+import { IDENTIFIER_THRESHOLD, MIN_WORDS, chosenLanguage, detectByStopwords, detectLanguage, keepsChosenLanguage, readIdentified } from "../../src/detect.js";
 import { SUPPORTED } from "../../src/languages/index.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -113,7 +113,7 @@ test("a supported language answered by its name is still that language", async (
   const other = await detectLanguage("xx", {
     languages: ["de", "en"], reader: "de", translation: null, llm: { chat: async () => "Niederländisch" },
   });
-  assert.deepStrictEqual(other, { code: "", name: "Niederländisch", guesses: [] });
+  assert.deepStrictEqual(other, { code: "", name: "Niederländisch", guesses: [], by: "model" });
 });
 
 test("French with no article in front of its nouns is not taken for Spanish", () => {
@@ -123,8 +123,8 @@ test("French with no article in front of its nouns is not taken for Spanish", ()
 
 test("what the recognizer thought likeliest travels with the answer", async () => {
   const translation = {
-    detect: async (text, candidates, preferred, onGuesses) => {
-      onGuesses(["pt", "es", "ca"]);
+    detect: async (text, candidates, preferred, report) => {
+      report({ guesses: ["pt", "es", "ca"], unsure: "pt" });
       return "";
     },
   };
@@ -146,4 +146,109 @@ test("a chosen language goes on with an edited text unless the function words ar
   const english = "The committee had spent months reviewing the proposal, yet the final vote was postponed again.";
   assert.ok(!keepsChosenLanguage(english, "hu"), "replaced by an English text: it no longer holds");
   assert.ok(keepsChosenLanguage(english, "en"));
+});
+
+test("with no model to ask, the recognizer's own best reading is taken", async () => {
+  /* A single word carries no function words and the recognizer is rarely
+     sure enough of one. The model is the stage that decides it — and where
+     there is none, or it cannot be reached, a guess translates and nothing
+     does not. */
+  const translation = {
+    detect: async (text, candidates, preferred, report) => {
+      report({ guesses: ["es", "pt"], unsure: "es" });
+      return "";
+    },
+  };
+  const asked = { languages: ["de", "es", "en"], reader: "de", translation };
+  const without = await detectLanguage("quebranto", { ...asked, llm: null });
+  assert.strictEqual(without.code, "es");
+  const unreachable = await detectLanguage("quebranto", {
+    ...asked,
+    llm: { chat: async () => { throw new Error("connect ECONNREFUSED"); } },
+  });
+  assert.strictEqual(unreachable.code, "es");
+  /* A model that answers still decides. */
+  const answered = await detectLanguage("quebranto", { ...asked, llm: { chat: async () => "pt" } });
+  assert.strictEqual(answered.code, "pt");
+});
+
+test("a recognizer that says nothing at all leaves the language unnamed", async () => {
+  const silent = {
+    detect: async (text, candidates, preferred, report) => {
+      report({ guesses: [], unsure: "" });
+      return "";
+    },
+  };
+  const found = await detectLanguage("quebranto", {
+    languages: ["de", "es", "en"], reader: "de", translation: silent, llm: null,
+  });
+  assert.strictEqual(found.code, "");
+  await assert.rejects(detectLanguage("quebranto", {
+    languages: ["de", "es", "en"], reader: "de", translation: silent,
+    llm: { chat: async () => { throw new Error("connect ECONNREFUSED"); } },
+  }));
+});
+
+test("a Chinese text with a few English words in it is not taken for English", () => {
+  const text = "我们在会议上讨论了 the budget and the plan for the next year，大家都同意这个方案，但是还有很多细节需要进一步研究和确认。"
+    + "经理说预算的问题比较复杂，因为今年的收入比去年少了很多，所以我们必须减少一些不太重要的开支，下周再开会讨论具体的办法。";
+  assert.strictEqual(detectByStopwords(text, SUPPORTED), "");
+});
+
+test("the identifier decides only where it is sure, and of a language the app offers", () => {
+  assert.deepStrictEqual(readIdentified([["it", 0.97], ["es", 0.02]]), { code: "it", foreign: false });
+  assert.deepStrictEqual(readIdentified([["it", IDENTIFIER_THRESHOLD - 0.01], ["es", 0.1]]), { code: "", foreign: false });
+  assert.deepStrictEqual(readIdentified([["fa", 0.99], ["ar", 0.01]]), { code: "", foreign: true });
+  for (const nothing of [[], null, undefined, [[]]]) {
+    assert.deepStrictEqual(readIdentified(nothing), { code: "", foreign: false });
+  }
+});
+
+test("a language the identifier is sure of is asked of nobody else", async () => {
+  let asked = 0;
+  const found = await detectLanguage("tramonto", {
+    languages: ["de", "en"],
+    reader: "de",
+    identifier: { identify: async () => [["it", 0.99]] },
+    translation: { detect: async () => { asked++; return "pt"; } },
+    llm: { chat: async () => { asked++; return "pt"; } },
+  });
+  assert.deepStrictEqual(found, { code: "it", name: "Italienisch", guesses: [], by: "text" });
+  assert.strictEqual(asked, 0);
+});
+
+test("an identifier that is unsure, absent or failing leaves the question to the others", async () => {
+  const device = { detect: async () => "pt" };
+  for (const identifier of [
+    { identify: async () => [["it", 0.6], ["pt", 0.3]] },
+    { identify: async () => [] },
+    { identify: async () => { throw new Error("absent"); } },
+    null,
+  ]) {
+    const found = await detectLanguage("tramonto", { languages: ["de", "en"], reader: "de", identifier, translation: device, llm: null });
+    assert.strictEqual(found.code, "pt");
+    assert.strictEqual(found.by, "device");
+  }
+});
+
+test("sure of a language the app does not offer, the identifier sends the text past the recognizer", async () => {
+  /* Persian comes back from the recognizer as Arabic, sure of it. */
+  const asked = {
+    languages: ["de", "en"],
+    reader: "de",
+    identifier: { identify: async () => [["fa", 0.99]] },
+    translation: {
+      detect: async (text, candidates, preferred, report) => {
+        report({ guesses: ["ar"], unsure: "ar" });
+        return "ar";
+      },
+    },
+  };
+  const found = await detectLanguage("سلام", { ...asked, llm: { chat: async () => "Persisch" } });
+  assert.deepStrictEqual(found, { code: "", name: "Persisch", guesses: ["ar"], by: "model" });
+  /* With no model to ask after it, the recognizer is all there is. */
+  const alone = await detectLanguage("سلام", { ...asked, llm: null });
+  assert.strictEqual(alone.code, "ar");
+  const unreachable = await detectLanguage("سلام", { ...asked, llm: { chat: async () => { throw new Error("offline"); } } });
+  assert.strictEqual(unreachable.code, "ar");
 });

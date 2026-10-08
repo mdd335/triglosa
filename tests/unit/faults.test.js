@@ -31,6 +31,12 @@ test("nothing reached is not the same as nothing in time", () => {
   assert.strictEqual(faultForThrow(new TypeError("Failed to fetch")).kind, "unreachable");
 });
 
+test("an unencrypted address is a fault of its own", () => {
+  const plain = new Error("http://example.com/v1 is plain http outside the own network");
+  plain.name = "InsecureAddressError";
+  assert.strictEqual(faultForThrow(plain).kind, "insecure");
+});
+
 test("an error from nowhere in particular keeps its own words", () => {
   /* A sentence nobody wrote is worse than an English one somebody did. */
   const found = faultOf(new Error("something odd"));

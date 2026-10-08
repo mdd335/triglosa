@@ -19,6 +19,15 @@ test("the word itself is no translation of itself", () => {
     [{ text: "móvil", note: "v.a. Spanien" }]);
 });
 
+test("the word itself is the first translation where the other language uses it too", () => {
+  assert.deepStrictEqual(parseAlternatives("easy | umgangssprachlich\neinfach | = leicht", "easy", "de", "en", "de"),
+    [{ text: "easy", note: "umgangssprachlich" }, { text: "einfach", note: "= leicht" }]);
+  assert.deepStrictEqual(parseAlternatives("Wiedergabeliste | üblich\nPlaylist | Musik", "playlist", "de", "de", "es"),
+    [{ text: "Wiedergabeliste", note: "üblich" }], "further down it is still the word again");
+  assert.deepStrictEqual(parseAlternatives("easy | -\nfácil | -", "easy", "de", "de", "de"), [{ text: "fácil", note: "-" }],
+    "not where the list is in the word's own language");
+});
+
 test("the same word twice is one entry", () => {
   const list = parseAlternatives("móvil | v.a. Spanien\nMóvil | noch mal", "Handy", "de");
   assert.strictEqual(list.length, 1);
@@ -67,4 +76,16 @@ test("a list that says it has nothing is empty in every first language", () => {
   for (const [raw, reader] of [["НЕИЗВЕСТНО\nнет", "ru"], ["aucune", "fr"], ["UNKNOWN", "it"], ["nenhuma", "pt"]]) {
     assert.deepStrictEqual(parseAlternatives(raw, "soslayable", reader), [], raw);
   }
+});
+
+test("a sentence about the word is not a translation of it", () => {
+  /* A model that refuses writes a sentence, with the word quoted in it. */
+  assert.deepStrictEqual(
+    parseAlternatives('No puedo traducir "recieve": no es una palabra inglesa correcta.', "recieve", "de", "es", "en"), []);
+  assert.deepStrictEqual(
+    parseAlternatives("I am sorry, but this does not seem to be a word of any language I know.", "xqzt", "en", "en", "de"), []);
+  /* An idiom's rendering may run to several words. */
+  assert.strictEqual(
+    parseAlternatives("essere con la testa fra le nuvole | colloquiale", "estar en babia", "it", "it", "es")[0].text,
+    "essere con la testa fra le nuvole");
 });

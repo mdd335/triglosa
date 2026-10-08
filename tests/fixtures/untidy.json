@@ -1,0 +1,26 @@
+{
+  "about": "Text as programs really give it: a list's line, a heading, a label, a table's row. `around` is what came with the selection, `word` what was looked up. `sentence` is what goes along with the word (null: the word goes alone); a case marked `open` is not decided, and is here to be read, not pinned.",
+  "cases": [
+    { "id": "list-dash", "around": "Vocabulario:\n- diseminaban\n- esparcir", "word": "diseminaban", "sentence": null },
+    { "id": "list-bullet", "around": "• Fernweh\n• Heimweh", "word": "Fernweh", "sentence": null },
+    { "id": "list-number", "around": "1. Introduction\n2. Methods", "word": "Introduction", "sentence": null },
+    { "id": "list-checkbox", "around": "- [ ] einkaufen\n- [x] putzen", "word": "einkaufen", "sentence": null },
+    { "id": "list-japanese", "around": "・猫\n・犬", "word": "猫", "sentence": null },
+    { "id": "label-alone", "around": "Einstellungen", "word": "Einstellungen", "sentence": null },
+    { "id": "buttons", "around": "Speichern\nAbbrechen", "word": "Abbrechen", "sentence": null },
+    { "id": "label-colon", "around": "المفتاح:", "word": "المفتاح", "sentence": null },
+    { "id": "label-value", "around": "Preis: 12,50 €", "word": "Preis", "sentence": null },
+    { "id": "quoted-alone", "around": "«Fernweh»", "word": "Fernweh", "sentence": null },
+    { "id": "list-phrase", "around": "3. al cine …", "word": "al cine", "sentence": null },
+    { "id": "two-words", "around": "Nobody celebrated.", "word": "celebrated", "sentence": "Nobody celebrated." },
+    { "id": "imperative", "around": "Razona la respuesta.", "word": "Razona", "sentence": "Razona la respuesta." },
+    { "id": "quoted-speech", "around": "«¡Corre!», gritó.", "word": "Corre", "sentence": "«¡Corre!», gritó." },
+    { "id": "heading", "around": "Capítulo 3: La huida\nSalieron de noche.", "word": "huida", "sentence": "Capítulo 3: La huida" },
+    { "id": "list-sentence", "around": "- Die Möwen kreisten über den Kais.\n- Dann kam der Wind.", "word": "Möwen", "sentence": "Die Möwen kreisten über den Kais." },
+    { "id": "chinese", "around": "我喜欢猫。", "word": "喜欢", "sentence": "我喜欢猫。" },
+    { "id": "table-row", "around": "Nombre | Precio | Cantidad", "word": "Precio", "open": "a table's row goes along as a sentence, and the first line is marked as the meaning there" },
+    { "id": "address", "around": "https://example.org/wiki/Fernweh", "word": "Fernweh", "open": "a word picked out of an address takes the address along" },
+    { "id": "after-abbreviation", "around": "(vgl. Abschnitt 2)", "word": "Abschnitt", "open": "the stop of an abbreviation before a capital ends the sentence, so the word goes alone" },
+    { "id": "note-to-self", "around": "TODO: refactor", "word": "refactor", "open": "a label and one word: a sentence by the rule, little context" }
+  ]
+}

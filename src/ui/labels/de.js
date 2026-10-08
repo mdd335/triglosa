@@ -4,12 +4,17 @@ export default {
   placeholder: "Text einfügen oder eintippen",
   translate: "Übersetzen",
   translateKeys: "Übersetzen (⌘↩)",
+  enterKey: "⌘↩",
   edit: "Editieren",
   settings: "Einstellungen",
   original: "Original",
   terms: "Begriffe",
+  term: "Begriff",
   verbs: "Verben",
   marked: "Markierung",
+  inSentence: "hier",
+  previousSentence: "Vorheriger Satz",
+  nextSentenceLine: "Nächster Satz",
   synonyms: "sinnverwandt",
   wordClasses: {
     noun: "Substantiv",
@@ -32,6 +37,7 @@ export default {
   insert: "Einfügen",
   copied: "Kopiert",
   search: "Suchen (extern)",
+  speak: "Aussprechen",
   opened: "Geöffnet",
   conjugation: "Konjugation (extern)",
   card: "Lernkarte",
@@ -55,6 +61,7 @@ export default {
   cardAnkiSetup: "Stapel wählen",
   cardNoteUnmapped: "Kein Feld zugeordnet — diese Zeilen gehen nicht nach Anki.",
   ankiSaved: "Die Karte liegt im Stapel.",
+  cardClosing: "Das Fenster wird geschlossen.",
   ankiDuplicate: "Diese Karte liegt schon im Stapel — Anki vergleicht dazu das erste Feld des Notiztyps.",
   ankiSending: "Wird angelegt …",
   ankiFailed: ({ kind, detail } = {}) => {
@@ -87,13 +94,16 @@ export default {
   cardImproveNothing: "Keine brauchbare Verbesserung erhalten. Die Karte bleibt unverändert.",
   linking: "verknüpft …",
   noTerms: "keine schwierigen Begriffe gefunden",
+  noTerm: "kein schwieriger Begriff gefunden",
   noVerbs: "keine schwierigen Verben gefunden",
   lockedHow:
-    "Verbinde in den Einstellungen ein KI-Modell für genauere Übersetzungen, Verben, Begriffe, Erklärungen und weitere Funktionen.",
+    "Verbinde in den Einstellungen ein KI-Modell für genauere Übersetzungen, Begriffe, Verben, Erklärungen und weitere Funktionen.",
   noAnswer: "Keine Antwort erhalten.",
   faults: {
     unreachable:
       "Keine Verbindung zum KI-Modell. Bitte prüfe die Internetverbindung und die Einstellungen.",
+    insecure:
+      "Die Adresse des KI-Modells ist unverschlüsselt (http). Bitte nutze in den Einstellungen https oder eine Adresse im eigenen Netz.",
     timeout: "Das KI-Modell hat zu lange gebraucht. Bitte versuche es noch einmal.",
     key: (f) =>
       `Der API-Schlüssel wurde abgelehnt${why(f)}. Bitte prüfe ihn in den Einstellungen.`,
@@ -124,15 +134,17 @@ export default {
     `Das Sprachpaket ${from} → ${to} fehlt. Bitte richte in den Einstellungen ein KI-Modell ein oder lade das Sprachpaket dort unter „Übersetzungen“.`,
 
   groupLanguages: "Sprachen",
-  groupSections: "Verben und Begriffe",
+  groupSections: "Begriffe und Verben",
   groupModel: "KI-Modell",
   groupTranslation: "Übersetzungen",
   groupWindow: "Fenster",
   groupShortcuts: "Tastenkürzel",
+  groupReading: "Text aus anderen Programmen",
   groupCards: "Lernkarten",
   groupAbout: "Über Triglosa",
   aboutVersion: (version) => `Version ${version}`,
-  aboutProject: "Triglosa auf GitHub",
+  /* The way to the project, as a sentence with its links in it. */
+  aboutLinks: (link) => ["Triglosa findest du auf ", link("project", "GitHub"), ", Hilfe dort in der ", link("help", "Readme"), ". Wenn dir ein Fehler auffällt oder du dir eine Funktion wünschst, eröffne gern ein ", link("issues", "Issue"), "."],
   updatesCheck: "Nach Updates suchen",
   updatesChecking: "Suche …",
   updatesHint: "Fragt GitHub nach der neuesten Version, nur wenn du hier klickst. Heruntergeladen wird erst, wenn du auf „Jetzt installieren“ klickst.",
@@ -145,11 +157,13 @@ export default {
   updatesInstallNone: "Diese Version lässt sich nicht von hier aus installieren. Bitte nutze „Zum Download“.",
   updatesInstallUnreachable: "Das Update ließ sich nicht laden. Bitte versuche es später noch einmal.",
   updatesInstallFailed: (detail) => `Das Update wurde nicht installiert${detail ? ` (${detail})` : ""}. Bitte nutze „Zum Download“.`,
+  diagnosticsCopy: "Diagnose kopieren",
+  diagnosticsHint: "Für einen Problembericht: Version, System, Sprachen, KI-Modell und letzte Fehler. Nie deine Texte oder dein API-Schlüssel. Gesendet wird nichts, du fügst es selbst ein.",
   updatesFailed: (status) => `Keine Antwort von GitHub${status ? ` (${status})` : ""}. Bitte versuche es später noch einmal.`,
 
   optionOn: "an",
   optionOff: "aus",
-  cardsEnabled: "Option zum Erstellen von Lernkarten",
+  cardsEnabled: "Lernkarten anbieten",
   cardModes: {
     never: "nie",
     second: "nur bei der zweiten Sprache",
@@ -209,31 +223,30 @@ export default {
     foreign: "bei allen Fremdsprachen",
     all: "bei allen Sprachen",
   },
-  showVerbsHint: "Grundform, Person und Zeit zu den drei schwersten Verbformen im Text.",
+  showVerbsHint: "Grundform, Person und Zeit zu bis zu drei fortgeschrittenen Verbformen im Text.",
   showTermsHint: "Erklärungen zu bis zu drei fortgeschrittenen Wörtern oder Redewendungen im Text.",
   underline: "Farbige Unterstreichung im Text",
-  underlineHint: "Unterstreicht die Verben und Begriffe in Original und Übersetzungen.",
   searchEngine: "Suchmaschine",
-  searchHint: "Für „Suchen (extern)“ bei Verben, Begriffen und markierten Wörtern. Geöffnet wird im Standardbrowser.",
+  searchHint: "Für „Suchen (extern)“ bei Begriffen, Verben und markierten Wörtern. Geöffnet wird im Standardbrowser.",
   searchSystem: "wie in Safari eingestellt",
-  glance: "Übersetzung beim Überfahren",
-  glanceHint: "Zeigt über einem Wort des Originals, was ihm in deiner Sprache entspricht.",
+  glance: "Wortübersetzung beim Zeigen",
+  glanceHint: "Zeigt über Wörtern in Fremdsprachen, was ihnen in deiner Sprache entspricht.",
   modelIntro:
-    "Ohne KI-Modell gibt es nur Apples Übersetzung auf dem Gerät, sofern unten eingerichtet. Verbinde ein KI-Modell für genauere Übersetzungen, Verben, Begriffe, Erklärungen und weitere Funktionen.",
+    "Ohne KI-Modell gibt es nur Apples Übersetzung auf dem Gerät, sofern das Sprachpaket geladen ist. Verbinde ein KI-Modell für genauere Übersetzungen, Begriffe, Verben, Erklärungen und weitere Funktionen.",
   modelHelpAsk: "Noch nie ein KI-Modell eingerichtet?",
   modelHelpLink: "Zur Anleitung",
-  endpoint: "Modell-Endpunkt",
+  endpoint: "Adresse des KI-Modells",
   endpointHint:
     "Jede Adresse mit OpenAI-kompatibler Schnittstelle — in der Cloud oder lokal.",
   model: "Modell",
-  modelHint: "Bleibt das Feld leer, nimmt die App das erste Modell, das der Endpunkt anbietet.",
-  apiKey: "Schlüssel",
+  modelHint: "Bleibt das Feld leer, nimmt die App das erste Modell, das unter der Adresse angeboten wird.",
+  apiKey: "API-Schlüssel",
   apiKeyEmpty: "keiner hinterlegt",
   apiKeyHint:
     "Landet im Schlüsselbund des Systems, nie in der Einstellungsdatei. Ein lokales Modell braucht meist keinen.",
   forgetKey: "Vergessen",
   keySaveFailed: (detail) =>
-    `Der Schlüssel wurde nicht gespeichert${detail ? ` (${detail})` : ""}. Bitte versuche es noch einmal.`,
+    `Der API-Schlüssel wurde nicht gespeichert${detail ? ` (${detail})` : ""}. Bitte versuche es noch einmal.`,
   testConnection: "Verbindung prüfen",
   testing: "Wird geprüft …",
   testOk: (name) => `Antwortet, mit „${name}“.`,
@@ -241,21 +254,33 @@ export default {
   translator: "Übersetzung durch",
   translatorModes: { model: "KI-Modell", device: "Apple (auf dem Gerät)" },
   deviceIntro:
-    "Optional kannst du für die Übersetzungen selbst Apples Übersetzung auf dem Gerät einrichten. Sie ist sehr schnell und funktioniert offline, ist aber oft ungenau.",
-  translatorHint: "Kann eines der beiden nicht übersetzen, springt das andere ein, sofern es eingerichtet ist.",
-  translatorNoModel: "Noch ist kein KI-Modell eingerichtet. Bis dahin übersetzt Apple, soweit die Sprachpakete installiert sind.",
-  translatedBy: { device: "von Apple übersetzt", model: "vom KI-Modell übersetzt" },
+    "Apples Übersetzung ist Teil von macOS: sehr schnell und offline, aber oft ungenau. Ist das Sprachpaket geladen, springt sie automatisch ein, wenn das KI-Modell nicht antwortet.",
+  translatorHint: "Kann eines von beiden nicht übersetzen, springt das andere automatisch ein.",
+  translatorNoModel: "Noch ist kein KI-Modell eingerichtet. Bis dahin übersetzt Apple, soweit die Sprachpakete geladen sind.",
+  /* Who did what, under the pointer on a heading: who wrote a panel (said
+     outright where it was not the reader's choice), who named the language
+     and matched the words, who explained and placed a section's rows. Put
+     together in labels.js (`creditLine`): `by` answers the word in front of
+     a name and the name. */
+  credits: {
+    verbs: { translated: "übersetzt", explained: "erklärt", assigned: "zugeordnet", detected: "Sprache erkannt", words: "Wörter zugeordnet" },
+    and: "und",
+    by: ({ kind, name }) => ({ device: ["von", "Apple (auf dem Gerät)"], triglosa: ["von", "Triglosa"] })[kind] || (name ? ["von", name] : ["vom", "KI-Modell"]),
+    line: (verbs, who) => `${verbs} ${who}`,
+    chosen: "Sprache von dir gewählt",
+  },
   foldPanel: "Einklappen",
   unfoldPanel: "Ausklappen",
   more: "Ausführlicher erklären",
   moreWorking: "Wird ausführlicher erklärt …",
   addExample: "Beispielsatz hinzufügen",
   exampleWorking: "Beispielsatz wird geschrieben …",
-  devicePairs: "Apples Übersetzung auf dem Gerät nutzen",
+  devicePairs: "Apples Übersetzung auf dem Gerät",
   pairsChecking: "Wird geprüft …",
-  pairsAllInstalled: "Alle Sprachpakete für deine Sprachen sind installiert.",
+  pairsAllInstalled: "Alle Sprachpakete für deine Sprachen sind geladen.",
   pairsNoDevice:
     "Apples Übersetzung antwortet gerade nicht.",
+  pairsRecheck: "Erneut prüfen",
   pairsDownloadable: (pairs) => `Noch nicht geladen: ${pairs}.`,
   pairsUnsupported: (pairs) =>
     `Nicht möglich mit Apples Übersetzung: ${pairs}. Das lässt sich nicht nachladen.`,
@@ -270,16 +295,18 @@ export default {
   pairArrow: (from, to) => `${from} → ${to}`,
 
   fitWindow: "Fensterhöhe automatisch an den Inhalt anpassen",
+  kept: "Vergangene Übersetzungen merken",
+  keptLast: (n) => `die letzten ${n}`,
   appIcon: "Symbol, während Triglosa läuft",
   appIcons: { menubar: "in der Menüleiste", dock: "im Dock", both: "in Menüleiste und Dock" },
   shortcutsLead:
-    "Passiert beim Drücken einer Kombination hier im Fenster nichts, ist die Kombination schon vergeben. Wähle dann eine andere.",
+    "Passiert beim Drücken eines Tastenkürzels hier im Fenster nichts, ist es schon vergeben. Wähle dann ein anderes.",
   hotkey: "Übersetzung starten",
-  hotkeyEmpty: "keines gesetzt",
+  hotkeyEmpty: "kein Tastenkürzel gesetzt",
   hotkeyRecording: "Kombination drücken …",
   hotkeyClear: "Löschen",
   hotkeyLead:
-    "Übersetzt Text aus jedem Programm: Text kopieren (⌘C), dann das Kürzel drücken. Öffnet die letzte Übersetzung, wenn nichts Neues kopiert ist.",
+    "Übersetzt Text aus jedem Programm: Text kopieren (⌘C), dann das Tastenkürzel drücken. Öffnet die letzte Übersetzung, wenn nichts Neues kopiert ist.",
   hotkeyLeadSelected:
     "Übersetzt den markierten Text in jedem Programm. Öffnet die letzte Übersetzung, wenn kein Text markiert ist.",
   freshHotkey: "Neue Übersetzung",
@@ -288,21 +315,39 @@ export default {
     "Erstellt eine Lernkarte aus dem kopierten Text (⌘C). Öffnet ein leeres Fenster zur Lernkartenerstellung, wenn nichts Neues kopiert ist.",
   cardHotkeyLeadSelected:
     "Erstellt eine Lernkarte basierend auf dem markierten Text. Öffnet ein leeres Fenster zur Lernkartenerstellung, wenn kein Text markiert ist.",
-  hotkeyTakenHere: (name) => `Diese Kombination ist schon für „${name}“ gesetzt. Bitte wähle eine andere.`,
+  hotkeyTakenHere: (name) => `Dieses Tastenkürzel ist schon für „${name}“ gesetzt. Bitte wähle ein anderes.`,
   hotkeyFailed: (reason) =>
     "Das Tastenkürzel ist vermutlich schon vergeben"
-    + (reason ? ` (${reason})` : "") + ". Bitte wähle eine andere Kombination.",
+    + (reason ? ` (${reason})` : "") + ". Bitte wähle ein anderes.",
   hotkeyTakenSystem:
-    "Diese Kombination ist von macOS belegt. Bitte wähle eine andere.",
+    "Dieses Tastenkürzel ist von macOS belegt. Bitte wähle ein anderes.",
   hotkeyTakenEverywhere:
-    "Diese Kombination nutzt jedes Programm selbst. Bitte wähle eine andere.",
+    "Dieses Tastenkürzel nutzt jedes Programm selbst. Bitte wähle ein anderes.",
 
-  permission: "Markierten Text direkt übernehmen",
-  permissionWhy:
-    "Optional kannst du markierten Text übersetzen oder als Lernkarte übernehmen, ohne ihn vorher zu kopieren, und Übersetzungen direkt in andere Programme einfügen.",
-  permissionHave: "Eingeschaltet.",
+  wordHotkey: "Wort unter dem Zeiger",
+  wordHotkeyLead: "Schlägt das Wort nach, auf dem der Zeiger steht.",
+  sentenceHotkey: "Satz unter dem Zeiger",
+  sentenceHotkeyLead: "Übersetzt den ganzen Satz, auf dem der Zeiger steht.",
+  forceClick: "Wort mit kräftigem Klick nachschlagen",
+  forceClickLead:
+    "Ein kräftiger Klick auf dem Trackpad schlägt das Wort unter dem Zeiger nach.",
+  forceClickHint:
+    "Damit nicht zusätzlich Apples Nachschlagen aufgeht, deaktiviere in den Systemeinstellungen bei Trackpad die Option „Nachschlagen & Datenerkennung“.",
+  pointerUnreliable: "Die folgenden Funktionen funktionieren nicht in jedem Programm zuverlässig.",
+  withSentence: "Satz mitschicken",
+  withSentenceLead:
+    "Wenn du bis zu drei Wörter nachschlägst, geht ihr Satz mit an das KI-Modell (höchstens 30 Wörter). Das verbessert Spracherkennung und Übersetzungen.",
+  nextSentence: "Nächsten Satz anbieten",
+  nextSentenceLead:
+    "Zeigt unter dem Original den Satz, der im Ursprungstext folgt. Ein Klick übersetzt ihn.",
+
+  permission: "macOS-Berechtigung",
+  directSelection: "Markierten Text direkt lesen und einfügen",
+  directSelectionLead:
+    "Die Tastenkürzel übernehmen markierten Text, ohne dass du ihn vorher kopierst, und Übersetzungen lassen sich direkt in andere Programme einfügen.",
+  permissionHave: "Die Berechtigung ist in macOS erteilt.",
   permissionTrust:
-    "Dafür braucht Triglosa die macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ unter Datenschutz & Sicherheit (bis macOS 26 „Bedienungshilfen“). Triglosa nutzt sie nur zum Lesen des markierten Texts und zum Einfügen, und nur, wenn du es darum bittest. Triglosa ist Open Source, du kannst das also nachprüfen:",
+    "Optional: Mit der macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ (unter Datenschutz & Sicherheit, bis macOS 26 „Bedienungshilfen“) kann Triglosa markierten Text direkt lesen, das Wort oder den Satz unter dem Zeiger lesen und Übersetzungen direkt in andere Programme einfügen. Triglosa nutzt die Berechtigung nur für diese Funktionen und nur, wenn du sie aktivierst. Triglosa ist Open Source, du kannst das also nachprüfen:",
   permissionCode: "zum Code",
   permissionAsk: "Erlauben …",
   permissionOpen: "Systemeinstellungen öffnen",
@@ -342,17 +387,18 @@ export const windows = {
   onlyKnownLanguages: "Kein KI-Modell eingerichtet. Bitte richte in den Einstellungen ein KI-Modell ein.",
   pairMissing: () => "Kein KI-Modell eingerichtet. Bitte richte in den Einstellungen ein KI-Modell ein.",
   modelIntro:
-    "Triglosa übersetzt und erklärt mit einem KI-Modell. Verbinde eines für Übersetzungen, Verben, Begriffe, Erklärungen und weitere Funktionen.",
+    "Triglosa übersetzt und erklärt mit einem KI-Modell. Verbinde eines für Übersetzungen, Begriffe, Verben, Erklärungen und weitere Funktionen.",
   lockedHow:
-    "Verbinde in den Einstellungen ein KI-Modell für Übersetzungen, Verben, Begriffe, Erklärungen und weitere Funktionen.",
+    "Verbinde in den Einstellungen ein KI-Modell für Übersetzungen, Begriffe, Verben, Erklärungen und weitere Funktionen.",
   apiKeyHint:
     "Landet in der Windows-Anmeldeinformationsverwaltung, nie in der Einstellungsdatei. Ein lokales Modell braucht meist keinen.",
   hotkeyLead:
     "Übersetzt den markierten Text in jedem Programm. Öffnet die letzte Übersetzung, wenn kein Text markiert ist.",
   cardHotkeyLead:
     "Erstellt eine Lernkarte basierend auf dem markierten Text. Öffnet ein leeres Fenster zur Lernkartenerstellung, wenn kein Text markiert ist.",
-  hotkeyTakenSystem: "Diese Kombination ist von Windows belegt. Bitte wähle eine andere.",
+  hotkeyTakenSystem: "Dieses Tastenkürzel ist von Windows belegt. Bitte wähle ein anderes.",
   appIcons: { menubar: "nur im Infobereich", both: "auch in der Taskleiste" },
   copyFirst: (key) => `Tipp: Text in einem Programm markieren, dann ${key} drücken.`,
   translateKeys: "Übersetzen (Strg+Enter)",
+  enterKey: "Strg+Enter",
 };

@@ -8,7 +8,7 @@
 
 import { onWindows } from "../system.js";
 import { loadSettings } from "../platform/store.js";
-import { appFetch, copyText } from "../platform/env.js";
+import { copyText, modelFetch } from "../platform/env.js";
 import { loadApiKey } from "../platform/keychain.js";
 import { createLlmBackend } from "../platform/llm.js";
 import { completeCard, improveCard } from "../ask.js";
@@ -26,6 +26,7 @@ import {
 } from "../platform/windows.js";
 import { faultText, labels, windowTitle } from "./labels.js";
 import { renderCard } from "./card-view.js";
+import { createSpeech } from "../platform/speech.js";
 
 let settings = await loadSettings();
 
@@ -49,6 +50,7 @@ body.className = "card-body";
 root.append(bar, body);
 
 const anki = createAnkiBackend();
+const speech = createSpeech();
 
 /* The page's own height: the sheet, plus the air around it that the
    stylesheet puts there. Measured rather than counted up, because what is in
@@ -76,18 +78,19 @@ const fit = (grow) => {
 const watch = new ResizeObserver(() => fit(true));
 
 let shown = null;
+let drawn = null;
 
 /* The wand, where there is a model to ask and a language to ask it about. The
    window reads the endpoint and the key for itself, the way it reads the
    settings: the reading window shares nothing with it. A fault is worded here,
    in the reader's language, so the card only has to show the sentence. */
-async function improverFor(card, text) {
+async function improverFor(card) {
   if (!settings.endpoint || !isSupported(card.termLanguage) || !isSupported(card.meaningLanguage)) {
     return null;
   }
   const llm = createLlmBackend(
     { endpoint: settings.endpoint, apiKey: await loadApiKey(), model: settings.model },
-    await appFetch(),
+    await modelFetch(),
   );
   /* A card with one side written — from the shortcut, or typed into a blank
      one — gets the other side first, and is then improved like any card. */
@@ -98,7 +101,7 @@ async function improverFor(card, text) {
       /* The side just found is kept even where the improving came to nothing. */
       return better || (whole !== current ? whole : null);
     } catch (error) {
-      throw new Error(faultText(settings.languages[0], faultOf(error)));
+      throw new Error(faultText(settings.languages[0], faultOf(error)), { cause: error });
     }
   };
 }
@@ -113,12 +116,15 @@ async function draw() {
      the window keeps its height rather than being fitted anew. */
   const same = !!shown && !!card.id && shown.id === card.id;
   shown = { id: card.id };
-  renderCard(body, card, {
+  await speech.ready();
+  drawn = renderCard(body, card, {
     wandSlot,
     text,
     reader: settings.languages[0],
     copy: copyText,
-    improve: await improverFor(card, text),
+    speak: speech.speak,
+    canSpeak: speech.canSpeak,
+    improve: await improverFor(card),
     improveNow: settings.cards.improve,
     anki: {
       enabled: settings.cards.anki.enabled,
@@ -127,6 +133,9 @@ async function draw() {
       openSettings: () => openSettings(windowTitle(text.settings)),
       add: (edited) => anki.add(edited, settings.cards.anki),
       start: () => anki.start(),
+      /* A card that reached the deck has nothing left to say, and this
+         window is the last click of an export nobody wants to make. */
+      filed: () => closeCard(),
     },
   });
 
@@ -162,6 +171,11 @@ await onSettingsChanged(async () => {
    somebody had just finished typing. The second press then closes. */
 document.addEventListener("keydown", (event) => {
   if (event.defaultPrevented) return;
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    drawn?.improve?.();
+    return;
+  }
   const closing = event.key === "Escape"
     || (event.key.toLowerCase() === "w" && (event.metaKey || event.ctrlKey));
   if (!closing) return;

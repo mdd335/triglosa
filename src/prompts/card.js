@@ -14,14 +14,14 @@
    too, and taken out again: measured, most of either model's memory aids
    were invented and the irregular line was wrong more often than right. */
 
-export function improveCardPrompt({ term, reader, level, termCapitals, readerCapitals, spelling, hasSentence }) {
+export function improveCardPrompt({ term, reader, level, termCapitals, readerCapitals, spelling, hasSentence, hasTranslation }) {
   const capitals = (language, nouns) => nouns
     ? `a noun with a capital first letter and every other word in lower case, as ${language} writes it`
     : `in lower case unless ${language} writes it with a capital, as for a proper name`;
 
   const noteItems = [
     hasSentence
-      ? `The sentence from the text, copied word for word as given, followed by its given ${reader} translation in round brackets. Always the first line.`
+      ? `The sentence from the text, copied word for word as given, followed by its ${hasTranslation ? "given " : ""}${reader} translation in round brackets. Always the first line.`
       : null,
     `How the word is used, where field 2 alone does not say it: register, region, the construction it typically appears in (a preposition, a reflexive use, a pronoun or case it takes), a false friend. One line, only what a learner needs. Never describe the grammar of the form on the card or in the sentence - which person, tense, number or case it is: the card is about the word, not about one form of it.`,
     `One or two further short, natural ${term} sentences, each followed by its ${reader} translation in round brackets on the same line, showing a typical combination or, where field 2 has one, its second sense. Keep them at the reader's level.`,

@@ -68,8 +68,8 @@ export default {
      tune and no corpus behind it. It is what closes both leaks at once — the
      verb prompt naming a Spanish tense under a Portuguese text, and a bare
      prompt naming a German one. Kept apart from `verbs` below, which holds
-     calibration; the two are different kinds of knowledge and phase 6
-     measured that only this one generalises. */
+     calibration; the two are different kinds of knowledge and the prompt
+     measurements showed that only this one generalises. */
   grammar: {
     persons: ["ich", "du", "er/sie/es", "wir", "ihr", "sie/Sie"],
     tenses: [
@@ -77,6 +77,8 @@ export default {
       "Konjunktiv I", "Konjunktiv II", "Imperativ", "Infinitiv", "Partizip I",
       "Partizip II",
     ],
+    /* The forms among them that carry no person. */
+    nonFinite: ["Infinitiv", "Partizip I", "Partizip II"],
     /* The genders a noun can have, by their English names: what a word's
        class line may say, and nothing else. */
     genders: ["masculine", "feminine", "neuter"],

@@ -10,16 +10,16 @@
 
 const TABLE = {
   de: {
-    /* Three levels rather than two, and the strongest one says nothing. A
-       caveat in front of every expansion blunts itself: put it where the
-       text spells the expansion out, and it gets read past everywhere. */
-    /* Shown where the model could not place the letters at all. Not a magic
-       value in the code — the parser returns an empty expansion and the
-       label is chosen here. */
     /* What the definition prompt is told to answer when it does not know
        the word, and what the parser then looks for. */
     unknownWord: "UNBEKANNT",
+    /* Shown where the model could not place the letters at all. Not a magic
+       value in the code — the parser returns an empty expansion and the
+       label is chosen here. */
     unresolvedAbbreviation: "Abkürzung",
+    /* Three levels rather than two, and the strongest one says nothing. A
+       caveat in front of every expansion blunts itself: put it where the
+       text spells the expansion out, and it gets read past everywhere. */
     likely: "vermutlich",
     couldStandFor: "könnte stehen für",
     /* Hedges the model puts in front of its own answer. They are stripped
@@ -101,10 +101,22 @@ export function hedgePattern(code) {
 const UNKNOWN = ["unknown", ...Object.values(TABLE).map((t) => t.unknownWord.toLowerCase())];
 const NOTHING = new Set([...UNKNOWN, ...Object.values(TABLE).flatMap((t) => t.nothing)]);
 
-/* Does an answer begin with a marker for a word the model does not know? */
+/* Does an answer begin with a marker for a word the model does not know?
+
+   Only where it is written the way a marker is: in capitals, as the prompts
+   ask for it, or standing alone. A real definition may open with the same
+   word — "Desconhecido, que não se conhece." for ignoto, "Unbekannt oder
+   namentlos." for anonym — and is written in ordinary case and goes on.
+   Measured in run twenty-six: every marker the two models wrote was in
+   capitals, and six real definitions opened with the word. */
 export function startsUnknown(text) {
-  const head = String(text || "").trim().toLowerCase();
-  return UNKNOWN.some((word) => head.startsWith(word) && !/^[\p{L}\p{N}]/u.test(head.slice(word.length)));
+  const said = String(text || "").trim();
+  const head = said.toLowerCase();
+  return UNKNOWN.some((word) => {
+    if (!head.startsWith(word) || /^[\p{L}\p{N}]/u.test(head.slice(word.length))) return false;
+    const marker = said.slice(0, word.length);
+    return marker === marker.toUpperCase() || !/[\p{L}\p{N}]/u.test(said.slice(word.length));
+  });
 }
 
 /* Is a whole entry a way of saying there is nothing — "none", "UNKNOWN",

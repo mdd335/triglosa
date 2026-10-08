@@ -19,3 +19,4 @@ cat >> "$TMP"
 scp -q -i "$KEY" -o LogLevel=ERROR "$TMP" "$HOST:C:/triglosa-tools/desk-$$.ps1"
 rm "$TMP"
 $SSH "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\triglosa-tools\\gui.ps1 -Timeout ${TIMEOUT:-120} -Command \"& C:\\triglosa-tools\\desk-$$.ps1\"" | LC_ALL=C tr -d '\r'
+$SSH "Remove-Item C:\\triglosa-tools\\desk-$$.ps1" 2>/dev/null || true

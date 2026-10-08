@@ -31,7 +31,7 @@ test("the translations take their columns, first A then B", () => {
 
 test("without an assignment a translation is simply not highlighted", () => {
   const bare = { words: state.words, verbs: state.verbs, wordAlign: null, verbAlign: null };
-  assert.deepStrictEqual(fragmentsForPanel(bare, 1), { words: [], verbs: [] });
+  assert.deepStrictEqual(fragmentsForPanel(bare, 1), { words: [], verbs: [], near: { words: [], verbs: [] } });
 });
 
 test("a label written back instead of the words is no spot", () => {
@@ -117,3 +117,24 @@ test("an auxiliary is taken from the clause its participle stands in", () => {
   assert.deepStrictEqual(marks.map((m) => text.slice(m.start, m.end)), ["hat", "genehmigt"]);
   assert.ok(marks[0].start > 20, "the second hat, not the first");
 });
+
+/* A text met in the window: "clasificarlos" in the last sentence, and
+   "klassifizieren" twice in the translation — once for "clasificar" before
+   it. The first occurrence is the wrong one. */
+const TWICE = "um einen Satz beschrifteter Daten zu klassifizieren. Wenn neue Punkte auftauchen würden, wüsste das Neuron, wie es sie korrekt klassifizieren kann.";
+
+test("a word standing twice is marked where the aligner found it, not where it stands first", () => {
+  const first = collectMarks(TWICE, markGroups([["klassifizieren"]], "vmark"), ["de"]);
+  assert.strictEqual(first[0].start, TWICE.indexOf("klassifizieren"), "without a whereabouts, the first");
+  const meant = collectMarks(TWICE, markGroups([["klassifizieren"]], "vmark", [TWICE.lastIndexOf("klassifizieren")]), ["de"]);
+  assert.strictEqual(meant[0].start, TWICE.lastIndexOf("klassifizieren"));
+  /* A whereabouts for an entry the panel does not hold changes nothing. */
+  assert.deepStrictEqual(collectMarks(TWICE, markGroups([["nirgends"]], "vmark", [10]), ["de"]), []);
+});
+
+test("parts placed together take the place the aligner found, before the place that holds them closest", () => {
+  const text = "Er hat es gesagt. Dann hat er es nochmal gesagt.";
+  const second = collectMarks(text, markGroups([["hat", "gesagt"]], "vmark", [text.lastIndexOf("hat")]), ["de"]);
+  assert.ok(second.every((mark) => mark.start >= text.indexOf("Dann")));
+});
+

@@ -9,12 +9,16 @@
 
    For each Mac build that is there, the signed app is packed as it stands —
    after `sign.mjs`, for the same reason the DMG is (dmg.mjs) — into
-   `Triglosa-<version>-<arch>.app.tar.gz`. Every file is signed with the
+   `Triglosa-<version>-<arch>.app.tar.gz`. The Windows installer is the one
+   file readers and the updater share, so it is copied under the name the
+   README links to, `Triglosa-Windows-Setup.exe`. Every file is signed with the
    updater's private key, which never enters the repository: by default
    `~/.tauri/triglosa-updater.key`, or TAURI_SIGNING_PRIVATE_KEY_PATH. The
    public half is in tauri.conf.json; a release signed with any other key is
    refused by every installed app, so losing the private key means readers
-   can only update by downloading again.
+   can only update by downloading again. The signatures travel inside
+   `latest.json`, the only place the updater reads them, so no .sig file is
+   uploaded.
 
    Everything lands in src-tauri/target/updater/, and the last line lists
    what to upload with the release. */
@@ -22,7 +26,7 @@
 import { execFileSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 
 const OUT = "src-tauri/target/updater";
 const KEY = process.env.TAURI_SIGNING_PRIVATE_KEY_PATH || join(homedir(), ".tauri", "triglosa-updater.key");
@@ -76,7 +80,7 @@ for (const [target, arch, platform] of [
      the bundle and break its seal on the other side. */
   run("tar", ["-czf", archive, "-C", join(app, ".."), "Triglosa.app"], { COPYFILE_DISABLE: "1" });
   platforms[platform] = { signature: sign(archive), url: `${BASE}/${name}` };
-  uploads.push(archive, `${archive}.sig`);
+  uploads.push(archive);
 }
 
 const windows = argument("windows");
@@ -85,11 +89,11 @@ if (windows) {
     console.error(`${windows} is not there.`);
     process.exit(1);
   }
-  const name = basename(windows);
+  const name = "Triglosa-Windows-Setup.exe";
   const copy = join(OUT, name);
   copyFileSync(windows, copy);
   platforms["windows-x86_64"] = { signature: sign(copy), url: `${BASE}/${name}` };
-  uploads.push(`${copy}.sig`);
+  uploads.push(copy);
 } else {
   console.warn("No --windows= installer — Windows readers will be sent to the download page.");
 }

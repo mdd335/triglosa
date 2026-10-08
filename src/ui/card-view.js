@@ -65,7 +65,7 @@ function languageChoice(card, { text, reader, box }) {
 
 /* One field: its heading, a copy button at the right end of that line, and
    the box underneath. */
-function cardField(role, card, { text, reader, anki, onCopy }) {
+function cardField(role, card, { text, reader, anki, onCopy, speak, canSpeak }) {
   const wrap = element("div", "card-field");
   const head = element("div", "card-field-head");
 
@@ -104,15 +104,35 @@ function cardField(role, card, { text, reader, anki, onCopy }) {
   head.append(choosing
     ? languageChoice(card, { text, reader, box })
     : element("span", "name", fieldTitle(role, card, text, reader)));
-  head.append(button(text.cardCopyField, (node) =>
-    reportOn(node, () => onCopy(box.value), text.copied), "copy"));
+  /* The word side only, said as the field holds it now: a corrected word is
+     the one worth hearing. The language asked is the card's at the moment
+     of the click, since the heading may have changed it. */
+  const said = role === "term" && speak && card.termLanguage !== reader && canSpeak?.(card.termLanguage)
+    ? button(text.speak, () => speak(box.value.trim(), card.termLanguage), "speak")
+    : null;
+  if (said) head.append(said);
+  const copied = button(text.cardCopyField, (node) =>
+    reportOn(node, () => onCopy(box.value), text.copied), "copy");
+  head.append(copied);
   wrap.append(head);
+
+  /* Nothing to copy or to say in an empty field, so the two wait, faded,
+     until something is written in it — by the reader or by the wand, which
+     fills the fields without an input event and so runs `grow` instead. */
+  const ready = () => {
+    const empty = !box.value.trim();
+    for (const node of [said, copied]) {
+      if (node && !node.classList.contains("reporting")) node.disabled = empty;
+    }
+  };
+  ready();
+  box.addEventListener("input", ready);
   wrap.append(box);
   if (unmapped(role, anki)) wrap.append(element("p", "hint", text.cardNoteUnmapped));
   /* `grow` is handed back rather than called: the field is not in the
      document yet, and a height read off a node nothing has laid out is
      zero. The caller runs it once the page is in. */
-  return { wrap, box, grow };
+  return { wrap, box, grow: () => { grow(); ready(); } };
 }
 
 /* The Anki ending, and it is three different buttons depending on what is
@@ -129,8 +149,18 @@ function cardField(role, card, { text, reader, anki, onCopy }) {
    rather than onto the button for a second and a half. Two reasons: a sentence that explains does not fit on a button, and a
    sentence that goes away again cannot be read twice or copied into a
    question. `reportOn` is the right answer for a row in a reading, where the
-   only thing to say is that it worked; it is the wrong one here. */
-function ankiButton(current, { text, anki, say }) {
+   only thing to say is that it worked; it is the wrong one here.
+
+   A card that reached the deck is finished, so the window closes itself
+   rather than asking for one more click. It says so in the same breath and
+   then stands long enough to be read: a window that vanished on its own
+   without having announced it would read as something having gone wrong.
+   Every other answer keeps the window — a refusal has to stay readable, and
+   a card already in the deck was not added, so it may still be worth
+   correcting and sending again. */
+const FILED = 2200;
+
+function ankiButton(current, { text, anki, say, empty }) {
   if (!anki || !anki.enabled) return null;
   if (!anki.configured) {
     return button(text.cardAnkiSetup, () => anki.openSettings());
@@ -140,6 +170,7 @@ function ankiButton(current, { text, anki, say }) {
     const label = node.textContent;
     say("", false);
     node.disabled = true;
+    node.dataset.busy = "true";
     node.textContent = text.ankiSending;
     try {
       let answer = await anki.add(current());
@@ -150,14 +181,17 @@ function ankiButton(current, { text, anki, say }) {
         node.textContent = text.ankiStarting;
         if (await anki.start()) answer = await anki.add(current());
       }
-      if (answer.kind === "saved") say(text.ankiSaved, false);
-      else if (answer.kind === "duplicate") say(text.ankiDuplicate, false);
+      if (answer.kind === "saved") {
+        say(anki.filed ? `${text.ankiSaved} ${text.cardClosing}` : text.ankiSaved, false);
+        if (anki.filed) setTimeout(anki.filed, FILED);
+      } else if (answer.kind === "duplicate") say(text.ankiDuplicate, false);
       else say(text.ankiFailed(answer), true);
     } catch (error) {
       say(text.ankiFailed({ kind: "error", detail: (error && error.message) || "" }), true);
     } finally {
       node.textContent = label;
-      node.disabled = false;
+      delete node.dataset.busy;
+      node.disabled = empty();
     }
   });
 }
@@ -165,7 +199,7 @@ function ankiButton(current, { text, anki, say }) {
 /* Draws the card into a host element. Nothing here closes the window: the
    window has a title bar with its own button, and Escape and ⌘W are the
    page's own business — see card-window.js. */
-export function renderCard(host, card, { text, reader, anki, copy, improve, improveNow, wandSlot }) {
+export function renderCard(host, card, { text, reader, anki, copy, improve, improveNow, wandSlot, speak, canSpeak }) {
   host.textContent = "";
   wandSlot?.replaceChildren();
   if (!card || (!hasCard(card) && !card.free)) return null;
@@ -175,7 +209,7 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
   const boxes = {};
   const grown = [];
   for (const role of CARD_FIELDS) {
-    const field = cardField(role, card, { text, reader, anki, onCopy: copy });
+    const field = cardField(role, card, { text, reader, anki, onCopy: copy, speak, canSpeak });
     boxes[role] = field.box;
     grown.push(field.grow);
     sheet.append(field.wrap);
@@ -199,17 +233,44 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
     status.classList.toggle("failed", !!wrong);
   };
 
-  feet.append(button(text.cardCopyAll, (node) =>
-    reportOn(node, () => copy(cardLine(edited())), text.copied)));
-  const toAnki = ankiButton(edited, { text, anki, say });
+  /* A card without its word is nothing to copy out or to file — Anki refuses
+     it anyway — so the two ways out wait, greyed, like a field's buttons. */
+  const empty = () => !hasCard(edited());
+  const copyAll = button(text.cardCopyAll, (node) =>
+    reportOn(node, () => copy(cardLine(edited())), text.copied));
+  feet.append(copyAll);
+  const toAnki = ankiButton(edited, { text, anki, say, empty });
   if (toAnki) feet.append(toAnki);
+  const leaving = [copyAll, toAnki].filter(Boolean);
+  const open = () => {
+    for (const node of leaving) {
+      if (!node.classList.contains("reporting") && !node.dataset.busy) node.disabled = empty();
+    }
+  };
   /* The wand stands in the window's title line where the window has one, the
      way the gear stands in the reading window's; the row of buttons is for
      the ways a card leaves. */
-  const wand = improve ? improveButton({ text, boxes, grown, edited, improve, say }) : null;
+  const wand = improve ? improveButton({ text, boxes, grown, edited, improve, say, open }) : null;
   if (wand) (wandSlot || feet).append(wand.holder);
   sheet.append(feet);
   sheet.append(status);
+
+  /* Tab goes from one field to the next and Shift-Tab back, round the
+     three: the buttons in the field headings stand between them in the
+     page, and a card is written field after field. */
+  const order = CARD_FIELDS.map((role) => boxes[role]);
+  sheet.addEventListener("keydown", (event) => {
+    if (event.key !== "Tab" || event.altKey || event.metaKey || event.ctrlKey) return;
+    const at = order.indexOf(event.target);
+    if (at < 0) return;
+    event.preventDefault();
+    const next = order[(at + (event.shiftKey ? order.length - 1 : 1)) % order.length];
+    next.focus();
+    next.select();
+  });
+
+  open();
+  boxes.term.addEventListener("input", open);
 
   host.append(sheet);
   /* Now that there is something to measure: what arrived is already several
@@ -229,7 +290,8 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
     for (const role of CARD_FIELDS) boxes[role].readOnly = true;
     const node = wand && wand.holder.querySelector("button");
     if (node) node.disabled = true;
-    return { sheet };
+    for (const node of leaving) node.disabled = true;
+    return { sheet, improve: () => {} };
   }
 
   /* The card as it stands is shown first and the model is asked straight
@@ -237,7 +299,9 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
      back on the wand's place. A card with nothing on it yet — a blank one
      from the shortcut — has nothing to ask about and waits for the wand. */
   if (wand && improveNow && enoughToImprove(card)) wand.run();
-  return { sheet };
+  /* ⌘/Ctrl+Enter, from the window: the wand's own press, so it does what a
+     click would and nothing where the wand stands greyed or as the way back. */
+  return { sheet, improve: () => wand?.press() };
 }
 
 /* The wand: the card rewritten by the model — the word as a dictionary lists
@@ -256,7 +320,7 @@ const MIN_LETTERS = 2;
 export const enoughToImprove = (card) =>
   ["term", "meaning"].some((role) => (String(card[role] || "").match(/\p{L}/gu) || []).length >= MIN_LETTERS);
 
-function improveButton({ text, boxes, grown, edited, improve, say }) {
+function improveButton({ text, boxes, grown, edited, improve, say, open }) {
   let before = null;
   let working = false;
   const put = (values) => {
@@ -264,6 +328,7 @@ function improveButton({ text, boxes, grown, edited, improve, say }) {
       boxes[role].value = values[role] || "";
       grown[index]();
     });
+    open();
   };
   const holder = element("span", "card-improve");
 
@@ -308,7 +373,7 @@ function improveButton({ text, boxes, grown, edited, improve, say }) {
           say("", false);
           draw();
         }, "undo")
-      : button(text.cardImprove, () => run(), "improve");
+      : button(`${text.cardImprove} (${text.enterKey})`, () => run(), "improve");
     if (!before) node.disabled = working || !enoughToImprove(edited());
     holder.replaceChildren(node);
   };
@@ -319,5 +384,9 @@ function improveButton({ text, boxes, grown, edited, improve, say }) {
       if (node && !before && !working) node.disabled = !enoughToImprove(edited());
     });
   }
-  return { holder, run };
+  const press = () => {
+    const node = holder.querySelector("button");
+    if (node && node.dataset.icon === "improve" && !node.disabled) run();
+  };
+  return { holder, run, press };
 }

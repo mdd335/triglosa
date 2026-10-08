@@ -14,7 +14,12 @@
   --ink-soft: #5f5f68;
   --ink-faint: #8b8b93;
   --line: #dcdce1;
-  --accent: #3b6ef6;
+  /* The app's own colour, the icon's light blue (#18daf1, which the light
+     under the pointer is drawn in too). Used sparingly — links, and
+     whatever else ever needs a colour of its own; the window stays nearly
+     colourless. As text on a light ground the icon's own shade reads at
+     1.7 : 1, so the light scheme takes the same hue deeper. */
+  --brand: #0b93a6;
   --control: #fbfbfc;
   --control-hover: #eeeef1;
   --control-line: #c9c9d0;
@@ -53,7 +58,7 @@
     --ink-soft: #b0b0b6;
     --ink-faint: #8e8e93;
     --line: #3a3a40;
-    --accent: #6f95ff;
+    --brand: #18daf1;
     --control: #36363c;
     --control-hover: #414148;
     --control-line: #4c4c54;
@@ -111,7 +116,7 @@ body {
 }
 
 /* A button has to look pressable next to a field that has to look
-   writable, and both used to sit on the same white. The button keeps a
+   writable, and on the same white they would not. The button keeps a
    surface of its own, a shade off the ground, with a hairline under it —
    enough to read as raised without becoming decoration. */
 button {
@@ -205,6 +210,7 @@ button.quiet { color: var(--ink-soft); }
   position: relative;
   top: 6px;
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   gap: 3px;
   min-width: 0;
@@ -327,6 +333,41 @@ button.quiet { color: var(--ink-soft); }
 }
 
 .label .name { white-space: nowrap; }
+
+/* Who wrote a translation where it was the reader's choice — the section's
+   status line — or who named the language of the text read, there only for
+   a pointer resting on the name. Slower to come than a button's label,
+   since a heading is passed over on the way to the text far more often
+   than a button, and gone the moment the pointer is. */
+.label { position: relative; }
+.label .status.on-hover,
+.topline .heading-note {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 60ms ease;
+}
+.label:has(> .name:hover) .status.on-hover,
+.topline .heading:has(> .name:hover) .heading-note {
+  opacity: 1;
+  transition: opacity 120ms ease 800ms;
+}
+:root.pointer-stale .label .status.on-hover,
+:root.pointer-stale .topline .heading-note { opacity: 0; transition: none; }
+/* In the title line where a button's label hangs, under the word
+   "Original" — the line itself has no room to count on — but greyer: it
+   says something, it names nothing to press. */
+.topline .heading-note {
+  left: 0;
+  right: auto;
+  /* Two things said in a narrow window take a second line rather than
+     running out of it. */
+  width: max-content;
+  max-width: calc(100vw - 28px);
+  white-space: normal;
+  border: 1px solid var(--line);
+  background: var(--ground);
+  color: var(--ink-faint);
+}
 
 /* The picked word's two chevrons, at the right end of its heading line. The
    title bar's pair, drawn with the title bar's heavier stroke; the buttons are
@@ -500,10 +541,6 @@ button.quiet { color: var(--ink-soft); }
    to click. The buttons stand on the field's own ground, so they take the
    first step and not the second. */
 .box.rows.entries .row:hover { background: var(--field); }
-/* A dictionary line is a translation, and a translation panel shows its
-   buttons at rest — so these do too, rather than arriving with the pointer
-   the way a row of the list below does. */
-.box.rows.entries .row .row-actions { opacity: 1; }
 .box.rows.entries .row:hover .icon:hover:not(:disabled) { background: var(--lift); }
 .box.rows.entries .row:hover .icon:active:not(:disabled) { background: var(--lift-strong); color: var(--ink); }
 
@@ -518,7 +555,18 @@ button.quiet { color: var(--ink-soft); }
   flex-direction: row;
   align-items: center;
   gap: 4px;
+  opacity: 0;
+  transition: opacity 90ms ease;
 }
+
+/* A panel's buttons arrive with the pointer, as a row's do below — and with
+   the keyboard, which is also what keeps the one beside a field being
+   written in. A button saying what it just did, or what went wrong, stays
+   until it has said it. */
+.frame:hover > .actions,
+.frame:focus-within > .actions,
+.actions:has(.icon.reporting),
+.actions:has(.icon.failed) { opacity: 1; }
 
 .pill {
   appearance: none;
@@ -576,13 +624,19 @@ button.quiet { color: var(--ink-soft); }
 .row:hover .icon:active:not(:disabled) { background: var(--frame); color: var(--ground); }
 /* A chevron with nowhere to go stays where it is rather than disappearing:
    its place is what says there is a way back at all. A button that is only
-   showing what it just did is not one of those. */
-.icon:disabled { opacity: 0.4; }
+   showing what it just did is not one of those.
+   The symbol fades, not the button: the label is inside it, and a faded
+   button showed it see-through. */
+.icon:disabled { opacity: 1; }
+.icon:disabled svg { opacity: 0.4; }
+/* Its label greyed as well, but solid: mixed from the two inks rather than
+   faded, so nothing underneath shows through. */
+.icon:disabled:not(.reporting) .pill-label { background: color-mix(in oklab, var(--ink) 50%, var(--ground)); }
 /* A pinned window's pin: filled in and in the full ink, whether or not the
    pointer is on it. No colour — nothing else in the title line has one. */
 #pin[aria-pressed="true"] { color: var(--ink); }
 #pin[aria-pressed="true"] .pin-body { fill: currentColor; }
-.icon.reporting:disabled { opacity: 1; }
+.icon.reporting:disabled svg { opacity: 1; }
 
 /* The word the symbol stands for. It is there while the pointer is, and takes
    no room otherwise. The delay is what keeps a pointer travelling down the
@@ -638,11 +692,16 @@ button.quiet { color: var(--ink-soft); }
    button stood outside the window. Decided on hover (labelsInside). */
 .icon.label-above .pill-label { top: auto; bottom: calc(100% + 5px); }
 .icon.label-beside .pill-label { top: 50%; bottom: auto; right: calc(100% + 5px); transform: translateY(-50%); }
-/* A hidden label still takes room below its button, and on a blank sheet that
-   ran past the sheet's end: a Mac draws nothing for it, Windows a scroll bar.
-   There a hidden label lies on its button instead, and moves only once it has
+/* From the button's left edge where hanging leftward it would leave the
+   sheet — a button at the start of a line. */
+.icon.label-start .pill-label { left: 0; right: auto; }
+/* A hidden label still takes room below its button, and under the last
+   button on the sheet that ran past the sheet's end: Windows drew a scroll
+   bar for it, and on the Mac the window could be scrolled a few pixels
+   further than it holds — a short reading most of all, whose last row has
+   buttons. So a hidden label lies on its button, and moves only once it has
    faded out. */
-:root[data-system="windows"] .icon:not(:hover):not(:focus-visible) .pill-label {
+.icon:not(:hover):not(:focus-visible):not(.failed) .pill-label {
   top: 0;
   transition: opacity 90ms ease 260ms, top 0s 350ms;
 }
@@ -657,7 +716,7 @@ button.quiet { color: var(--ink-soft); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pill-label { transition: none; }
+  .pill-label, .label .status.on-hover, .topline .heading-note { transition: none; }
 }
 
 /* The one line the window says something in that is not part of a reading:
@@ -684,6 +743,10 @@ button.quiet { color: var(--ink-soft); }
 .wmark0 { --c: var(--wmark0); }
 .wmark1 { --c: var(--wmark1); }
 .wmark2 { --c: var(--wmark2); }
+/* A lookup's one term: no row beside it to tell apart, so the app's own
+   accent — and nothing lit up under the pointer, which would only point at
+   the one term there is, in a small grey sentence it makes harder to read. */
+.tmark0 { --c: var(--brand); }
 
 /* Marked with a line under the word, not with an area behind it. An area has
    to stay weak so as not to disturb the reading — and at that strength six
@@ -708,7 +771,7 @@ button.quiet { color: var(--ink-soft); }
   background-image: repeating-linear-gradient(to right, var(--c) 0 4px, transparent 4px 7px);
 }
 
-.wmark0, .wmark1, .wmark2 {
+.wmark0, .wmark1, .wmark2, .tmark0 {
   background-image: linear-gradient(var(--c) 0 0);
 }
 
@@ -906,6 +969,7 @@ button.quiet { color: var(--ink-soft); }
 .row[data-hl="wmark0"] { --c: var(--wmark0); }
 .row[data-hl="wmark1"] { --c: var(--wmark1); }
 .row[data-hl="wmark2"] { --c: var(--wmark2); }
+.row[data-hl="tmark0"] { --c: var(--brand); }
 /* The picked word carries no hue anywhere else either. */
 .row[data-hl="sel"] { --c: var(--frame); }
 
@@ -919,18 +983,17 @@ button.quiet { color: var(--ink-soft); }
 .row:focus-within .row-actions { opacity: 1; }
 
 @media (prefers-reduced-motion: reduce) {
-  .row .row-actions { transition: none; }
+  .row .row-actions, .actions { transition: none; }
 }
 
 .row-main { min-width: 0; }
 
 /* The blocks under the first line keep their distance from it and from each
-   other. It used to come from the row being one wrapping flex line with a
-   row gap; with the first line in a box of its own there is no gap to
-   inherit, and every explanation sat on the line above it — on the dashes
-   under a verb form, which reach 2 px below their own text. Said here
-   instead, once, for the note, the longer explanation, the examples and the
-   related words alike. */
+   other. With the first line in a box of its own there is no row gap to
+   inherit, and without this every explanation would sit on the line above
+   it — on the dashes under a verb form, which reach 2 px below their own
+   text. Said here, once, for the note, the longer explanation, the examples
+   and the related words alike. */
 .row-main > * + * { margin-top: 7px; }
 
 /* The first line of a row — the form, its base, the equivalent, the grammar —
@@ -977,6 +1040,38 @@ button.quiet { color: var(--ink-soft); }
 .equivalent { font-size: 12px; color: var(--ink-soft); font-style: italic; }
 
 .grammar { font-size: 10px; color: var(--ink-faint); white-space: nowrap; }
+/* Another meaning of a looked-up word, said in the reader's language: a
+   translation, and set like one. */
+.grammar.gloss { font-style: italic; }
+
+/* A dictionary entry looked up in its sentence: the sentence under the word,
+   the word lifted out of it, and the first line of the entry marked as the
+   meaning there. The sentence as small as the notes beside the lines. */
+.looked-up-in { margin: 6px 0 0; padding: 0 2px; font-size: 10px; line-height: 1.5; color: var(--ink-faint); }
+.looked-up { color: var(--ink-soft); font-weight: 600; }
+
+/* The sentence before the one read, over the field, and the one after it,
+   under it: that sentence's size and colour, one line, and the ground of a
+   button only under the pointer. */
+.neighbour {
+  display: flex;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 10px;
+  line-height: 1.5;
+  text-align: start;
+  color: var(--ink-faint);
+}
+.neighbour span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.neighbour:hover:not(:disabled) { background: var(--lift); color: var(--ink-soft); }
+button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
+.here { border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
 
 /* Under the first line and across the whole panel: it is not part of the
    first line's row of fields, and nothing but the first line keeps clear of
@@ -1086,6 +1181,8 @@ button.quiet { color: var(--ink-soft); }
 .settings { display: flex; flex-direction: column; gap: 14px; }
 
 .field { display: flex; flex-direction: column; gap: 4px; }
+/* What a switch opens inside its own field, spaced like the field. */
+.field-more { display: flex; flex-direction: column; gap: 4px; }
 
 /* The same line as `.label` in a reading and `.card-field-head .name` on a
    card. Changing one of the three means changing all three. */
@@ -1099,6 +1196,9 @@ button.quiet { color: var(--ink-soft); }
 
 .field .hint { margin: 0; color: var(--ink-soft); font-size: 11.5px; }
 
+/* The way to the project: a sentence with its three places as links. */
+.about-links { margin: 0; color: var(--ink); font-size: 12.5px; line-height: 1.45; }
+
 
 /* The single line under the panels where there is no model. */
 .locked-note {
@@ -1108,7 +1208,7 @@ button.quiet { color: var(--ink-soft); }
   line-height: 1.5;
 }
 
-.field > button { align-self: flex-start; padding: 6px 14px; }
+.field > button { align-self: flex-start; }
 
 .settings select,
 .settings input[type="text"],
@@ -1153,12 +1253,10 @@ button.quiet { color: var(--ink-soft); }
 
 /* The one line under a group heading that is about the whole group. */
 .settings .group-hint { margin: -4px 0 0; color: var(--ink-soft); font-size: 11.5px; }
-/* A link inside a sentence: the sentence's own type, the accent colour. */
-.inline-link {
-  padding: 0; border: 0; background: none; font: inherit; color: var(--accent);
-  cursor: pointer;
-}
-.inline-link:hover { text-decoration: underline; }
+/* A link inside a sentence: the sentence's own type, the accent colour, a
+   line under it only under the pointer. */
+.text-link { color: var(--brand); text-decoration: none; cursor: pointer; }
+.text-link:hover { text-decoration: underline; }
 
 /* A language and how far along the reader is in it: one line, the level
    narrow enough that the language stays the thing being read. */
@@ -1168,7 +1266,7 @@ button.quiet { color: var(--ink-soft); }
 /* What the device can translate. The button only appears when there is
    something to fetch, so it sits at the start of a line of its own rather
    than stretching across the row. */
-.pairs > button { align-self: flex-start; padding: 6px 12px; margin-top: 2px; }
+.pairs > button { align-self: flex-start; margin-top: 2px; }
 
 /* The shortcut field is written by pressing keys, never by typing into it.
    The caret would promise otherwise. */
@@ -1176,7 +1274,11 @@ button.quiet { color: var(--ink-soft); }
 
 .with-presets { display: flex; gap: 6px; align-items: center; }
 .with-presets input { flex: 1; }
-.with-presets button { padding: 6px 10px; font-size: 12px; }
+/* One button in the settings: the same height, type and ink wherever it
+   stands, beside a field or alone on a line. */
+.settings button { padding: 6px 12px; font-size: 12px; color: var(--ink); }
+/* Air between the sentence and the button under it. */
+.settings .diagnostics { margin-top: 6px; }
 
 /* ---- the flashcard, in the window it has to itself ---- */
 
@@ -1256,6 +1358,10 @@ button.quiet { color: var(--ink-soft); }
   gap: 8px;
   min-height: 24px;
 }
+
+/* The word side carries two buttons, and they stand together at the right
+   end rather than one of them in the middle of the line. */
+.card-field-head [data-icon="speak"] { margin-left: auto; margin-right: -4px; }
 
 .card-field-head .name {
   font-size: 11px;

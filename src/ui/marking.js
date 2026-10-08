@@ -13,18 +13,28 @@ import { isFunctionWord } from "../vocabulary.js";
    also the last. */
 export const SHADES = 3;
 
-export function markGroups(list, prefix) {
-  return (list || []).map((fragments, i) => ({ fragments, cls: `${prefix}${i % SHADES}` }));
+/* `near` says, entry by entry, whereabouts in the panel the entry stands
+   where the word aligner knows: of several occurrences the nearest is taken. */
+export function markGroups(list, prefix, near = []) {
+  return (list || []).map((fragments, i) => ({
+    fragments,
+    cls: `${prefix}${i % SHADES}`,
+    ...(Number.isFinite(near?.[i]) ? { near: near[i] } : {}),
+  }));
 }
 
-function writeWords(target, fullText, from, to) {
+/* `lifted` is a stretch whose words are set apart by themselves — the
+   looked-up words in their sentence — word by word, so a mark over them
+   stays one piece. */
+function writeWords(target, fullText, from, to, lifted = null) {
+  const inside = (token) => !!lifted && from + token.start >= lifted.start && from + token.end <= lifted.end;
   for (const token of toTokens(fullText.slice(from, to))) {
     /* What stands between two words is a span too: the hover lights a group
        of words as one stretch, and a space left as bare text would break it
        into boxes with gaps between them. */
     if (!token.isWord) {
       const gap = document.createElement("span");
-      gap.className = "g";
+      gap.className = inside(token) ? "g looked-up" : "g";
       gap.dataset.from = String(from + token.start);
       gap.dataset.to = String(from + token.end);
       gap.textContent = token.text;
@@ -32,7 +42,7 @@ function writeWords(target, fullText, from, to) {
       continue;
     }
     const span = document.createElement("span");
-    span.className = "w";
+    span.className = inside(token) ? "w looked-up" : "w";
     span.dataset.from = String(from + token.start);
     span.dataset.to = String(from + token.end);
     span.textContent = token.text;
@@ -43,24 +53,24 @@ function writeWords(target, fullText, from, to) {
 /* The same stretch, with the colours in it. A mark lying on the edge of a
    selected range is split here: the selection is the outer layer, so its
    frame runs around the whole group instead of each word separately. */
-function writeWithMarks(target, fullText, from, to, marks) {
+function writeWithMarks(target, fullText, from, to, marks, lifted = null) {
   let pos = from;
   for (const mark of marks) {
     const a = Math.max(from, mark.start, pos);
     const b = Math.min(to, mark.end);
     if (a >= b) continue;
-    if (a > pos) writeWords(target, fullText, pos, a);
+    if (a > pos) writeWords(target, fullText, pos, a, lifted);
     const span = document.createElement("span");
     span.className = "mark " + mark.cls;
     /* The full extent goes along even when this span shows only a piece of
        it: a click on it should select the whole term. */
     span.dataset.markFrom = String(mark.start);
     span.dataset.markTo = String(mark.end);
-    writeWords(span, fullText, a, b);
+    writeWords(span, fullText, a, b, lifted);
     target.appendChild(span);
     pos = b;
   }
-  if (pos < to) writeWords(target, fullText, pos, to);
+  if (pos < to) writeWords(target, fullText, pos, to, lifted);
 }
 
 const overlaps = (spot, list) => list.some((m) => spot.start < m.end && spot.end > m.start);
@@ -71,15 +81,15 @@ function freeSpots(marks, fullText, fragment) {
 
 /* The parts of ONE row, placed where they stand together.
 
-   Each part used to claim its first free occurrence anywhere in the panel, so
-   "The + taxpayer" coloured the sentence's first word and the "mich" of
-   "bringst du mich auf dem Laufenden" came out of an earlier clause. So the
+   A part that claimed its first free occurrence anywhere in the panel would
+   colour the sentence's first word for "The + taxpayer" and take the "mich"
+   of "bringst du mich auf dem Laufenden" out of an earlier clause. So the
    rarest meaning-carrying part is the anchor, every other one takes the free
    occurrence nearest to it, and of all the anchor's occurrences the one that
    keeps the parts closest wins. A function word is taken only where it
    touches a part already placed: on its own it is an occurrence of "the",
    not a piece of this row. */
-function claimTogether(marks, fullText, pieces, cls, codes) {
+function claimTogether(marks, fullText, pieces, cls, codes, near = null) {
   const content = pieces.filter((piece) => !isFunctionWord(piece, codes));
   const anchors = (content.length ? content : pieces)
     .map((piece) => ({ piece, spots: freeSpots(marks, fullText, piece) }))
@@ -94,15 +104,20 @@ function claimTogether(marks, fullText, pieces, cls, codes) {
     const chosen = [start];
     let cost = 0;
     for (const other of others) {
-      const near = other.spots
+      const closest = other.spots
         .filter((spot) => !overlaps(spot, chosen))
         .sort((x, y) => distance(start, x) - distance(start, y))[0];
-      if (!near) continue;
-      chosen.push(near);
-      cost += distance(start, near);
+      if (!closest) continue;
+      chosen.push(closest);
+      cost += distance(start, closest);
     }
-    if (!best || chosen.length > best.chosen.length
-        || (chosen.length === best.chosen.length && cost < best.cost)) best = { chosen, cost };
+    /* Where the aligner found the entry decides before closeness does: the
+       parts of a form stand apart in one sentence and side by side by
+       accident in another. */
+    const off = near === null ? 0 : Math.min(...chosen.map((spot) => Math.abs(spot.start - near)));
+    const better = !best || chosen.length > best.chosen.length
+      || (chosen.length === best.chosen.length && (off < best.off || (off === best.off && cost < best.cost)));
+    if (better) best = { chosen, cost, off };
   }
 
   const touches = (spot) => best.chosen.some((m) =>
@@ -147,8 +162,9 @@ export function collectMarks(fullText, groups, codes) {
       if (parts.length < 2) continue;
       pieces.push(...parts.filter((part) => part && !isFunctionWord(part, codes)));
     }
-    if (pieces.length === 1) claimSpot(marks, fullText, pieces[0], group.cls);
-    else if (pieces.length > 1) claimTogether(marks, fullText, pieces, group.cls, codes);
+    const near = Number.isFinite(group.near) ? group.near : null;
+    if (pieces.length === 1) claimSpot(marks, fullText, pieces[0], group.cls, near);
+    else if (pieces.length > 1) claimTogether(marks, fullText, pieces, group.cls, codes, near);
   }
 
   marks.sort((x, y) => x.start - y.start);
@@ -191,20 +207,31 @@ function mergeSelection(selection) {
    it had been picked out by hand. */
 export function markPanel(box, fullText, groups, selection, codes, picked = true) {
   if (!box || !fullText) return;
-  const marks = collectMarks(fullText, groups, codes);
+  drawWords(box, fullText, collectMarks(fullText, groups, codes), selection, picked);
+}
+
+/* The sentence a short text was looked up in: its words pickable like a
+   panel's, the text itself lifted out of it where it stands, and the term
+   found for it coloured as in a panel (`groups`). */
+export function markLine(box, fullText, lifted, selection, groups = [], codes = []) {
+  if (!box || !fullText) return;
+  drawWords(box, fullText, collectMarks(fullText, groups, codes), selection, true, lifted);
+}
+
+function drawWords(box, fullText, marks, selection, picked, lifted = null) {
   const ranges = mergeSelection(selection);
 
   box.textContent = "";
   let pos = 0;
   for (const range of ranges) {
-    if (range.start > pos) writeWithMarks(box, fullText, pos, range.start, marks);
+    if (range.start > pos) writeWithMarks(box, fullText, pos, range.start, marks, lifted);
     const group = document.createElement("span");
     group.className = picked ? "sel picked" : "sel";
-    writeWithMarks(group, fullText, range.start, range.end, marks);
+    writeWithMarks(group, fullText, range.start, range.end, marks, lifted);
     box.appendChild(group);
     pos = range.end;
   }
-  if (pos < fullText.length) writeWithMarks(box, fullText, pos, fullText.length, marks);
+  if (pos < fullText.length) writeWithMarks(box, fullText, pos, fullText.length, marks, lifted);
 
   /* Says: in this panel every word stands in a span of its own. Only there
      can a selection snap to word boundaries. */

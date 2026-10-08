@@ -3,11 +3,11 @@
 
    The first two are written in English whatever the languages are, name both
    of them outright, and take the persons and the tense names from the
-   language's own grammar table. They carry no examples: phase 6 measured
+   language's own grammar table. They carry no examples: it was measured
    that a model imitates the language of an example more reliably than it
    follows a rule, and every case of a Spanish tense under a text that was
-   not Spanish came from the examples that used to stand here — 20 of them
-   over four models, against none without. Naming the tenses of the text's
+   not Spanish came from examples in this prompt — 20 of them over four
+   models, against none without. Naming the tenses of the text's
    own language closes the mirror image, where a bare prompt answers in the
    reader's language instead.
 
@@ -46,10 +46,10 @@ export function findVerbsPrompt({ source }) {
 /* Step two: choose the forms worth a row, then form | infinitive | meaning |
    person | tense.
 
-   The choice is the model's. It used to be made in code before this call,
-   from word endings or simply from the order of the text, and a table of
-   "comunicamos", "effettuare" and "sia" left out subsanar, decurtato and
-   borbottava — how hard a verb is to a reader is a question about the verb,
+   The choice is the model's. Made in code before this call, from word
+   endings or simply from the order of the text, it gave a table of
+   "comunicamos", "effettuare" and "sia" that left out subsanar, decurtato
+   and borbottava — how hard a verb is to a reader is a question about the verb,
    and only the model knows verbs. It costs no call: this one was being made
    anyway, and it still answers three lines.
 

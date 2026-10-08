@@ -351,3 +351,37 @@ test("a selection goes on the side of its language, as it stands", async () => {
   const blank = freeCard({ reader: "de", choices: ["es"], preset: "es" });
   assert.ok(blank.free && !blank.term && !blank.meaning);
 });
+
+/* Three rows make a verb's card — the verb table's, a picked verb's and a
+   looked-up one's — and all three read alike: base form, the form with its
+   person and tense, the explanation where there is one, the example. */
+test("every verb's card reads alike, with its explanation where the row has one", () => {
+  const table = verbCard({ form: "anduvo", infinitive: "andar", meaning: "gehen", person: "él/ella/usted", tense: "pretérito indefinido" },
+    READING);
+  const picked = markedCard({ text: "anduvo", infinitive: "andar", meaning: "gehen", person: "él/ella/usted",
+                              tense: "pretérito indefinido", note: "sich zu Fuß fortbewegen" },
+    { wordLanguage: "es", reader: "de", sentence: SOURCE, translation: TARGET });
+  assert.strictEqual(picked.term, table.term, "the base form in front");
+  assert.ok(picked.note.startsWith("anduvo — él/ella/usted · pretérito indefinido\n\nsich zu Fuß fortbewegen"));
+  assert.ok(!table.note.includes("undefined"));
+
+  const lookedUp = readingCard({ text: "anduvo", sourceLanguage: "es", reader: "de",
+    alternatives: [{ text: "ging" }],
+    verb: { infinitive: "andar", meaning: "gehen", person: "él/ella/usted", tense: "pretérito indefinido", note: "zu Fuß gehen" } });
+  assert.deepStrictEqual([lookedUp.term, lookedUp.meaning], ["andar", "gehen"], "a looked-up verb too, not the form");
+  assert.ok(lookedUp.note.startsWith("anduvo — él/ella/usted · pretérito indefinido\n\nzu Fuß gehen"));
+  assert.strictEqual(readingCard({ text: "anduvo", sourceLanguage: "es", reader: "de", alternatives: [{ text: "ging" }] }).term,
+    "anduvo", "where nothing says it is a verb, as it was looked up");
+});
+
+test("a word looked up in its sentence takes the sentence along, without a translation", () => {
+  const card = readingCard({
+    text: "corría", sourceLanguage: "es", reader: "de",
+    alternatives: [{ text: "rannte" }, { text: "lief", note: "neutral" }],
+    sentence: "El perro corría por el parque.",
+  });
+  assert.deepStrictEqual(card.context, { sentence: "El perro corría por el parque.", translation: "" });
+  assert.strictEqual(card.note, "lief — neutral\n\nEl perro corría por el parque.");
+  const alone = readingCard({ text: "corría", sourceLanguage: "es", reader: "de", alternatives: [{ text: "rannte" }] });
+  assert.strictEqual(alone.note, "", "without a sentence nothing is added");
+});

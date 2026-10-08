@@ -1,20 +1,20 @@
 /* The model key, kept out of the settings file.
 
-   The settings file is plain JSON in a directory that gets copied, synced and
-   pasted into bug reports. A key does not belong there, so it goes to the
-   system's own store instead — on macOS the keychain, reached through the
-   `security` tool that ships with it. That keeps the dependency list as it is
-   and uses the store macOS itself uses.
+The settings file is plain JSON in a directory that gets copied, synced and
+pasted into bug reports. A key does not belong there, so it goes to the
+system's own store instead — on macOS the keychain, reached through the
+`security` tool that ships with it. That keeps the dependency list as it is
+and uses the store macOS itself uses.
 
-   On Windows the counterpart is the Credential Manager, asked directly
-   through its API: Windows ships no tool that can read a stored password
-   back. Everything above the two functions here is platform-neutral, and the
-   JS side never learns which store answered.
+On Windows the counterpart is the Credential Manager, asked directly
+through its API: Windows ships no tool that can read a stored password
+back. Everything above the two functions here is platform-neutral, and the
+JS side never learns which store answered.
 
-   One honest caveat: `security` takes the password as an argument, so it is
-   briefly visible to anyone who can list processes on this machine. There is
-   no stdin route in that tool, and a user who can read this machine's process
-   list can read the keychain through the same account anyway. */
+One honest caveat: `security` takes the password as an argument, so it is
+briefly visible to anyone who can list processes on this machine. There is
+no stdin route in that tool, and a user who can read this machine's process
+list can read the keychain through the same account anyway. */
 
 #[cfg_attr(target_os = "windows", allow(dead_code))]
 const SERVICE: &str = "Triglosa";
@@ -27,17 +27,19 @@ pub fn read() -> Result<String, String> {
         .output()
         .map_err(|e| e.to_string())?;
     /* Not found is the ordinary first-start case, not a failure: the app then
-       runs without a key, which is a state it is built for. */
+    runs without a key, which is a state it is built for. */
     if !output.status.success() {
         return Ok(String::new());
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim_end_matches('\n').to_string())
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .trim_end_matches('\n')
+        .to_string())
 }
 
 #[cfg(target_os = "macos")]
 pub fn write(key: &str) -> Result<(), String> {
     /* An empty key means "forget it". Deleting an entry that is not there is
-       not an error either — the wanted state is reached in both cases. */
+    not an error either — the wanted state is reached in both cases. */
     if key.is_empty() {
         let _ = std::process::Command::new("security")
             .args(["delete-generic-password", "-s", SERVICE, "-a", ACCOUNT])
@@ -46,7 +48,16 @@ pub fn write(key: &str) -> Result<(), String> {
     }
     /* -U updates the entry in place instead of refusing because it exists. */
     let output = std::process::Command::new("security")
-        .args(["add-generic-password", "-U", "-s", SERVICE, "-a", ACCOUNT, "-w", key])
+        .args([
+            "add-generic-password",
+            "-U",
+            "-s",
+            SERVICE,
+            "-a",
+            ACCOUNT,
+            "-w",
+            key,
+        ])
         .output()
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
@@ -82,7 +93,8 @@ mod credentials {
         let name = wide(target);
         let mut found: *mut CREDENTIALW = std::ptr::null_mut();
         /* Not found is the ordinary first start, as on macOS. */
-        if unsafe { CredReadW(PCWSTR(name.as_ptr()), CRED_TYPE_GENERIC, None, &mut found) }.is_err() {
+        if unsafe { CredReadW(PCWSTR(name.as_ptr()), CRED_TYPE_GENERIC, None, &mut found) }.is_err()
+        {
             return Ok(String::new());
         }
         let key = unsafe {
@@ -140,8 +152,8 @@ mod tests {
     fn a_key_written_to_the_credential_manager_reads_back() {
         let target = "Triglosa/test-entry";
         /* A process without a logon session of its own — an SSH session, a
-           scheduled task, a CI runner's service — has no credential store at
-           all, which says nothing about the code. */
+        scheduled task, a CI runner's service — has no credential store at
+        all, which says nothing about the code. */
         if let Err(error) = write_to(target, "sk-test-ÄÖ-123") {
             eprintln!("no credential store in this session, skipped: {error}");
             return;

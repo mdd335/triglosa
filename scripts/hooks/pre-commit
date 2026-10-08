@@ -1,0 +1,3 @@
+#!/bin/sh
+# Links between the Markdown files, and a reminder about the changelog.
+exec node scripts/check.mjs --staged

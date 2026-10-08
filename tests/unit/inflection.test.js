@@ -1,4 +1,4 @@
-/* The two faults phase 6's measurement found that no model and no prompt
+/* The two faults the prompt measurement found that no model and no prompt
    fixes, because they are about finding a form's place in the text rather
    than about knowing the language.
 
@@ -102,4 +102,10 @@ test("a two-letter abbreviation is found, and only with its case", () => {
   assert.strictEqual(longestRunInText("Man nehme 5 ml Wasser.", "ML", ["de"]), "");
   assert.strictEqual(longestRunInText("Die EU-Kommission tagte.", "EU", ["de"]), "EU");
   assert.strictEqual(longestRunInText("Er ist da.", "da", ["de"]), "");
+});
+
+test("a plus the model wrote is a boundary, and a form standing in one piece stays one", () => {
+  const t = "By morning the thief had vanished without a trace.";
+  assert.strictEqual(formInText(t, "had + vanished"), "had vanished");
+  assert.strictEqual(formInText("Er winkte den Vorschlag ab.", "winkte + ab"), "winkte + ab");
 });

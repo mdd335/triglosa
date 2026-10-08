@@ -317,9 +317,9 @@ final class Helper: @unchecked Sendable {
    sequence. The app is two windows, though: open the settings while a reading
    is being translated and the pair probes queue up behind a request that may
    take a minute — while the window gives a probe two seconds before it gives
-   up. A probe that ran out of time used to be read as "the device cannot do
-   this pair", which is a confident wrong answer about the one thing the
-   reader cannot fix. */
+   up. A probe that ran out of time read as "the device cannot do this pair"
+   would be a confident wrong answer about the one thing the reader cannot
+   fix. */
 func serve() -> Never {
   let helper = Helper()
   let sock = socket(AF_INET, SOCK_STREAM, 0)

@@ -66,9 +66,11 @@ export function verbCard(verb, { sourceLanguage, reader, sentence, translation, 
     meaningLanguage: reader,
     /* Found by the form that stands in the text, not by the base form: the
        base form is what a dictionary is written about and is usually nowhere
-       in the sentence. */
+       in the sentence. The explanation after it, where the row has one — a
+       picked verb's, a looked-up one's — so every verb's card reads alike. */
     note: joined(
       [verb.form, grammar].filter(Boolean).join(" — "),
+      verb.note || "",
       exampleLine(context),
     ),
     context,
@@ -96,6 +98,13 @@ export function termCard(word, { sourceLanguage, reader, sentence, translation, 
    worse on a card than no example at all. */
 export function markedCard(marked, { wordLanguage, reader, sentence, translation }) {
   const inText = !marked.back;
+  /* A verb as every verb: base form, the form with its person and tense,
+     then the explanation. */
+  if (marked.infinitive && !marked.passage) {
+    return verbCard({ ...marked, form: marked.text },
+                    { sourceLanguage: wordLanguage, reader, sentence: inText ? sentence : "", translation,
+                      spot: marked.meaning });
+  }
   /* Its equivalent is how the sentence is found on the other side: it is the
      answer to the meaning question, written in exactly that language, and it
      is what the reader would look for themselves. */
@@ -144,15 +153,25 @@ export function entryCard(item, { panelLanguage, reader, sentence, sourceLanguag
    Its other side is the dictionary entry the panels already hold: the
    translations as the meaning, and the ones carrying a note on register or
    region named again underneath, because which of three words to use is the
-   question the entry answers. */
-export function readingCard({ text, sourceLanguage, reader, alternatives }) {
+   question the entry answers.
+
+   Looked up in its sentence, that sentence goes along as the example — as it
+   stands, without a translation: the panels hold the word's, not the
+   sentence's. Improving the card adds one. */
+export function readingCard({ text, sourceLanguage, reader, alternatives, verb = null, sentence = "" }) {
+  /* A looked-up verb form the term below found to be one: its card is a
+     verb's, base form first — the term's row has no card of its own then. */
+  if (verb) return verbCard({ ...verb, form: text }, { sourceLanguage, reader, sentence, translation: "" });
   const list = (Array.isArray(alternatives) ? alternatives : []).filter((item) => item && item.text);
+  const context = exampleOf({ sentence, translation: "", word: text, spot: "" });
   return {
     term: text,
     termLanguage: sourceLanguage,
     meaning: list.map((item) => item.text).join(", "),
     meaningLanguage: reader,
-    note: list.filter((item) => item.note).map((item) => `${item.text} — ${item.note}`).join("\n"),
+    note: joined(list.filter((item) => item.note).map((item) => `${item.text} — ${item.note}`).join("\n"),
+                 exampleLine(context)),
+    context,
   };
 }
 

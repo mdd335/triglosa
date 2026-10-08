@@ -5,7 +5,7 @@
 set -e
 HERE=$(cd "$(dirname "$0")" && pwd)
 "$HERE/sync.sh"
-"$HERE/run.sh" 'Get-Process Triglosa -ErrorAction SilentlyContinue | Stop-Process -Force; cmd /c "npx tauri build --target x86_64-pc-windows-msvc --bundles nsis 2>&1" | Select-String -Pattern "^error|could not compile|Finished 1 bundle" -Context 0,2 | % { $_.ToString() }'
+"$HERE/run.sh" 'Get-Process Triglosa -ErrorAction SilentlyContinue | Stop-Process -Force; node scripts/aligner-fetch.mjs; cmd /c "npx tauri build --target x86_64-pc-windows-msvc --bundles nsis 2>&1" | Select-String -Pattern "^error|could not compile|Finished 1 bundle" -Context 0,2 | % { $_.ToString() }'
 printf '%s\n' \
   'Get-Process Triglosa -ErrorAction SilentlyContinue | Stop-Process -Force' \
   'Start-Sleep 3' \

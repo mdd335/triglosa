@@ -10,6 +10,13 @@ import { saysNothing } from "../strings.js";
 
 export const MAX_ALTERNATIVES = 3;
 
+/* The most words a translation of up to three words runs to. An idiom's
+   rendering reaches seven ("to have one's head in the clouds"); beyond this
+   the line is a sentence about the word — a model saying it cannot translate
+   it. */
+const MOST_WORDS = 9;
+const QUOTE = "[\"“”«»„‘’']";
+
 
 /* A dictionary writes its headwords in lower case, and the model writes them
    as though each began a sentence — "Pagar", "Caja" for a lookup of "pagar".
@@ -30,26 +37,44 @@ function asHeadword(text, input, target) {
   return lead.toLowerCase() + text.slice(1);
 }
 
-export function parseAlternatives(raw, input, reader, target) {
+function quotesBack(key, asked) {
+  const at = key.indexOf(asked);
+  return at > 0 && new RegExp(QUOTE).test(key[at - 1]) && new RegExp(QUOTE).test(key[at + asked.length] || "");
+}
+
+export function parseAlternatives(raw, input, reader, target, source = "") {
   const normalize = languagePack(reader).normalizeNote;
   const asked = String(input || "").trim().toLowerCase();
   const seen = new Set();
   const out = [];
+  let first = true;
 
   for (const line of String(raw || "").split(/\r?\n/)) {
     const L = cleanLine(line);
     if (!L) continue;
+    const firstLine = first;
+    first = false;
     const cut = L.indexOf("|");
     const text = asHeadword(stripQuotes(cut === -1 ? L : L.slice(0, cut)), input, target);
     if (!text) continue;
 
     const key = text.trim().toLowerCase();
     /* The word itself is not a translation of itself, and the same word
-       twice is one entry. */
+       twice is one entry — except as the model's first answer in another
+       language than the word's, where it is the word that language uses
+       too: "easy" in a German sentence is "easy" in English, "playlist" in
+       a Spanish one "playlist" (run thirty-one). Further down, the word
+       again is a model going round in circles. */
+    const shared = key === asked && firstLine && source && target && source !== target;
     /* Where the model does not know a word it sometimes writes so into the
        list instead of leaving the line out. Printed as a translation that is
        worse than a shorter list. */
-    if (!key || key === asked || seen.has(key) || saysNothing(key)) continue;
+    /* A translation that begins with the mark of a meaning's note has its
+       fields out of place: nothing on the line is what it says it is. */
+    if (!key || (key === asked && !shared) || seen.has(key) || saysNothing(key) || /^[=＝]/.test(key)) continue;
+    /* Nor is a sentence about the word: longer than any translation, or
+       with the word quoted back in it. */
+    if (key.split(/\s+/).length > MOST_WORDS || (asked && quotesBack(key, asked))) continue;
     seen.add(key);
 
     const note = stripQuotes(cut === -1 ? "" : L.slice(cut + 1));

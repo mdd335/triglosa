@@ -180,6 +180,42 @@ test("a fresh attempt clears the last answer first", async () => {
   assert.ok(!status.classList.contains("failed"));
 });
 
+/* The export's last click, which nobody wants to make: the card is in the
+   deck, so the window that was only ever the step between a row and that deck
+   sees itself out. The sentence stands for a moment first, so the window
+   going away does not read as something having gone wrong. */
+test("a card that reached the deck closes its own window", async () => {
+  let closed = 0;
+  const { host } = show(CARD, {
+    anki: { ...CONFIGURED, add: async () => ({ kind: "saved" }), start: async () => true,
+            filed: () => { closed++; } },
+  });
+  toAnki(host).dispatchEvent(new dom.window.MouseEvent("click"));
+  await settled();
+  assert.strictEqual(closed, 0, "the sentence is readable first");
+  assert.strictEqual(host.querySelector(".card-status").textContent,
+    `${de.ankiSaved} ${de.cardClosing}`, "and says what is about to happen");
+  await new Promise((done) => setTimeout(done, 2400));
+  assert.strictEqual(closed, 1);
+});
+
+/* Everything else keeps the window: a refusal has to stay readable, and a
+   card already in the deck was not added, so it may be worth correcting and
+   sending again. */
+test("a refused or duplicate card keeps its window standing", async () => {
+  for (const answer of [{ kind: "error", detail: "boom" }, { kind: "duplicate", detail: "duplicate" }]) {
+    let closed = 0;
+    const { host } = show(CARD, {
+      anki: { ...CONFIGURED, add: async () => answer, start: async () => true,
+              filed: () => { closed++; } },
+    });
+    toAnki(host).dispatchEvent(new dom.window.MouseEvent("click"));
+    await settled();
+    await new Promise((done) => setTimeout(done, 2400));
+    assert.strictEqual(closed, 0, answer.kind);
+  }
+});
+
 /* A duplicate is not a failure: the card is in the deck, which is what the
    reader wanted. It still says so, because "nothing happened" is the one
    thing a reader cannot tell from a button. */
@@ -477,4 +513,99 @@ test("a card whose language is still being found is shown closed, and not improv
   assert.ok([...host.querySelectorAll(".card-box")].every((box) => box.readOnly));
   assert.ok(host.querySelector(".card-improve button").disabled);
   assert.strictEqual(host.querySelector(".card-box").value, "correr", "the text stands already");
+});
+
+test("the word being learned can be said aloud, as the field holds it now", () => {
+  const said = [];
+  const { host, boxes } = show(CARD, { speak: (word, code) => said.push([word, code]), canSpeak: () => true });
+  const buttons = [...host.querySelectorAll("button[data-icon='speak']")];
+  assert.strictEqual(buttons.length, 1, "only the word side, never the reader's own language");
+  boxes[0].value = "andar deprisa";
+  buttons[0].dispatchEvent(new window.MouseEvent("click"));
+  assert.deepStrictEqual(said, [["andar deprisa", "es"]]);
+});
+
+test("no loudspeaker on a card whose language has no voice", () => {
+  const { host } = show(CARD, { speak: () => {}, canSpeak: () => false });
+  assert.strictEqual(host.querySelectorAll("button[data-icon='speak']").length, 0);
+});
+
+test("no loudspeaker on a card whose word side is in the reader's own language", () => {
+  const { host } = show({ ...CARD, termLanguage: "de" }, { speak: () => {}, canSpeak: () => true });
+  assert.strictEqual(host.querySelectorAll("button[data-icon='speak']").length, 0);
+});
+
+/* An empty field has nothing to copy or to say: its two buttons wait, faded,
+   until something stands in it. */
+test("copying and saying aloud wait for something in the field", () => {
+  const { host, boxes } = show({ ...CARD, term: "", note: "", free: true }, { speak: () => {}, canSpeak: () => true });
+  const heads = [...host.querySelectorAll(".card-field-head")];
+  const buttonsOf = (index) => [...heads[index].querySelectorAll("button")];
+  assert.deepStrictEqual(buttonsOf(0).map((node) => node.disabled), [true, true], "speak and copy on the empty word");
+  assert.deepStrictEqual(buttonsOf(1).map((node) => node.disabled), [false], "the meaning has something in it");
+  assert.deepStrictEqual(buttonsOf(2).map((node) => node.disabled), [true]);
+  boxes[0].value = "andar";
+  boxes[0].dispatchEvent(new window.Event("input"));
+  assert.deepStrictEqual(buttonsOf(0).map((node) => node.disabled), [false, false]);
+  boxes[0].value = "  ";
+  boxes[0].dispatchEvent(new window.Event("input"));
+  assert.deepStrictEqual(buttonsOf(0).map((node) => node.disabled), [true, true], "blanks are nothing");
+});
+
+/* Tab goes from field to field, past the buttons in their headings, and
+   round; Shift-Tab back. */
+test("Tab goes to the next field and Shift-Tab to the one before", () => {
+  const { boxes } = show();
+  const press = (node, shiftKey = false) => {
+    const event = new window.KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true });
+    node.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  boxes[0].focus();
+  assert.ok(press(boxes[0]));
+  assert.strictEqual(document.activeElement, boxes[1]);
+  press(boxes[1]);
+  assert.strictEqual(document.activeElement, boxes[2]);
+  press(boxes[2]);
+  assert.strictEqual(document.activeElement, boxes[0], "round to the word");
+  press(boxes[0], true);
+  assert.strictEqual(document.activeElement, boxes[2]);
+});
+
+/* The two ways out wait for the word, like a field's own buttons. */
+test("copying the card and sending it to Anki wait for the word", () => {
+  const anki = { enabled: true, configured: true, fields: { note: "Back" } };
+  const { host, boxes } = show({ ...CARD, term: "", free: true }, { anki });
+  const feet = () => [...host.querySelectorAll(".card-actions > button")];
+  assert.strictEqual(feet().length, 2);
+  assert.ok(feet().every((node) => node.disabled), "nothing to copy or to file yet");
+  boxes[0].value = "andar";
+  boxes[0].dispatchEvent(new window.Event("input"));
+  assert.ok(feet().every((node) => !node.disabled));
+  boxes[0].value = " ";
+  boxes[0].dispatchEvent(new window.Event("input"));
+  assert.ok(feet().every((node) => node.disabled));
+});
+
+test("⌘/Ctrl+Enter improves the card the way the wand does, and names itself on it", async () => {
+  let asked = 0;
+  const wandSlot = document.createElement("span");
+  const host = document.createElement("div");
+  const drawn = renderCard(host, { ...CARD, term: "", meaning: "", free: true }, {
+    text: de, reader: "de", copy: async () => {}, anki: null, wandSlot,
+    improve: async () => { asked += 1; return { term: "el brazo", meaning: "der Arm", note: "neu" }; },
+  });
+  assert.strictEqual(wandSlot.querySelector("button").getAttribute("aria-label"), `${de.cardImprove} (${de.enterKey})`);
+  drawn.improve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(asked, 0, "not where the wand stands greyed");
+  const boxes = [...host.querySelectorAll(".card-box")];
+  boxes[0].value = "brazos";
+  boxes[0].dispatchEvent(new window.Event("input"));
+  drawn.improve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(asked, 1);
+  drawn.improve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(asked, 1, "the wand is the way back now, and the key leaves it alone");
 });

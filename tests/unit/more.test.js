@@ -24,6 +24,21 @@ test("an example line is a kind, a sentence and a translation", () => {
   ]);
 });
 
+test("an example marked with the field separator instead of a colon is an example", () => {
+  /* Gemma 4 26B wrote the marker this way in 25 of 25 longer explanations,
+     inside the paragraph, and the reader saw "EXAMPLE | …" in the text. */
+  const answer = parseMore(
+    "It functions as a quick apology. EXAMPLE | Slang | sry, ich habe dein Handy vergessen. | sorry, I forgot your phone.",
+  );
+  assert.strictEqual(answer.text, "It functions as a quick apology.");
+  assert.deepStrictEqual(answer.examples, [
+    { kind: "Slang", sentence: "sry, ich habe dein Handy vergessen.", translation: "sorry, I forgot your phone." },
+  ]);
+  const two = parseMore("Ein Absatz. EXAMPLE | Ich gebe dir morgen Bescheid. | I will let you know tomorrow.");
+  assert.strictEqual(two.text, "Ein Absatz.");
+  assert.strictEqual(two.examples[0].sentence, "Ich gebe dir morgen Bescheid.");
+});
+
 test("a word in the reader's own language has nothing to translate into", () => {
   assert.deepStrictEqual(parseExample("EXAMPLE: im Alltag | Nach Feierabend lese ich. |"),
     { kind: "im Alltag", sentence: "Nach Feierabend lese ich.", translation: "" });

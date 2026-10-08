@@ -1,0 +1,18 @@
+Language identification model for Triglosa
+
+model.bin is derived from lid.176.bin, the language identification model of
+fastText (https://fasttext.cc/docs/en/language-identification.html) by
+Armand Joulin, Edouard Grave, Piotr Bojanowski, Tomas Mikolov, Matthijs
+Douze and Hervé Jégou at Facebook AI Research, distributed under the
+Creative Commons Attribution-Share-Alike License 3.0
+(https://creativecommons.org/licenses/by-sa/3.0/). model.bin is distributed
+under the same license; a copy of it is in LICENSE.txt.
+
+Changes made to the published model:
+  - of its 2,040,010 rows the 700,000 with the largest norm are kept;
+  - a row's numbers are rounded to 8 bits against a scale of its own;
+  - the tree over the 176 languages is written out as the path to each;
+  - everything is stored in a format of Triglosa's own.
+
+scripts/identifier-pack.py in the Triglosa repository makes the file and
+describes the format.

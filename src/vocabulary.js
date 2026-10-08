@@ -4,7 +4,7 @@
    only an English word in disguise, and how long a phrase may get. All three
    ask a language pack rather than knowing any language themselves. */
 
-import { stripDiacritics } from "./text.js";
+import { stripDiacritics, unspacedWords } from "./text.js";
 import { LOANWORDS } from "./languages/loanwords.js";
 import { SUPPORTED, languagePack, wordSet } from "./languages/index.js";
 
@@ -68,5 +68,6 @@ export function contentWordCount(s, codes) {
   return String(s || "")
     .split(/[\s+…]+|\.{2,}/)
     .map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ""))
+    .flatMap(unspacedWords)
     .filter((w) => w && !isFunctionWord(w, codes)).length;
 }

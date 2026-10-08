@@ -175,7 +175,7 @@ export function hotkeyFrom(event, layout, system = currentSystem()) {
 }
 
 /* Whether something read back from the settings file is a combination at
-   all. A hand-edited or older file must not hand the next phase something it
+   all. A hand-edited or older file must not hand the next step something it
    cannot register. */
 export function isHotkey(value) {
   if (!value || typeof value !== "object") return false;

@@ -173,6 +173,8 @@ export function labelsInside(root) {
     });
     node.classList.toggle("label-above", where === "above");
     node.classList.toggle("label-beside", where === "beside");
+    node.classList.toggle("label-start", where !== "beside"
+      && button.right - label.offsetWidth < Math.max(sheet?.left ?? 0, 0) + 2);
   };
   root.addEventListener("mouseover", place);
   root.addEventListener("focusin", place);

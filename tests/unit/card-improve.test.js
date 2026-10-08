@@ -40,7 +40,7 @@ test("an answer in another shape changes nothing", () => {
 });
 
 test("the prompt names the languages from the packs, and articles are asked only where a pack has them", async () => {
-  let asked = null;
+  let asked;
   const llm = { async chat(question) { return /headword/.test(question.system) ? question.user : "el brazo\nder Arm\n---\nbrazo de río (Flussarm)"; } };
   const questions = [];
   const recording = { async chat(question) { questions.push(question); return llm.chat(question); } };
@@ -86,4 +86,26 @@ test("a card with one side written gets the other from the dictionary question f
   assert.strictEqual(await completeCard(llm, both), both, "nothing to fill");
   const blank = { term: "", termLanguage: "es", meaning: "", meaningLanguage: "de", note: "" };
   assert.strictEqual(await completeCard(llm, blank), blank);
+});
+
+test("two senses stand one under the other, and every item of the explanation apart", () => {
+  const raw = "correr\nrennen; laufen\n---\nMe cogió en brazos. (Er nahm mich auf den Arm.)\nCorre mucho. (Er rennt viel.)\nCorrió a casa. (Er lief nach Hause.)";
+  const card = parseImprovedCard(raw, CARD);
+  assert.strictEqual(card.meaning, "rennen;\nlaufen");
+  assert.strictEqual(card.note,
+    "Me cogió en brazos. (Er nahm mich auf den Arm.)\n\nCorre mucho. (Er rennt viel.)\n\nCorrió a casa. (Er lief nach Hause.)");
+});
+
+test("a sentence without its translation is kept, and the model asked to translate it", async () => {
+  const questions = [];
+  const bare = { ...CARD, termLanguage: "ru", meaningLanguage: "en", context: { sentence: "Me cogió en brazos.", translation: "" } };
+  const llm = { async chat(question) { questions.push(question); return "брат\nbrother\n---\nOther line."; } };
+  const card = await improveCard(llm, bare, { level: "B1" });
+  assert.match(questions[0].system, /copied word for word as given, followed by its English translation/);
+  assert.doesNotMatch(questions[0].user, /Its English translation/);
+  assert.strictEqual(card.note, "Me cogió en brazos.\n\nOther line.", "put back as it stands where the answer dropped it");
+
+  questions.length = 0;
+  await improveCard(llm, { ...bare, context: CARD.context }, { level: "B1" });
+  assert.match(questions[0].system, /followed by its given English translation/);
 });
