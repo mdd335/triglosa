@@ -26,9 +26,11 @@ function draw() {
   document.title = windowTitle(labels(settings.languages[0]).settings);
   root.replaceChildren(settingsView({ settings, apiKey }, {
     onChange: async (next) => {
-      /* The pin is set in the reading window, which may have changed it
-         since this one read the file. */
-      settings = await saveSettings({ ...next, pinned: (await loadSettings()).pinned });
+      /* The pin is set in the reading window and the first steps are put
+         away in their own, either of which may have happened since this one
+         read the file. */
+      const { pinned, welcome } = await loadSettings();
+      settings = await saveSettings({ ...next, pinned, welcome });
       draw();
       /* After the redraw, not before: the other window re-registers the
          shortcut when this arrives, and it has to be the one now standing in

@@ -12,7 +12,7 @@
    languages stand first — they are the likeliest answers, and a list is read
    from the front. */
 
-import { SUPPORTED, displayName, languagePack } from "../languages/index.js";
+import { SUPPORTED, displayName, englishName, isChoosable, languagePack } from "../languages/index.js";
 
 /* Languages the model is likely to meet outside the ten. Only examples —
    they show the expected shape of an answer, not a limit. Every one of them
@@ -32,8 +32,10 @@ function endonym(code) {
 /* The user's languages first, then the rest, each named once. */
 function ordered(languages) {
   const out = [];
-  for (const code of (languages || []).concat(SUPPORTED)) {
-    if (SUPPORTED.includes(code) && !out.includes(code)) out.push(code);
+  /* A language without a pack that the reader set is one of the answers
+     for them, by its code like the others. */
+  for (const code of (languages || []).filter(isChoosable).concat(SUPPORTED)) {
+    if (!out.includes(code)) out.push(code);
   }
   return out;
 }
@@ -44,18 +46,21 @@ function ordered(languages) {
    comes first in the list" moved the cloud model half as far and the local
    one not at all. */
 export function ownLanguagesFirst(languages) {
-  const own = (languages || []).filter((c) => SUPPORTED.includes(c));
+  const own = (languages || []).filter(isChoosable);
   if (!own.length) return "";
-  const names = own.map((c) => languagePack(c).englishName).join(", ");
+  const names = own.map((c) => englishName(c)).join(", ");
   return ` If the input is a correct word or phrase in ${names}, reply with that language, even where it is also written that way in another language.`;
 }
 
 export function detectPrompt({ languages, reader }) {
   const inPlay = ordered(languages);
-  const codes = inPlay.map((c) => `${c} (${languagePack(c).englishName})`).join(", ");
+  const codes = inPlay.map((c) => `${c} (${englishName(c)})`).join(", ");
   const readerName = languagePack(reader).englishName;
-  const names = EXAMPLES.map((c) => displayName(c, reader)).join(", ");
-  const pairs = ENDONYM_EXAMPLES.map((c) => `${displayName(c, reader)} not ${endonym(c)}`).join(", ");
+  /* A language the reader set stands among the codes, so it is no example
+     of the others. */
+  const other = (c) => !inPlay.includes(c);
+  const names = EXAMPLES.filter(other).map((c) => displayName(c, reader)).join(", ");
+  const pairs = ENDONYM_EXAMPLES.filter(other).map((c) => `${displayName(c, reader)} not ${endonym(c)}`).join(", ");
   const hints = inPlay
     .map((c) => languagePack(c).spellingHints)
     .filter(Boolean)

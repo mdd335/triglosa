@@ -110,6 +110,8 @@ export const REQUESTS = {
   passageSpotPrompt: "Q17",
   explainMorePrompt: "Q18",
   exampleSentencePrompt: "Q19",
+  spellingPrompt: "Q20",
+  wordLanguagePrompt: "Q21",
   improveCardPrompt: "",
   headwordPrompt: "",
 };

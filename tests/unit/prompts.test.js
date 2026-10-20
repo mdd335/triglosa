@@ -90,6 +90,8 @@ test("a dictionary lookup asks the same question for one term", () => {
     assert.ok(lookup.includes("Judge difficulty against level B2"), "the same bar");
   }
   assert.ok(inSentence.includes("The item must contain at least one of them"));
+  assert.ok(inSentence.includes("stand apart in the sentence, <term> is the whole expression in its dictionary form"));
+  assert.ok(!alone.includes("stand apart") && alone.includes("Never a dictionary form"), "without a sentence nothing stands apart");
   for (const lookup of [alone, inSentence]) {
     assert.ok(lookup.includes("A verb form counts like any other word"), "no verb table beside a lookup");
     assert.ok(!lookup.includes("NOT a single verb"));
@@ -98,9 +100,9 @@ test("a dictionary lookup asks the same question for one term", () => {
   assert.ok(!alone.includes("Looked up"), "without a sentence the text is the words");
   /* Everything else is the longer texts' question, line for line. */
   const others = (prompt) => prompt.split("\n").filter((line) =>
-    !/At most|translation|Looked up|<known>|^<term>|single verb|A verb form counts/.test(line));
+    !/At most|translation|Looked up|<known>|^<term>|single verb|A verb form counts|stand apart in the sentence/.test(line));
   assert.deepStrictEqual(others(alone), others(long));
-  assert.deepStrictEqual(others(inSentence), others(long));
+  assert.deepStrictEqual(others(inSentence), others(long).filter((line) => !line.startsWith("- <term> is copied")));
   assert.ok(!long.includes("Looked up") && !long.includes("dictionary translations"), "a longer text's question is untouched");
 
   for (const lookup of [alone, inSentence]) {
@@ -344,6 +346,26 @@ test("the word alignment prompt names no language at all", () => {
   assert.ok(!/\bExample\b/.test(text));
   assert.ok(!text.includes("Spanish") && !text.includes("German"));
   assert.ok(text.includes("<original> | <A> | <B>"));
+});
+
+test("a word looked up with its article is asked for translations with theirs, and no other is", async () => {
+  const { withoutArticle } = await import("../../src/languages/index.js");
+  assert.strictEqual(withoutArticle("de", "die Einrückung"), "Einrückung");
+  assert.strictEqual(withoutArticle("fr", "l’échancrure"), "échancrure");
+  assert.strictEqual(withoutArticle("it", "un'amica"), "amica");
+  assert.strictEqual(withoutArticle("es", "las llaves"), "llaves");
+  for (const [code, text] of [["de", "die"], ["de", "dienen"], ["en", "a"], ["pt", "à toa"], ["ru", "очень быстро"], ["", "the end"]]) {
+    assert.strictEqual(withoutArticle(code, text), text, text);
+  }
+  const { alternativesFor } = await import("../../src/ask.js");
+  const asked = [];
+  const llm = { chat: async (question) => { asked.push(question.user); return "la sangría | Typografie"; } };
+  await alternativesFor(llm, { text: "die Einrückung", source: "de", target: "es", reader: "de" });
+  await alternativesFor(llm, { text: "rote Ampel", source: "de", target: "es", reader: "de" });
+  assert.ok(asked[0].endsWith("\nThe input is a noun with its article. Give each translation with its article too."));
+  await alternativesFor(llm, { text: "das Geländer", source: "de", target: "ru", reader: "de" });
+  assert.strictEqual(asked[2], "Source: German | Target: Russian | Input: das Geländer", "nothing asked of a language without articles");
+  assert.strictEqual(asked[1], "Source: German | Target: Spanish | Input: rote Ampel");
 });
 
 test("a dictionary entry with its sentence asks for the sense there first, then the other senses", () => {

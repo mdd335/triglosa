@@ -52,6 +52,19 @@ pub fn collection_behavior(current: u64, spaces: Spaces) -> u64 {
         | FULL_SCREEN_AUXILIARY
 }
 
+/* A window on every Space can come to stand on the full screen Spaces alone,
+its flags unchanged — the desktop the reader is on no longer among them.
+Brought forward from there, it took the reader into the full screen and was
+put away at once, the focus lost on the way. Leaving every Space for the
+active one and joining them all again from there puts a window back on
+each, the one the reader is on included. */
+pub fn rejoined(current: u64) -> [u64; 2] {
+    [
+        collection_behavior(current, Spaces::Active),
+        collection_behavior(current, Spaces::All),
+    ]
+}
+
 #[cfg(target_os = "macos")]
 mod platform {
     use std::ffi::{c_void, CString};
@@ -95,6 +108,23 @@ mod platform {
             selector("setCollectionBehavior:"),
             collection_behavior(current, spaces),
         );
+    }
+
+    /* Every Space joined again, from the one the reader is on. */
+    pub fn rejoin_all_spaces(ns_window: *mut c_void) {
+        if ns_window.is_null() {
+            return;
+        }
+        let send = objc_msgSend as *const ();
+        let read: extern "C" fn(*mut c_void, *const c_void) -> u64 =
+            unsafe { std::mem::transmute(send) };
+        let write: extern "C" fn(*mut c_void, *const c_void, u64) =
+            unsafe { std::mem::transmute(send) };
+
+        let current = read(ns_window, selector("collectionBehavior"));
+        for step in super::rejoined(current) {
+            write(ns_window, selector("setCollectionBehavior:"), step);
+        }
     }
 
     /* The first entry of a status item's menu drawn as a section heading —
@@ -449,6 +479,21 @@ pub fn over_full_screen(window: &tauri::WebviewWindow, spaces: Spaces) {
     let _ = (window, spaces);
 }
 
+/* The reading window, every time before it is shown: see `rejoined`. */
+pub fn rejoin_all_spaces(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    {
+        let target = window.clone();
+        let _ = window.run_on_main_thread(move || {
+            if let Ok(handle) = target.ns_window() {
+                platform::rejoin_all_spaces(handle);
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+}
+
 /* The reading window only, and never the settings: a window that is reached
 from another one and has nothing else to say has to be closable by the one
 means everybody already knows.
@@ -615,6 +660,15 @@ mod tests {
         assert_eq!(all, CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY);
         let active = collection_behavior(primary, Spaces::Active);
         assert_eq!(active, MOVE_TO_ACTIVE_SPACE | FULL_SCREEN_AUXILIARY);
+    }
+
+    #[test]
+    fn a_window_rejoins_every_space_by_way_of_the_active_one() {
+        let all = CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY;
+        assert_eq!(
+            rejoined(all),
+            [MOVE_TO_ACTIVE_SPACE | FULL_SCREEN_AUXILIARY, all]
+        );
     }
 
     #[test]

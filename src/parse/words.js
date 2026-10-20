@@ -82,7 +82,12 @@ export function parseWords(raw) {
     out.push({
       text: term,
       meaning: stripQuotes(meaning),
-      note: stripQuotes(parts.length === 2 ? rest.join(";") : parts.slice(2).join("|")).replace(/\s*[;,]$/, ""),
+      note: stripQuotes(parts.length === 2 ? rest.join(";") : parts.slice(2).join("|"))
+        .replace(/\s*[;,]$/, "")
+        /* The meaning written as a whole sentence, its full stop standing
+           before the semicolon the field or register follows:
+           "… being discussed. ; everyday". The semicolon alone divides. */
+        .replace(/([^.\s])\.\s+;\s*/g, "$1; "),
       ...(known ? { known } : {}),
     });
     if (out.length >= MAX_WORDS + READ_AHEAD) break;
@@ -305,7 +310,7 @@ export function withoutFormOpening(note, base, code) {
   return text.slice(opening[0].length).trim() || text;
 }
 
-export function parseMarkedWord({ meaningRaw, spotRaw, term, code, thirdRaw, grammarRaw, wholeRaw, kindRaw, codes }) {
+export function parseMarkedWord({ meaningRaw, spotRaw, placed = false, term, code, thirdRaw, grammarRaw, wholeRaw, kindRaw, codes }) {
   const meaningLine = firstFieldLine(meaningRaw);
   if (!meaningLine) return null;
 
@@ -323,12 +328,21 @@ export function parseMarkedWord({ meaningRaw, spotRaw, term, code, thirdRaw, gra
     return null;
   }
   if (!note || startsUnknown(note)) return null;
+  /* The marker in the equivalent's place, beside a note that does explain:
+     the word has no equivalent the model would name — a place, a surname —
+     and the marker is not one. Only in capitals, as the prompt writes it: in
+     ordinary case the same word is the equivalent of a word meaning it. */
+  if (startsUnknown(meaning) && meaning === meaning.toUpperCase() && meaning !== meaning.toLowerCase()) meaning = "";
 
   /* A spot line without a pipe does not say which of the two panels is
      meant — better no highlight than one in the wrong panel. */
   const spot = firstFieldLine(spotRaw).split("|");
-  const a = spot.length >= 2 ? usableSpot(stripQuotes(spot[0]), term) : "";
-  const b = spot.length >= 2 ? usableSpot(stripQuotes(spot[1]), term) : "";
+  /* A place the word aligner found (`placed`) is the panel's own words and
+     is taken as it stands: a word that stays what it was — an abbreviation,
+     a name — reads there as the term does, which from a model is an echo. */
+  const field = (raw) => (placed ? (raw.trim() === "-" ? "" : raw.trim()) : usableSpot(stripQuotes(raw), term));
+  const a = spot.length >= 2 ? field(spot[0]) : "";
+  const b = spot.length >= 2 ? field(spot[1]) : "";
 
   const { grammar, infinitive } = verbFormOf({ meaningRaw, grammarRaw, term, code });
   note = withoutFormOpening(note, infinitive, code);

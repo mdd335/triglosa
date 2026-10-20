@@ -20,6 +20,7 @@
      colourless. As text on a light ground the icon's own shade reads at
      1.7 : 1, so the light scheme takes the same hue deeper. */
   --brand: #0b93a6;
+  --brand-faint: rgba(11, 147, 166, 0.06);
   --control: #fbfbfc;
   --control-hover: #eeeef1;
   --control-line: #c9c9d0;
@@ -59,6 +60,7 @@
     --ink-faint: #8e8e93;
     --line: #3a3a40;
     --brand: #18daf1;
+    --brand-faint: rgba(24, 218, 241, 0.07);
     --control: #36363c;
     --control-hover: #414148;
     --control-line: #4c4c54;
@@ -133,7 +135,6 @@ button {
 button:hover:not(:disabled) { background: var(--control-hover); border-color: var(--control-line); }
 button:active:not(:disabled) { background: var(--control-hover); box-shadow: none; }
 button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
-button.quiet { color: var(--ink-soft); }
 
 /* The gap is the one the settings window keeps between its rows, and the
    headings below are its size: three windows, one rhythm. A heading needs
@@ -1050,6 +1051,23 @@ button.quiet { color: var(--ink-soft); }
 .looked-up-in { margin: 6px 0 0; padding: 0 2px; font-size: 10px; line-height: 1.5; color: var(--ink-faint); }
 .looked-up { color: var(--ink-soft); font-weight: 600; }
 
+/* A looked-up word found misspelled: the sentence's size, a step less faint
+   than it, on a faint ground in the accent; the word in it a link like any
+   other (.text-link). */
+.spelled {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 0;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--brand-faint);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.spelled svg { width: 10px; height: 10px; flex: 0 0 auto; color: var(--brand); stroke-width: 1.8; }
+
 /* The sentence before the one read, over the field, and the one after it,
    under it: that sentence's size and colour, one line, and the ground of a
    button only under the pointer. */
@@ -1196,8 +1214,11 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
 
 .field .hint { margin: 0; color: var(--ink-soft); font-size: 11.5px; }
 
-/* The way to the project: a sentence with its three places as links. */
-.about-links { margin: 0; color: var(--ink); font-size: 12.5px; line-height: 1.45; }
+/* What stands for itself — about a whole group, or about no control at
+   all — is in the window's own ink. Grey is for the line saying what the
+   one switch, field or button beside it does. */
+.about-links,
+.field .hint.standalone { margin: 0; color: var(--ink); font-size: 12.5px; line-height: 1.45; }
 
 
 /* The single line under the panels where there is no model. */
@@ -1252,11 +1273,23 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
 .settings .group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 
 /* The one line under a group heading that is about the whole group. */
-.settings .group-hint { margin: -4px 0 0; color: var(--ink-soft); font-size: 11.5px; }
+.settings .group-hint { margin: -4px 0 0; color: var(--ink); font-size: 12.5px; line-height: 1.45; }
 /* A link inside a sentence: the sentence's own type, the accent colour, a
    line under it only under the pointer. */
 .text-link { color: var(--brand); text-decoration: none; cursor: pointer; }
 .text-link:hover { text-decoration: underline; }
+/* A link that does something in the app is a button, and wears none of a
+   button's dress. */
+button.text-link,
+button.text-link:hover:not(:disabled),
+button.text-link:active:not(:disabled) {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  font: inherit;
+  color: var(--brand);
+}
 
 /* A language and how far along the reader is in it: one line, the level
    narrow enough that the language stays the thing being read. */
@@ -1493,3 +1526,26 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
 :root[data-system="windows"] .sheet { scrollbar-gutter: stable; padding-right: 2px; }
 :root[data-system="windows"] .settings-window,
 :root[data-system="windows"] .card-window { scrollbar-gutter: stable; padding-right: 6px; }
+
+/* ---- the first steps ---- */
+
+.welcome-window {
+  display: block;
+  height: 100%;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.welcome-sheet { display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.5; }
+.welcome-icon { width: 72px; height: 72px; align-self: center; }
+.welcome-sheet h1 { margin: 0; font-size: 18px; font-weight: 600; text-align: center; }
+.welcome-sheet .label { margin: 6px 0 0; }
+.welcome-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.welcome-more { margin: 0; color: var(--ink-soft); }
+
+/* The box at the left, the two buttons at the right: closing last, as on a
+   card. */
+.welcome-foot { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.welcome-hide { display: flex; gap: 6px; align-items: center; margin-right: auto; color: var(--ink-soft); cursor: pointer; }
+.welcome-hide input { margin: 0; accent-color: var(--brand); }
+.welcome-foot button { height: 28px; }

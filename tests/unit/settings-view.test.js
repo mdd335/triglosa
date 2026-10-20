@@ -55,7 +55,7 @@ for (const code of ["de", "en"]) {
     const links = [...field.querySelectorAll("a.text-link")].map((node) => node.textContent);
     assert.deepStrictEqual(links, [text.permissionCode], "a way to the code that does it, as a link in the sentence");
     assert.ok(buttons.includes(text.permissionAsk) && buttons.includes(text.permissionOpen), "and to grant it");
-    for (const name of [text.directSelection, text.withSentence, text.wordHotkey, text.forceClick, text.sentenceHotkey]) {
+    for (const name of [text.directSelection, text.withSentence, text.wordHotkey, text.sentenceHotkey]) {
       assert.ok(!shown(fieldNamed(view, name)), `${name} waits for the permission`);
     }
     assert.ok(!shown([...view.querySelectorAll(".hint")].find((node) => node.textContent === text.pointerUnreliable)));
@@ -83,7 +83,7 @@ for (const code of ["de", "en"]) {
     view = await draw({ directSelection: false }, true);
     assert.strictEqual(fieldNamed(view, text.directSelection).querySelector("select").value, "off");
     assert.strictEqual(fieldNamed(view, text.hotkey).querySelector(".hint").textContent, text.hotkeyLead);
-    for (const name of [text.withSentence, text.wordHotkey, text.forceClick, text.sentenceHotkey]) {
+    for (const name of [text.withSentence, text.wordHotkey, text.sentenceHotkey]) {
       assert.ok(shown(fieldNamed(view, name)), `${name} has nothing to do with it`);
     }
     view.remove();
@@ -109,9 +109,10 @@ for (const code of ["de", "en"]) {
       document.body.append(view);
       await new Promise((resolve) => setTimeout(resolve, 20));
       const labelsShown = [...view.querySelectorAll(".field > label")].map((node) => node.textContent);
-      for (const macOnly of [text.permission, text.directSelection, text.devicePairs, text.translator, text.forceClick]) {
+      for (const macOnly of [text.permission, text.directSelection, text.devicePairs, text.translator]) {
         assert.ok(!labelsShown.includes(macOnly), `${macOnly} is not offered`);
       }
+      assert.strictEqual(view.querySelector("button.force-click"), null, "no force click to write into a field");
       /* The sentence that goes along and what is under the pointer need no
          permission there: offered as they are on the Mac, in the same order. */
       const order = [text.cardHotkey, text.withSentence, text.wordHotkey, text.sentenceHotkey].map((name) => labelsShown.indexOf(name));
@@ -141,38 +142,59 @@ for (const code of ["de", "en"]) {
   });
 }
 
-/* The force click stands under the permission it needs, only once that is
-   switched on, off until turned on itself, and says where it falls short
-   and how to keep Apple's Look Up out of it. */
+/* The force click is written into one of the two fields about what is
+   under the pointer, by a button beside it, in place of a combination: in
+   one of them at a time, and saying there how to keep Apple's Look Up out
+   of it. */
 for (const code of ["de", "en"]) {
-  test(`the force click is a switch under the permission, off at first (${code})`, async () => {
+  test(`the force click is written into the word's or the sentence's field by a button (${code})`, async () => {
     const text = labels(code);
-    const settings = normalizeSettings({ languages: [code, "es"] });
-    const changes = [];
-    const view = settingsView({ settings, apiKey: "" }, { onChange: (next) => changes.push(next), onKeyChange: () => {} }, GRANTED);
-    document.body.append(view);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    const combination = { accelerator: "Control+Alt+KeyW", label: "W" };
+    const settings = normalizeSettings({ languages: [code, "es"], wordHotkey: combination });
+    const draw = async (now) => {
+      const changes = [];
+      const view = settingsView({ settings: now, apiKey: "" }, { onChange: (next) => changes.push(next), onKeyChange: () => {} }, GRANTED);
+      document.body.append(view);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return { view, changes };
+    };
+    const buttonsOf = (row) => [...row.querySelectorAll("button")].map((node) => node.textContent);
+
+    let { view, changes } = await draw(settings);
     const names = [...view.querySelectorAll(".field")].map((node) => node.querySelector("label")?.textContent);
     assert.strictEqual(names.indexOf(text.wordHotkey), names.indexOf(text.directSelection) + 2, "the word's shortcut under the selection's switch and the sentence that goes along");
-    assert.strictEqual(names.indexOf(text.forceClick), names.indexOf(text.wordHotkey) + 1, "and its click under it");
-    const row = fieldNamed(view, text.forceClick);
-    assert.ok(shown(row));
-    assert.ok(row.textContent.includes(text.forceClickLead));
-    assert.ok(!row.textContent.includes(text.forceClickHint), "Look Up is no matter while the click is off");
+    assert.ok(!names.includes(text.forceClick), "no row of its own");
     assert.ok(shown([...view.querySelectorAll(".hint")].find((node) => node.textContent === text.pointerUnreliable)),
       "said once over the whole block");
-    const control = row.querySelector("select");
-    assert.strictEqual(control.value, "off");
-    control.value = "on";
-    control.dispatchEvent(new window.Event("change"));
-    assert.strictEqual(changes.at(-1).forceClick, true);
+    for (const name of [text.hotkey, text.freshHotkey, text.cardHotkey]) {
+      assert.ok(!buttonsOf(fieldNamed(view, name)).includes(text.forceClick), `${name} is not about the pointer`);
+    }
+    let word = fieldNamed(view, text.wordHotkey);
+    assert.deepStrictEqual(buttonsOf(word), [text.forceClick, text.hotkeyClear]);
+    assert.deepStrictEqual(buttonsOf(fieldNamed(view, text.sentenceHotkey)), [text.forceClick]);
+    assert.ok(!view.textContent.includes(text.forceClickHint), "Look Up is no matter while the click is not set");
+    word.querySelector("button.force-click").click();
+    assert.strictEqual(changes.at(-1).forceClick, "word");
+    assert.strictEqual(changes.at(-1).wordHotkey, null, "in place of the combination");
     view.remove();
 
-    const on = settingsView({ settings: { ...settings, forceClick: true }, apiKey: "" }, { onChange: () => {}, onKeyChange: () => {} }, GRANTED);
-    document.body.append(on);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.ok(fieldNamed(on, text.forceClick).textContent.includes(text.forceClickHint), "switched on, how to keep Look Up out");
-    on.remove();
+    ({ view, changes } = await draw(changes.at(-1)));
+    word = fieldNamed(view, text.wordHotkey);
+    assert.strictEqual(word.querySelector("input").value, text.forceClick);
+    assert.deepStrictEqual(buttonsOf(word), [text.hotkeyClear], "set, it is not offered again");
+    assert.ok(word.textContent.includes(text.forceClickHint), "how to keep Look Up out");
+    /* Set for the sentence, it leaves the word. */
+    fieldNamed(view, text.sentenceHotkey).querySelector("button.force-click").click();
+    assert.strictEqual(changes.at(-1).forceClick, "sentence");
+    word.querySelector("button").click();
+    assert.strictEqual(changes.at(-1).forceClick, false, "cleared like a combination");
+    view.remove();
+
+    ({ view } = await draw({ ...settings, wordHotkey: null, forceClick: "sentence" }));
+    assert.strictEqual(fieldNamed(view, text.sentenceHotkey).querySelector("input").value, text.forceClick);
+    assert.strictEqual(fieldNamed(view, text.wordHotkey).querySelector("input").value, "");
+    assert.ok(fieldNamed(view, text.sentenceHotkey).textContent.includes(text.forceClickHint));
+    view.remove();
   });
 
   test(`Apple's translation not answering comes with a button that asks again (${code})`, async () => {
@@ -220,7 +242,7 @@ for (const code of ["de", "en"]) {
     document.body.append(view);
     await new Promise((resolve) => setTimeout(resolve, 20));
     const names = [...view.querySelectorAll(".field")].map((node) => node.querySelector("label")?.textContent);
-    assert.strictEqual(names.indexOf(text.sentenceHotkey), names.indexOf(text.forceClick) + 1);
+    assert.strictEqual(names.indexOf(text.sentenceHotkey), names.indexOf(text.wordHotkey) + 1);
     assert.strictEqual(names.indexOf(text.withSentence), names.indexOf(text.directSelection) + 1);
     assert.strictEqual(names.indexOf(text.wordHotkey), names.indexOf(text.withSentence) + 1);
     const row = fieldNamed(view, text.withSentence);
@@ -373,13 +395,57 @@ for (const code of ["de", "en", "fr"]) {
     const settings = normalizeSettings({ languages: [code, code === "en" ? "es" : "en", "it"] });
     const view = settingsView({ settings, apiKey: "" }, { onChange: () => {}, onKeyChange: () => {} });
     const selects = [...view.querySelectorAll("select")].filter((node) => !node.classList.contains("level")).slice(0, 3);
+    const sorted = (names) => names.slice().sort((a, b) => a.localeCompare(b, code));
+    /* The reader's own language has one list; a learned one has two, each
+       under its heading and each in its own order. */
     for (const node of selects) {
-      const names = [...node.options].filter((option) => option.value).map((option) => option.textContent);
-      assert.ok(names.length > 1);
-      assert.deepStrictEqual(names, names.slice().sort((a, b) => a.localeCompare(b, code)));
+      const groups = [...node.querySelectorAll("optgroup")];
+      const lists = groups.length
+        ? groups.map((group) => [...group.querySelectorAll("option")])
+        : [[...node.options].filter((option) => option.value)];
+      for (const list of lists) {
+        const names = list.map((option) => option.textContent);
+        assert.ok(names.length > 1);
+        assert.deepStrictEqual(names, sorted(names));
+      }
     }
   });
 }
+
+test("a learned language is chosen under one of two headings, and one without a pack says what that means", () => {
+  const text = labels("de");
+  const draw = (languages) => {
+    const view = settingsView({ settings: normalizeSettings({ languages }), apiKey: "" },
+      { onChange: () => {}, onKeyChange: () => {} });
+    const row = (label) => [...view.querySelectorAll(".field")]
+      .find((node) => node.querySelector("label")?.textContent === label);
+    return { view, second: row(text.secondLanguage), third: row(text.thirdLanguage), verbs: row(text.verbs), terms: row(text.terms) };
+  };
+
+  const tuned = draw(["de", "es"]);
+  const headings = [...tuned.second.querySelectorAll("optgroup")].map((group) => group.label);
+  assert.deepStrictEqual(headings, [text.languagesTuned, text.languagesOther]);
+  const [first, others] = [...tuned.second.querySelectorAll("optgroup")]
+    .map((group) => [...group.querySelectorAll("option")].map((option) => option.value));
+  assert.ok(first.includes("en") && first.includes("ar") && !first.includes("de"));
+  assert.ok(others.includes("nl") && others.includes("ja") && !others.includes("es"));
+  assert.ok(!tuned.second.textContent.includes(text.otherLanguageHint), "nothing to say about Spanish");
+  assert.strictEqual(tuned.first, undefined);
+
+  const other = draw(["de", "nl", "es"]);
+  assert.strictEqual(other.second.querySelector("select").value, "nl");
+  assert.ok(other.second.textContent.includes(text.otherLanguageHint));
+  assert.ok(!other.third.textContent.includes(text.otherLanguageHint));
+  assert.ok(other.second.querySelector("select.level"), "a level like any learned language");
+  /* The verbs are never drawn for it, so its place is not offered there. */
+  const modes = (row) => [...row.querySelector("select").options].map((option) => option.value);
+  assert.deepStrictEqual(modes(other.verbs), ["never", "third", "foreign", "all"]);
+  assert.deepStrictEqual(modes(other.terms), ["never", "second", "third", "foreign", "all"]);
+  /* The reader's own language is one of those the interface is written in. */
+  const own = [...other.view.querySelectorAll("select")][0];
+  assert.strictEqual(own.querySelectorAll("optgroup").length, 0);
+  assert.ok(![...own.options].some((option) => option.value === "nl"));
+});
 
 test("the terms come before the verbs, as on the sheet", () => {
   const text = labels("de");
@@ -406,3 +472,75 @@ for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
     assert.ok(sentence.compareDocumentPosition(diagnostics) & window.Node.DOCUMENT_POSITION_FOLLOWING, "under it");
   });
 }
+
+test("syncing after every card is a switch under Anki's fields, off until set", async (t) => {
+  const text = labels("en");
+  const failing = globalThis.fetch;
+  /* AnkiConnect answering, with one deck of one note type. */
+  globalThis.fetch = async (url, { body }) => {
+    if (!String(url).includes("8765")) throw new TypeError("fetch failed");
+    const { action } = JSON.parse(body);
+    const result = { version: 6, deckNames: ["Vokabeln"], modelNames: ["Basic"], findNotes: [],
+      modelFieldNames: ["Front", "Back"] }[action] ?? null;
+    return { ok: true, text: async () => JSON.stringify({ result, error: null }) };
+  };
+  t.after(() => { globalThis.fetch = failing; });
+  const changes = [];
+  const settings = normalizeSettings({ languages: ["en", "es"],
+    cards: { anki: { enabled: true, deck: "Vokabeln", noteType: "Basic", fields: { term: "Front" } } } });
+  const view = settingsView({ settings, apiKey: "" }, { onChange: (next) => changes.push(next), onKeyChange: () => {} });
+  document.body.append(view);
+  t.after(() => view.remove());
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  /* What Anki said is kept for the session; an earlier test's silence is
+     asked again. */
+  const again = [...view.querySelectorAll(".anki-body button")].find((node) => node.textContent === text.ankiRecheck);
+  if (again) {
+    again.click();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  const row = fieldNamed(view, text.ankiSync);
+  assert.ok(row, "offered once Anki answers");
+  assert.ok(row.textContent.includes(text.ankiSyncHint));
+  const toggle = row.querySelector("select");
+  assert.strictEqual(toggle.value, "off", "off until set");
+  toggle.value = "on";
+  toggle.dispatchEvent(new window.Event("change"));
+  assert.strictEqual(changes.at(-1).cards.anki.sync, true);
+});
+
+test("the settings lead back to the first steps", () => {
+  const view = settingsView({ settings: normalizeSettings({ welcome: false }), apiKey: "" }, {});
+  const again = view.querySelector(".welcome-again");
+  assert.strictEqual(again.textContent, labels("en").welcome.open);
+  assert.strictEqual(again.tagName, "BUTTON", "it opens a window of the app, so it is a button and no link");
+});
+
+test("a newer version's page is a link behind what was found, never a button", async () => {
+  const text = labels("en");
+  const url = "https://github.com/mdd335/triglosa/releases/tag/v99.0.0";
+  const view = settingsView({ settings: normalizeSettings({}), apiKey: "" }, {},
+    { findUpdate: async () => ({ newer: true, version: "99.0.0", url }) });
+  document.body.append(view);
+  try {
+    view.querySelector(".update-check").click();
+    await new Promise((done) => setTimeout(done, 20));
+    const link = [...view.querySelectorAll("a.text-link")].find((node) => node.textContent === text.updatesDownload);
+    assert.ok(link, "the way to the download page");
+    assert.strictEqual(link.href, url);
+    assert.ok(link.parentElement.textContent.startsWith(text.updatesFound("99.0.0")));
+    assert.ok(![...view.querySelectorAll("button")].some((node) => node.textContent === text.updatesDownload));
+  } finally {
+    view.remove();
+  }
+});
+
+test("what is about a whole group stands apart from the line under one control", () => {
+  const text = labels("en");
+  const view = settingsView({ settings: normalizeSettings({}), apiKey: "" }, {});
+  const lead = [...view.querySelectorAll(".group-hint")].map((node) => node.textContent);
+  assert.ok(lead.includes(text.shortcutsLead));
+  assert.ok(lead.includes(text.pointerUnreliable));
+  assert.ok(fieldNamed(view, text.permission).querySelector(".hint.standalone").textContent.startsWith(text.permissionTrust));
+  assert.ok(!fieldNamed(view, text.glance).querySelector(".standalone"), "a switch's own line stays as it is");
+});

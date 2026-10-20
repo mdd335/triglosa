@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import { fragmentsForPanel, selectionForPanel } from "../../src/highlights.js";
-import { usableSpot } from "../../src/parse/words.js";
+import { parseMarkedWord, usableSpot } from "../../src/parse/words.js";
 import { collectMarks, markGroups } from "../../src/ui/marking.js";
 
 const state = {
@@ -49,6 +49,32 @@ test("the term repeated back is no spot either", () => {
   /* It stands in the source panel, not in a translation. */
   assert.strictEqual(usableSpot("comité", "comité"), "");
   assert.strictEqual(usableSpot("Comité", "comité"), "");
+});
+
+test("a place the word aligner found is taken as it stands", () => {
+  /* A word that stays what it was — an abbreviation, a name, a number — reads
+     in the translations exactly as the reader picked it, and an English
+     sentence may well open with "A". */
+  const read = (term, spotRaw, placed) => parseMarkedWord({
+    meaningRaw: `${term} | Bedeutung | Eine Erklärung.`, spotRaw, placed, term, code: "es", thirdRaw: "", grammarRaw: "", codes: ["es", "de", "en"],
+  });
+  const kept = read("CNDH", "CNDH | CNDH", true);
+  assert.deepStrictEqual([kept.a, kept.b], ["CNDH", "CNDH"]);
+  const article = read("Un", "Ein | A", true);
+  assert.deepStrictEqual([article.a, article.b], ["Ein", "A"]);
+  const panels = [
+    { code: "es", text: "AMLO pidió una disculpa por la Conquista (CNDH)." },
+    { code: "de", text: "AMLO bat um eine Entschuldigung für die Eroberung (CNDH)." },
+    { code: "en", text: "AMLO asked for an apology for the Conquest (CNDH)." },
+  ];
+  const state = { panels, marked: kept, selection: { panel: 0, start: 42, end: 46 } };
+  for (const index of [1, 2]) {
+    const [found] = selectionForPanel(state, index, ["de", "en"]);
+    assert.strictEqual(panels[index].text.slice(found.start, found.end), "CNDH");
+  }
+  /* The model's own answer is still read with suspicion. */
+  const echoed = read("comité", "comité | A", false);
+  assert.deepStrictEqual([echoed.a, echoed.b], ["", ""]);
 });
 
 test("the reader's panel falls back to the equivalent when the spot is missing", () => {

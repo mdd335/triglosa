@@ -14,6 +14,7 @@ import { bareInfinitive, citationForm, languageLabel, languagePack, writingDirec
 import { languageChoice } from "./language-choice.js";
 import { creditLine, faultText, labels } from "./labels.js";
 import { actions, button, element, lockedNote, pane, reportOn } from "./elements.js";
+import { icon } from "./icons.js";
 import { markLine, markPanel, markGroups } from "./marking.js";
 import { watchSelection } from "./selection.js";
 import { roomForExample } from "../examples.js";
@@ -31,6 +32,18 @@ function showAbbreviation(main, abbreviation) {
     main.append(element("span", "equivalent", abbreviation.translation));
   }
   return true;
+}
+
+/* A verb's base form after an arrow, unless the form in the text already is
+   it: "gehen → gehen" says nothing twice. A form compared by its letters,
+   in either face of the base form — "go" and "to go" alike. */
+function showBase(head, language, form, infinitive) {
+  if (!infinitive) return;
+  const bare = (value) => String(value || "").trim().toLocaleLowerCase();
+  const base = citationForm(language, infinitive);
+  if ([base, bareInfinitive(language, infinitive)].some((face) => bare(face) === bare(form))) return;
+  head.append(element("span", "arrow", "→"));
+  head.append(element("span", "base", base));
 }
 
 /* The italic equivalent beside a term, where it says something the term does
@@ -227,7 +240,7 @@ function originalHeading(text, language, editing) {
   return name ? `${text.original} · ${name}` : text.original;
 }
 
-function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, lookedUpIn, sentences, onSentence }) {
+function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, lookedUpIn, sentences, onSentence, spelling, onSpelling }) {
   /* Headless: this section's heading is the line above the sheet, which holds
      the window's buttons and therefore cannot scroll away with the text. */
   const section = pane({ bare: true });
@@ -247,6 +260,7 @@ function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, l
   marked(box);
   if (onPick) watchSelection(box, 0, onPick);
   if (lookedUpIn) box.after(sentenceLine(lookedUpIn, onPick));
+  if (spelling && onSpelling) box.after(spellingLine(text, spelling, onSpelling));
   if (sentences?.back) section.prepend(neighbourLine(text.previousSentence, "↑", sentences.back, entry, () => onSentence(-1)));
   if (sentences?.next) section.append(neighbourLine(text.nextSentenceLine, "↓", sentences.next, entry, () => onSentence(1)));
   frame.append(actions([
@@ -263,6 +277,29 @@ function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, l
     card ? cardButton(tools, text, entry?.code, card) : null,
   ].filter(Boolean)));
   return section;
+}
+
+/* A looked-up word found misspelled, right under it: corrected, what was
+   typed, which looks it up as typed on a press; only offered, the word
+   offered, to be read on a press. Each a link in the line. On a faint
+   ground in the accent and a step less faint than the sentence under it,
+   so the two read as two things (author 2026-10-16, after both stood as
+   grey lines). */
+function spellingLine(text, { typed, meant, offer }, onSpelling) {
+  const line = element("p", "spelled");
+  line.dir = "auto";
+  if (meant) line.append(icon("done"));
+  const said = meant ? text.correctedFrom(typed) : text.didYouMean(offer);
+  const word = meant ? typed : offer;
+  const at = said.indexOf(word);
+  const press = element("button", "text-link", word);
+  press.type = "button";
+  press.addEventListener("click", () => onSpelling(meant ? { typed } : { offer }));
+  const words = element("span");
+  if (at < 0) words.append(press);
+  else words.append(said.slice(0, at), press, said.slice(at + word.length));
+  line.append(words);
+  return line;
 }
 
 /* The sentence a short text was looked up in, under it, quieter than
@@ -366,8 +403,7 @@ function lookUpButton(tools, text, language, infinitive, term) {
 function verbRow(verb, index, { text, tools, sourceLanguage, sentence, translation, spotOf, moreOf, onMore, onExample, reader }) {
   const { line, main, head } = newRow("vmark" + (index % 3));
   head.append(element("span", "term mark vmark" + (index % 3), verb.form));
-  head.append(element("span", "arrow", "→"));
-  head.append(element("span", "base", citationForm(sourceLanguage, verb.infinitive)));
+  showBase(head, sourceLanguage, verb.form, verb.infinitive);
   showEquivalent(head, [verb.form, verb.infinitive], verb.meaning);
   const grammar = [verb.person, verb.tense].filter(Boolean).join(" · ");
   if (grammar) head.append(element("span", "grammar", grammar));
@@ -402,10 +438,7 @@ function termRow(word, index, { text, tools, sourceLanguage, sentence, translati
   /* A looked-up verb form (ask.js, lookupVerb): drawn the way a verb row
      is, its base form after an arrow and person and tense for a class. */
   const verb = word.verb;
-  if (verb) {
-    head.append(element("span", "arrow", "→"));
-    head.append(element("span", "base", citationForm(sourceLanguage, verb.infinitive)));
-  }
+  if (verb) showBase(head, sourceLanguage, word.text, verb.infinitive);
   if (!showAbbreviation(head, word.abbreviation) && sourceLanguage !== tools.reader) {
     showEquivalent(head, [word.text, verb?.infinitive].filter(Boolean), word.meaning);
   }
@@ -446,10 +479,7 @@ function markedRow(marked, { text, tools, wordLanguage, sentence, translation, o
   if (marked.passage) return passageRow(marked, { text, tools, wordLanguage, sentence, translation });
   const { line, main, head } = newRow("sel");
   head.append(element("span", "term", marked.text));
-  if (marked.infinitive) {
-    head.append(element("span", "arrow", "→"));
-    head.append(element("span", "base", citationForm(wordLanguage, marked.infinitive)));
-  }
+  showBase(head, wordLanguage, marked.text, marked.infinitive);
   if (!showAbbreviation(head, marked.abbreviation) && wordLanguage !== tools.reader) {
     showEquivalent(head, [marked.text, marked.infinitive], marked.meaning);
   }
@@ -712,7 +742,7 @@ export function renderReading(sheet, state, handlers) {
   return draw(sheet, state, handlers);
 }
 
-function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, onFold, onMore, onExample, sentences, onSentence }) {
+function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, onFold, onMore, onExample, sentences, onSentence, onSpelling }) {
   const text = labels(settings.languages[0]);
   sheet.textContent = "";
 
@@ -775,6 +805,8 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
         aloud: state.short,
         sentences,
         onSentence,
+        spelling: state.short ? state.spelling : null,
+        onSpelling,
         lookedUpIn: state.short && state.sentence
           ? {
               ...state.sentence,
@@ -791,7 +823,7 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
               reader: tools.reader,
               alternatives: readerPanel?.alternatives,
               verb: lookedUpVerb(state),
-              sentence: state.sentence?.text || "",
+              sentence: state.sentence?.apart ? "" : state.sentence?.text || "",
             })
           : null,
       }));
@@ -897,14 +929,16 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
   const appendMarked = () => {
     const marked = state.marked;
     const panel = state.panels[state.selection.panel];
-    const wordLanguage = panel?.code;
+    /* Picked in a sentence of another language than the looked-up word. */
+    const ownSentence = state.selection.inSentence && state.sentence?.apart ? { code: state.sentence.code } : null;
+    const wordLanguage = (ownSentence || panel)?.code;
     /* A word picked out of a dictionary line stands in that line, not in a
        sentence of the panel's. */
     const picked = state.selection.entry;
     const pickedFrom = state.selection.inSentence
       ? state.sentence?.text
       : picked == null ? panel?.text : panel?.alternatives?.[picked]?.text;
-    const named_ = panel ? named(panel) : "";
+    const named_ = ownSentence || panel ? named(ownSentence || panel) : "";
     const area = appendSection({
       name: MARKED,
       title: named_ ? `${text.marked} · ${named_}` : text.marked,
@@ -947,7 +981,7 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
     if (about("terms")) {
       /* The panels hold the word's translation, not the sentence's: the
          sentence goes on a card as it stands. */
-      const inSentence = state.sentence ? { ...context, sentence: state.sentence.text, translation: "" } : context;
+      const inSentence = state.sentence && !state.sentence.apart ? { ...context, sentence: state.sentence.text, translation: "" } : context;
       fold(appendSection({
         title: text.term,
         status: state.status.words,

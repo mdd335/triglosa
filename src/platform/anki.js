@@ -163,6 +163,18 @@ export function createAnkiBackend(post = ankiPost) {
       return counted.sort((one, other) => other.cards - one.cards);
     },
 
+    /* Anki's own sync button, pressed from here. AnkiConnect answers at
+       once and Anki syncs on its own time, so nothing waits for it; a
+       failure changes nothing about the card, which is in the deck. */
+    async sync() {
+      try {
+        const r = await call("sync");
+        return !!r && !r.error;
+      } catch {
+        return false;
+      }
+    },
+
     /* Duplicates are Anki's own business: it compares the note type's first
        field, whichever of the three the reader put there. */
     async add(card, { deck, noteType, fields }) {

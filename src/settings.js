@@ -9,7 +9,7 @@
    to the system keychain. */
 
 import { MAX_PANELS } from "./panels.js";
-import { SUPPORTED, isSupported } from "./languages/index.js";
+import { SUPPORTED, WITHOUT_PACK, isChoosable, isSupported } from "./languages/index.js";
 import { defaultHotkey, isHotkey } from "./hotkey.js";
 import { SEARCH_URLS, SYSTEM_SEARCH } from "./platform/search.js";
 
@@ -125,7 +125,10 @@ export const DEFAULTS = {
        raw one has the way back on the same place. Off, the wand stays and
        the card is only improved when it is pressed. */
     improve: true,
-    anki: { enabled: false, deck: "", noteType: "", fields: { term: "", meaning: "", note: "" } },
+    /* `sync` asks Anki to synchronise after every card it took. Off: it is
+       Anki's own sync button, and a reader not logged in to AnkiWeb gets
+       Anki's login window with every card. */
+    anki: { enabled: false, deck: "", noteType: "", fields: { term: "", meaning: "", note: "" }, sync: false },
   },
   /* Preset, because a shortcut nobody has set is a feature nobody uses. What
      is stored is the physical key together with the label the reader saw —
@@ -150,10 +153,12 @@ export const DEFAULTS = {
      said — read as "yes, where macOS allows it". What is under the pointer
      has shortcuts and a switch of its own and does not hang on this. */
   directSelection: null,
-  /* A force click on a Mac's trackpad looks up the word under the pointer,
-     or the selection it lands in. Off until the reader turns it on: it needs
-     the permission, and Apple's Look Up answers the same click until the
-     reader moves Look Up elsewhere. */
+  /* A force click on a Mac's trackpad, standing in one of the two fields
+     above in place of a combination: "word" looks up the word under the
+     pointer, or the selection it lands in, "sentence" reads the sentence
+     there. Off until the reader sets it: it needs the permission, and
+     Apple's Look Up answers the same click until the reader moves Look Up
+     elsewhere. */
   forceClick: false,
   /* The sentence around one to three looked-up words goes to the model with
      them (sentence.js). On, because a word without its sentence is the
@@ -184,6 +189,8 @@ export const DEFAULTS = {
   /* The menu bar symbol alone by default: a window lying over another
      program's full screen should not bring a Dock icon and a Space along. */
   appIcon: "menubar",
+  /* The first steps open at every start until the reader says not to. */
+  welcome: true,
 };
 
 /* Whether the permission is to be used for the selection, where macOS
@@ -202,7 +209,7 @@ export function normalizeSettings(stored, { systemLanguages } = {}) {
   const languages = [];
   for (const code of Array.isArray(raw.languages) ? raw.languages : []) {
     const c = String(code || "").toLowerCase();
-    if (isSupported(c) && !languages.includes(c)) languages.push(c);
+    if (isChoosable(c) && !languages.includes(c)) languages.push(c);
     if (languages.length === MAX_PANELS) break;
   }
   /* The first entry has to be a language explanations can be written in, and
@@ -236,12 +243,13 @@ export function normalizeSettings(stored, { systemLanguages } = {}) {
     wordHotkey: normalizeHotkey(raw, "wordHotkey"),
     sentenceHotkey: normalizeHotkey(raw, "sentenceHotkey"),
     directSelection: typeof raw.directSelection === "boolean" ? raw.directSelection : null,
-    forceClick: raw.forceClick === true,
+    forceClick: normalizeForceClick(raw),
     withSentence: raw.withSentence !== false,
     nextSentence: raw.nextSentence === true,
     /* Whoever switched off closing on a focus change wanted the window to
        stay: that is a pinned window now. */
     pinned: typeof raw.pinned === "boolean" ? raw.pinned : raw.closeOnBlur === false,
+    welcome: raw.welcome !== false,
     search: SEARCH_URLS[raw.search] ? raw.search : SYSTEM_SEARCH,
     fitWindow: raw.fitWindow !== false,
     kept: KEPT_READINGS.includes(raw.kept) ? raw.kept : DEFAULTS.kept,
@@ -278,6 +286,7 @@ function normalizeCards(raw) {
         meaning: word(fields.meaning),
         note: word(fields.note),
       },
+      sync: stored.sync === true,
     },
   };
 }
@@ -288,6 +297,20 @@ function normalizeHotkey(raw, key) {
   }
   if (key in raw && raw[key] === null) return null;
   return DEFAULTS[key];
+}
+
+/* Which of the two things under the pointer a force click does, by the
+   field it stands in. */
+export const FORCE_CLICK = { wordHotkey: "word", sentenceHotkey: "sentence" };
+
+/* One or the other, never both for the same thing: where a combination is
+   set as well, the combination stays. A file of the time the click was a
+   switch (`true`) meant the word. */
+function normalizeForceClick(raw) {
+  const wanted = raw.forceClick === true ? "word" : raw.forceClick;
+  const key = Object.keys(FORCE_CLICK).find((name) => FORCE_CLICK[name] === wanted);
+  if (!key || isHotkey(raw[key])) return false;
+  return wanted;
 }
 
 /* The combinations by what they do, in the order the settings show them
@@ -302,7 +325,7 @@ function normalizeLevels(stored) {
   const out = {};
   for (const [code, level] of Object.entries(raw)) {
     const c = String(code || "").toLowerCase();
-    if (isSupported(c) && LEVELS.includes(level)) out[c] = level;
+    if (isChoosable(c) && LEVELS.includes(level)) out[c] = level;
   }
   return out;
 }
@@ -315,18 +338,22 @@ export function levelFor(settings, code) {
 
 /* Whether a section is filled for a text in this language.
 
-   The reader's own language only under "all". A text in a language the app
-   does not support has no code: the terms are asked about it under "foreign"
-   and "all" — the question needs nothing from a pack that it cannot do
-   without — and the verbs never, because a verb table is made of what only a
-   pack knows: the persons, the tense names, the auxiliaries. A supported
-   language with no place in the list is named only by the two widest answers,
-   the same rule as offersCard. */
+   The reader's own language only under "all". The verbs only for a language
+   with a pack, because a verb table is made of what only a pack knows: the
+   persons, the tense names, the auxiliaries, the verbs of the first weeks.
+   Without one a third of its rows were pointless or wrong and the person
+   column of a language without persons was filled all the same (run
+   forty-nine) - so a language the reader set without a pack has none, and
+   neither has a text in a language nobody could name. The terms are asked
+   about any language: the question needs nothing from a pack that it cannot
+   do without. A language with no place in the list is named only by the two
+   widest answers, the same rule as offersCard. */
 export function showsSection(settings, section, sourceCode) {
   const clean = normalizeSettings(settings);
   const mode = clean.show[section];
   const wide = mode === "foreign" || mode === "all";
   if (mode === "never") return false;
+  if (section === "verbs" && !isSupported(sourceCode)) return false;
   if (!sourceCode) return section === "terms" && wide;
   if (sourceCode === clean.languages[0]) return mode === "all";
   if (sourceCode === clean.languages[1]) return mode === "second" || wide;
@@ -335,10 +362,11 @@ export function showsSection(settings, section, sourceCode) {
 }
 
 /* Which foreign languages may be offered next to a chosen first language:
-   everything supported except that one. The other first-language option
-   stays in the list — someone reading German may well be learning English. */
+   every one with a pack except that one, then the ones without. The other
+   first-language option stays in the list — someone reading German may well
+   be learning English. */
 export function choosableLanguages(firstLanguage) {
-  return SUPPORTED.filter((code) => code !== firstLanguage);
+  return SUPPORTED.filter((code) => code !== firstLanguage).concat(WITHOUT_PACK);
 }
 
 /* Every direction the device could be asked for. Any configured language may

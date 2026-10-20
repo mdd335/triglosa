@@ -22,3 +22,5 @@ tests/__pycache__/
 # A model key, kept out of the repository by name.
 openrouter_key
 *_key
+tests/spelling-windows/target/
+tests/spelling-windows/Cargo.lock

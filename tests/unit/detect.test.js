@@ -3,8 +3,10 @@ import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { IDENTIFIER_THRESHOLD, MIN_WORDS, chosenLanguage, detectByStopwords, detectLanguage, keepsChosenLanguage, readIdentified } from "../../src/detect.js";
-import { SUPPORTED } from "../../src/languages/index.js";
+import { IDENTIFIER_THRESHOLD, MIN_WORDS, agreedForeign, asConfigured, chosenLanguage, detectByModel, detectByStopwords, detectLanguage, keepsChosenLanguage, ownWhereAnotherIsNamed, readIdentified } from "../../src/detect.js";
+import { readLeader } from "../../src/platform/translation.js";
+import { SUPPORTED, lettersInScriptOf } from "../../src/languages/index.js";
+import { detectPrompt } from "../../src/prompts/detect.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const corpus = JSON.parse(fs.readFileSync(path.join(here, "..", "corpus.json"), "utf8"));
@@ -113,7 +115,7 @@ test("a supported language answered by its name is still that language", async (
   const other = await detectLanguage("xx", {
     languages: ["de", "en"], reader: "de", translation: null, llm: { chat: async () => "Niederländisch" },
   });
-  assert.deepStrictEqual(other, { code: "", name: "Niederländisch", guesses: [], by: "model" });
+  assert.deepStrictEqual(other, { code: "", name: "Niederländisch", tag: "nl", guesses: [], by: "model" });
 });
 
 test("French with no article in front of its nouns is not taken for Spanish", () => {
@@ -198,7 +200,7 @@ test("a Chinese text with a few English words in it is not taken for English", (
 test("the identifier decides only where it is sure, and of a language the app offers", () => {
   assert.deepStrictEqual(readIdentified([["it", 0.97], ["es", 0.02]]), { code: "it", foreign: false });
   assert.deepStrictEqual(readIdentified([["it", IDENTIFIER_THRESHOLD - 0.01], ["es", 0.1]]), { code: "", foreign: false });
-  assert.deepStrictEqual(readIdentified([["fa", 0.99], ["ar", 0.01]]), { code: "", foreign: true });
+  assert.deepStrictEqual(readIdentified([["fa", 0.99], ["ar", 0.01]]), { code: "", foreign: true, other: "fa" });
   for (const nothing of [[], null, undefined, [[]]]) {
     assert.deepStrictEqual(readIdentified(nothing), { code: "", foreign: false });
   }
@@ -245,10 +247,128 @@ test("sure of a language the app does not offer, the identifier sends the text p
     },
   };
   const found = await detectLanguage("سلام", { ...asked, llm: { chat: async () => "Persisch" } });
-  assert.deepStrictEqual(found, { code: "", name: "Persisch", guesses: ["ar"], by: "model" });
-  /* With no model to ask after it, the recognizer is all there is. */
+  assert.deepStrictEqual(found, { code: "", name: "Persisch", tag: "fa", guesses: ["ar"], by: "model" });
+  /* With no model to ask after it, what the identifier is sure of stands:
+     the recognizer's neighbour would be translated as what it is not. */
   const alone = await detectLanguage("سلام", { ...asked, llm: null });
-  assert.strictEqual(alone.code, "ar");
+  assert.deepStrictEqual(alone, { code: "", name: "Persisch", tag: "fa", guesses: ["ar"], by: "text" });
   const unreachable = await detectLanguage("سلام", { ...asked, llm: { chat: async () => { throw new Error("offline"); } } });
-  assert.strictEqual(unreachable.code, "ar");
+  assert.strictEqual(unreachable.tag, "fa");
+});
+
+test("a language the app does not offer is named without the model where identifier and recognizer agree", async () => {
+  assert.strictEqual(agreedForeign([["nl", 0.99]], { code: "nl", confidence: 0.4 }), "nl");
+  assert.strictEqual(agreedForeign([["nl", 0.48]], { code: "nl", confidence: 1 }), "nl");
+  /* Neither sure: a German word comes back Dutch from both. */
+  assert.strictEqual(agreedForeign([["nl", 0.27]], { code: "nl", confidence: 0.47 }), "");
+  assert.strictEqual(agreedForeign([["be", 0.99]], { code: "ru", confidence: 0.99 }), "");
+  assert.strictEqual(agreedForeign([["es", 0.5]], { code: "es", confidence: 0.95 }), "", "one of the eight is not this rule's");
+  assert.strictEqual(agreedForeign(null, null), "");
+  assert.deepStrictEqual(readLeader("ca 0.795\nes 0.127"), { code: "ca", confidence: 0.795 });
+  assert.deepStrictEqual(readLeader("zh-Hans 0.99\nja 0.01"), { code: "zh", confidence: 0.99 });
+  assert.deepStrictEqual(readLeader(""), { code: "", confidence: 0 });
+
+  let asked = 0;
+  const setup = (top, lines) => ({
+    languages: ["de", "en", "es"],
+    reader: "de",
+    identifier: { identify: async () => top },
+    translation: {
+      detect: async (text, candidates, preferred, report) => {
+        report({ guesses: [], unsure: "", leader: readLeader(lines) });
+        return "";
+      },
+    },
+    llm: { chat: async () => { asked++; return "Portugiesisch"; } },
+  });
+  const found = await detectLanguage("lloret", setup([["ca", 0.96], ["ast", 0.01]], "ca 0.795\nes 0.127"));
+  assert.deepStrictEqual(found, { code: "", name: "Katalanisch", tag: "ca", guesses: [], by: "text" });
+  assert.strictEqual(asked, 0);
+  /* Where they differ the model is asked as ever. */
+  const differing = await detectLanguage("cykel", setup([["da", 0.9], ["cs", 0.07]], "sv 0.71\nda 0.18"));
+  assert.strictEqual(differing.by, "model");
+  assert.strictEqual(asked, 1);
+});
+
+test("a language the model names in words keeps its code where the platform knows the name", async () => {
+  const asked = { languages: ["de", "es", "en"], reader: "de", translation: null };
+  const found = await detectLanguage("lloret", { ...asked, llm: { chat: async () => "Katalanisch" } });
+  assert.deepStrictEqual({ code: found.code, name: found.name, tag: found.tag }, { code: "", name: "Katalanisch", tag: "ca" });
+  const english = await detectLanguage("fiets", { ...asked, llm: { chat: async () => "Dutch." } });
+  assert.strictEqual(english.tag, "nl");
+  const unheard = await detectLanguage("xx", { ...asked, llm: { chat: async () => "Klingonisch" } });
+  assert.strictEqual(unheard.tag, undefined);
+});
+
+test("a text's letters are held against the script a language is written in", () => {
+  assert.strictEqual(lettersInScriptOf("es", "逾期"), "none");
+  assert.strictEqual(lettersInScriptOf("ja", "可決"), "all");
+  assert.strictEqual(lettersInScriptOf("ja", "ヘトヘト"), "all");
+  assert.strictEqual(lettersInScriptOf("ko", "눈치"), "all");
+  assert.strictEqual(lettersInScriptOf("fa", "تعارف"), "all");
+  assert.strictEqual(lettersInScriptOf("hi", "जुगाड़"), "all");
+  assert.strictEqual(lettersInScriptOf("de", "Über 可"), "some");
+  assert.strictEqual(lettersInScriptOf("de", "1984 !"), "");
+  assert.strictEqual(lettersInScriptOf("", "word"), "");
+});
+
+test("the identifier is not believed about a language none of whose script the text holds", () => {
+  assert.deepStrictEqual(readIdentified([["es", 0.99]], { text: "逾期" }), { code: "", foreign: false });
+  assert.deepStrictEqual(readIdentified([["es", 0.99]], { text: "plazo vencido" }), { code: "es", foreign: false });
+});
+
+test("a language without a pack that the reader set is named by the identifier like one of the eight", async () => {
+  const languages = ["de", "nl"];
+  assert.deepStrictEqual(readIdentified([["nl", 0.99]], { languages, text: "Het regent." }),
+    { code: "", foreign: true, other: "nl", own: true });
+  assert.deepStrictEqual(readIdentified([["nl", 0.99]], { languages: ["de", "es"], text: "Het regent." }),
+    { code: "", foreign: true, other: "nl" });
+  let asked = 0;
+  const llm = { chat: async () => { asked += 1; return "nl"; } };
+  const found = await detectLanguage("Het had de hele nacht geregend.", {
+    languages, reader: "de", translation: null, llm, identifier: { identify: async () => [["nl", 0.99]] },
+  });
+  assert.strictEqual(found.code, "nl");
+  assert.strictEqual(found.name, "Niederländisch");
+  assert.strictEqual(found.by, "text");
+  assert.strictEqual(asked, 0, "nobody else is asked");
+});
+
+test("a text named as a language the reader set takes that language, whoever named it", () => {
+  const languages = ["de", "nl", "es"];
+  assert.strictEqual(asConfigured({ code: "", name: "Niederländisch", tag: "nl" }, languages).code, "nl");
+  assert.strictEqual(asConfigured({ code: "", iso: "nl", name: "Niederländisch" }, languages).code, "nl");
+  assert.strictEqual(asConfigured({ code: "", name: "Dänisch", tag: "da" }, languages).code, "");
+  assert.strictEqual(asConfigured({ code: "es", name: "Spanisch" }, languages).code, "es");
+  /* Never the reader's own language by this way: it has a pack and a code. */
+  assert.strictEqual(asConfigured({ code: "", tag: "de" }, languages).code, "");
+});
+
+test("the model is offered the reader's language without a pack, and its code is an answer", async () => {
+  const prompt = detectPrompt({ languages: ["de", "nl"], reader: "de" });
+  assert.ok(prompt.includes("nl (Dutch)"));
+  assert.ok(prompt.includes("a correct word or phrase in German, Dutch"));
+  assert.strictEqual(detectPrompt({ languages: ["de", "es"], reader: "de" }).includes("Dutch)"), false);
+  const answer = (said, languages) => detectByModel("gezellig", { languages, reader: "de", llm: { chat: async () => said } });
+  assert.deepStrictEqual(await answer("nl", ["de", "nl"]), { code: "", name: "Niederländisch", tag: "nl" });
+  assert.strictEqual((await answer("nl", ["de", "es"])).tag, undefined, "no answer for a reader who did not set it");
+});
+
+test("a looked-up word named as some third language goes to the reader's own without a pack", () => {
+  const japanese = { languages: ["de", "ja"], reader: "de" };
+  const taken = ownWhereAnotherIsNamed({ code: "", name: "Chinesisch", tag: "zh", by: "model" }, "可決", japanese);
+  assert.strictEqual(taken.code, "ja");
+  assert.strictEqual(taken.name, "Japanisch");
+  const dutch = { languages: ["en", "nl"], reader: "en" };
+  assert.strictEqual(ownWhereAnotherIsNamed({ code: "", name: "Danish", tag: "da" }, "opdagen", dutch).code, "nl");
+  assert.strictEqual(ownWhereAnotherIsNamed({ code: "", name: "" }, "eline sağlık", { languages: ["de", "tr"], reader: "de" }).code, "tr");
+  /* One of the eight stands, and so does a sentence, another script and a
+     reader with nothing of the kind. */
+  assert.strictEqual(ownWhereAnotherIsNamed({ code: "de", name: "German" }, "dringende", dutch).code, "de");
+  assert.strictEqual(ownWhereAnotherIsNamed({ code: "", name: "Danish", tag: "da" }, "Jeg har ikke tid i dag", dutch).code, "");
+  assert.strictEqual(ownWhereAnotherIsNamed({ code: "", name: "Chinese", tag: "zh" }, "可決", dutch).code, "");
+  assert.strictEqual(ownWhereAnotherIsNamed({ code: "", name: "Danish", tag: "da" }, "opdagen", { languages: ["en", "es"], reader: "en" }).code, "");
+  /* Two such languages: the one named stays where it is one of them. */
+  const both = { languages: ["en", "zh", "ja"], reader: "en" };
+  assert.strictEqual(ownWhereAnotherIsNamed({ code: "", name: "Japanese", tag: "ja" }, "可決", both).code, "");
 });

@@ -18,6 +18,7 @@ import {
   LEVELS,
   APP_ICONS,
   CARD_MODES,
+  FORCE_CLICK,
   HOTKEYS,
   KEPT_READINGS,
   SHOW_MODES,
@@ -27,7 +28,7 @@ import {
   neededPairs,
   usesPermission,
 } from "../settings.js";
-import { displayName, languageLabel } from "../languages/index.js";
+import { displayName, isSupported, languageLabel } from "../languages/index.js";
 import { createLlmBackend } from "../platform/llm.js";
 import {
   HELPER_URL,
@@ -61,7 +62,8 @@ import { CARD_FIELDS, guessFieldMap } from "../card.js";
 import { hotkeyFrom, hotkeyLabel, shortcutTaken } from "../hotkey.js";
 import { faultOf } from "../faults.js";
 import { CAPTURE_CODE_URL, HELP_URL, ISSUES_URL, MODEL_HELP_URL, PROJECT_URL, checkForUpdate } from "../updates.js";
-import { faultText, labels } from "./labels.js";
+import { faultText, labels, windowTitle } from "./labels.js";
+import { openWelcome } from "../platform/windows.js";
 import { keyHint } from "../platform/keychain.js";
 import { installUpdate } from "../platform/update.js";
 import { diagnosticsText } from "../diagnostics.js";
@@ -84,7 +86,7 @@ let requested = false;
    this window is open is not a case worth carrying state for. */
 let keyboard = { layout: null, taken: [] };
 
-export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { permission = accessibilityGranted } = {}) {
+export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { permission = accessibilityGranted, findUpdate = latestVersion } = {}) {
   const reader = settings.languages[0];
   const text = labels(reader);
   const view = element("div", "settings");
@@ -146,16 +148,27 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   first.addEventListener("change", () => change(0, first.value));
   view.append(field({ label: text.firstLanguage, control: first }));
 
-  const second = select(alphabetical(choosableLanguages(settings.languages[0])), settings.languages[1]);
+  /* The languages the app is tuned for first, under a heading of their own,
+     then the others under theirs: which kind a language is has to be seen
+     where it is chosen. And said once more under the choice, with what it
+     means, for as long as such a language stands there. */
+  const grouped = (codes) => [
+    { group: text.languagesTuned, options: alphabetical(codes.filter(isSupported)) },
+    { group: text.languagesOther, options: alphabetical(codes.filter((code) => !isSupported(code))) },
+  ];
+  const hintFor = (code) => (code && !isSupported(code) ? text.otherLanguageHint : "");
+
+  const second = select(grouped(choosableLanguages(settings.languages[0])), settings.languages[1]);
   second.classList.add("short");
   second.addEventListener("change", () => change(1, second.value));
   view.append(field({
     label: text.secondLanguage,
     control: languageRow(second, settings.languages[1]),
+    hint: hintFor(settings.languages[1]),
   }));
 
   const thirdOptions = [{ value: "", label: text.noThird }].concat(
-    alphabetical(choosableLanguages(settings.languages[0])
+    grouped(choosableLanguages(settings.languages[0])
       .filter((code) => code !== settings.languages[1])),
   );
   const third = select(thirdOptions, settings.languages[2] || "");
@@ -164,6 +177,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   view.append(field({
     label: text.thirdLanguage,
     control: languageRow(third, settings.languages[2]),
+    hint: hintFor(settings.languages[2]),
   }));
 
   /* ---- the model ---- */
@@ -183,7 +197,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   const endpointRow = element("div", "with-presets");
   endpointRow.append(endpoint);
   for (const preset of ENDPOINT_PRESETS) {
-    const button = element("button", "quiet", preset.label);
+    const button = element("button", null, preset.label);
     button.addEventListener("click", () => {
       endpoint.value = preset.endpoint;
       onChange({ ...settings, endpoint: preset.endpoint });
@@ -220,7 +234,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   const keyRow = element("div", "with-presets");
   keyRow.append(key);
   if (apiKey) {
-    const forget = element("button", "quiet", text.forgetKey);
+    const forget = element("button", null, text.forgetKey);
     forget.addEventListener("click", async () => {
       key.value = "";
       typed = null;
@@ -416,11 +430,15 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   view.append(group(text.groupSections));
 
   /* The same places a card is offered by, and the third left out where there
-     is no third language, as it is there. */
+     is no third language, as it is there. The verbs leave out a place whose
+     language has no pack: that section is never drawn for it. */
   const showRow = (section, label, hint) => {
     const names = section === "terms" ? text.termModes : text.showModes;
+    const place = { second: settings.languages[1], third: settings.languages[2] };
+    const offered = (mode) => !(mode in place)
+      || (!!place[mode] && (section !== "verbs" || isSupported(place[mode])));
     const node = select(
-      SHOW_MODES.filter((mode) => mode !== "third" || settings.languages[2])
+      SHOW_MODES.filter(offered)
         .map((mode) => ({ value: mode, label: names[mode] })),
       settings.show[section],
     );
@@ -541,7 +559,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   }));
   if (settings.cards.mode !== "never") view.append(ankiFields(settings, text, onChange));
 
-  view.append(...aboutFields(text, { settings, apiKey }));
+  view.append(...aboutFields(text, { settings, apiKey, findUpdate }));
 
   return view;
 }
@@ -553,7 +571,19 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
 function shortcutField({ key, label, lead }, { settings, text, onChange }) {
   const input = textInput("", text.hotkeyEmpty);
   input.readOnly = true;
-  const shown = () => hotkeyLabel(settings[key], keyboard.layout);
+  /* The Mac's force click, in the two fields about what is under the
+     pointer: written into the field by the button beside it, in place of a
+     combination, and in one of the two at a time. */
+  const click = onWindows() ? null : FORCE_CLICK[key];
+  const clicked = !!click && settings.forceClick === click;
+  /* Whatever is written into this field takes the click out of it; set
+     here, the click leaves the other field. */
+  const withClick = (next) => ({
+    ...settings,
+    ...next,
+    forceClick: "forceClick" in next ? next.forceClick : clicked ? false : settings.forceClick,
+  });
+  const shown = () => (clicked ? text.forceClick : hotkeyLabel(settings[key], keyboard.layout));
   input.value = shown();
   const conflict = element("p", "hint");
 
@@ -605,16 +635,24 @@ function shortcutField({ key, label, lead }, { settings, text, onChange }) {
     }
     recorded = true;
     input.blur();
-    onChange({ ...settings, [key]: pressed });
+    onChange(withClick({ [key]: pressed }));
   });
   const line = element("div", "with-presets");
   line.append(input);
-  if (settings[key]) {
-    const clear = element("button", "quiet", text.hotkeyClear);
-    clear.addEventListener("click", () => onChange({ ...settings, [key]: null }));
+  if (click && !clicked) {
+    const force = element("button", "force-click", text.forceClick);
+    force.addEventListener("click", () => onChange(withClick({ [key]: null, forceClick: click })));
+    line.append(force);
+  }
+  if (settings[key] || clicked) {
+    const clear = element("button", null, text.hotkeyClear);
+    clear.addEventListener("click", () => onChange(withClick({ [key]: null })));
     line.append(clear);
   }
   const row = field({ label, hint: lead, control: line });
+  /* Only while it stands here: that is when Apple's Look Up answers the
+     same click, which this says how to move. */
+  if (clicked) row.append(element("p", "hint", text.forceClickHint));
   row.append(conflict);
   const refresh = () => {
     if (row.ownerDocument.activeElement !== input) input.value = shown();
@@ -628,23 +666,25 @@ const HOTKEY_NAMES = (text) => Object.fromEntries(HOTKEYS.map((key) => [key, tex
    rebuilds the view, and the answer would otherwise vanish with it. */
 let update = null;
 
+const latestVersion = async () => checkForUpdate(await appVersion(), await appFetch());
+
 /* Which version this is, whether there is a newer one, and the way to the
    project. The group the menu bar's update entry opens this window at — see
    showAbout in settings-window.js. */
-function aboutFields(text, { settings, apiKey }) {
+function aboutFields(text, { settings, apiKey, findUpdate }) {
   const heading = group(text.groupAbout);
   heading.id = "about";
 
-  const version = element("p", "hint");
+  const version = element("p", "hint standalone");
   appVersion().then((value) => { version.textContent = value ? text.aboutVersion(value) : ""; });
 
   const result = element("p", "hint");
   const check = element("button", null, text.updatesCheck);
   check.className = "update-check";
-  const download = element("button", "quiet", text.updatesDownload);
-  /* Installing is offered only inside the app, and the download page stays
-     beside it: a release made before the app could install itself has
-     nothing to install from, and a reader may prefer the page anyway. */
+  /* Installing is offered only inside the app, and the way to the download
+     page stays behind what was found: a release made before the app could
+     install itself has nothing to install from, and a reader may prefer the
+     page anyway. */
   const install = element("button", null, text.updatesInstall);
   install.className = "update-check";
   const installed = () => {
@@ -656,18 +696,15 @@ function aboutFields(text, { settings, apiKey }) {
     return text.updatesInstallFailed(fault.detail);
   };
   const show = () => {
-    download.remove();
     install.remove();
     if (!update) return void (result.textContent = "");
     if (update.failed) return void (result.textContent = text.updatesFailed(update.status));
     if (!update.newer) return void (result.textContent = text.updatesNone);
-    result.textContent = installed();
-    download.onclick = () => openUrl(update.url);
+    result.replaceChildren(installed(), " ", textLink(text.updatesDownload, update.url));
     if (insideApp() && update.installFault?.kind !== "none") {
       install.disabled = !!update.installing;
       buttons.append(install);
     }
-    buttons.append(download);
   };
   install.addEventListener("click", async () => {
     Object.assign(update, { installing: true, percent: null, installFault: null });
@@ -688,7 +725,7 @@ function aboutFields(text, { settings, apiKey }) {
     check.disabled = true;
     result.textContent = text.updatesChecking;
     try {
-      update = await checkForUpdate(await appVersion(), await appFetch());
+      update = await findUpdate();
     } catch (error) {
       /* The number where GitHub answered with one; "Failed to fetch"
          explains nothing, so a request that never arrived gets no bracket. */
@@ -711,7 +748,7 @@ function aboutFields(text, { settings, apiKey }) {
   links.append(...text.aboutLinks((place, word) => textLink(word, urls[place])));
   /* What a problem report needs, copied for the reader to paste — nothing is
      sent from here. Under the sentence that leads to the issues. */
-  const diagnostics = element("button", "quiet", text.diagnosticsCopy);
+  const diagnostics = element("button", null, text.diagnosticsCopy);
   diagnostics.addEventListener("click", () => reportOn(diagnostics, async () => copyText(diagnosticsText({
     version: await appVersion(),
     report: await systemReport(),
@@ -723,8 +760,13 @@ function aboutFields(text, { settings, apiKey }) {
   const diagnosticsRow = element("div", "with-presets diagnostics");
   diagnosticsRow.append(diagnostics);
   const linkRow = element("div", "field");
+  /* The first steps again, for whoever said not to show them at a start. */
+  const again = element("button", "welcome-again", text.welcome.open);
+  again.addEventListener("click", () => openWelcome(windowTitle(text.welcome.steps)));
+  const steps = element("div", "field");
+  steps.append(again);
   linkRow.append(links, diagnosticsRow, element("p", "hint", text.diagnosticsHint));
-  return [heading, row, linkRow];
+  return [heading, row, steps, linkRow];
 }
 
 /* A link inside a sentence, opened in the browser rather than in this
@@ -816,7 +858,7 @@ function ankiFields(settings, text, onChange) {
         anki = null;
         draw();
       });
-      const again = element("button", "quiet", text.ankiRecheck);
+      const again = element("button", null, text.ankiRecheck);
       again.addEventListener("click", () => { anki = null; draw(); });
       buttons.append(start, again);
       body.append(buttons);
@@ -833,6 +875,11 @@ function ankiFields(settings, text, onChange) {
     }
     body.append(noteTypeField(anki, settings, text, save, backend));
     if (config.noteType) body.append(mappingField(config, settings, text, save, backend));
+    body.append(field({
+      label: text.ankiSync,
+      hint: text.ankiSyncHint,
+      control: switchFor(config.sync, text, (on) => save({ sync: on })),
+    }));
   }
 
   draw();
@@ -858,7 +905,7 @@ function deckField(decks, config, text, save, redraw) {
        window is. */
     name.addEventListener("change", () => { typingDeck = false; save({ deck: name.value }); });
     row.append(name);
-    const back = element("button", "quiet", text.ankiDeckList);
+    const back = element("button", null, text.ankiDeckList);
     back.addEventListener("click", () => { typingDeck = false; save({ deck: "" }); });
     row.append(back);
     return field({ label: text.ankiDeck, hint: text.ankiDeckHint, control: row });
@@ -1005,7 +1052,7 @@ let permissionGranted = false;
 function permissionFields({ settings, text, onChange, onDirect = () => {}, reading = [], permission }) {
   const box = element("div", "field");
   box.append(element("label", null, text.permission));
-  const trust = element("p", "hint", `${text.permissionTrust} `);
+  const trust = element("p", "hint standalone", `${text.permissionTrust} `);
   trust.append(textLink(text.permissionCode, CAPTURE_CODE_URL));
   const buttons = element("div", "with-presets");
   /* Whether macOS grants it, under the buttons that change that. */
@@ -1026,7 +1073,7 @@ function permissionFields({ settings, text, onChange, onDirect = () => {}, readi
     for (const row of options) row.style.display = granted ? "" : "none";
     onDirect(granted && usesPermission(settings));
     buttons.replaceChildren();
-    const open = element("button", "quiet", text.permissionOpen);
+    const open = element("button", null, text.permissionOpen);
     open.addEventListener("click", () => openAccessibilitySettings());
     state.textContent = granted ? text.permissionHave : "";
     state.hidden = !granted;
@@ -1073,19 +1120,9 @@ function permissionFields({ settings, text, onChange, onDirect = () => {}, readi
 /* What reads another program's text around a selection or under the
    pointer: said once over all of it that it does not work in every
    program, whether the sentence goes along with a looked-up word, the
-   word's shortcut, on the Mac its force click, and the sentence's
-   shortcut. */
+   word's shortcut and the sentence's — either of which the Mac's force
+   click can stand in (shortcutField). */
 function readingFields({ settings, text, onChange, pointer }) {
-  /* What the word's shortcut does, with a click instead of keys. Apple's Look
-     Up answers the same click, which the last line says how to move. */
-  const forceClick = field({
-    label: text.forceClick,
-    control: switchFor(settings.forceClick, text, (on) => onChange({ ...settings, forceClick: on })),
-    hint: text.forceClickLead,
-  });
-  /* Only while it is on: that is when Look Up answers the same click. */
-  if (settings.forceClick) forceClick.append(element("p", "hint", text.forceClickHint));
-
   /* Said once over everything below it that reads another program's text
      around the selection or under the pointer; the selection itself, above
      it on the Mac, is read reliably. */
@@ -1104,5 +1141,5 @@ function readingFields({ settings, text, onChange, pointer }) {
     hint: text.nextSentenceLead,
   });
 
-  return [unreliable, withSentence, pointer[0], onWindows() ? null : forceClick, pointer[1], nextSentence].filter(Boolean);
+  return [unreliable, withSentence, pointer[0], pointer[1], nextSentence];
 }

@@ -80,13 +80,25 @@ export function field({ label, lead, hint, control }) {
   return row;
 }
 
+/* A menu. An entry with `group` is a heading over its own `options`: the
+   system draws it greyed and it cannot be chosen. */
 export function select(options, value) {
   const node = element("select");
-  for (const option of options) {
+  const add = (holder, option) => {
     const item = element("option", null, option.label);
     item.value = option.value;
     if (option.value === value) item.selected = true;
-    node.append(item);
+    holder.append(item);
+  };
+  for (const option of options) {
+    if (!option.group) {
+      add(node, option);
+      continue;
+    }
+    const group = element("optgroup");
+    group.label = option.group;
+    for (const inside of option.options) add(group, inside);
+    node.append(group);
   }
   return node;
 }

@@ -247,6 +247,9 @@ export default {
   /* The definite articles, which put a noun on a flashcard the way a
      dictionary names it — with the gender a learner has to learn with it. */
   definiteArticles: "el la los las",
+  masculineArticles: "el",
+  feminineArticles: "la",
+  articles: "el la los las un una unos unas",
   conjunctions: "y e o u pero sino ni que porque si cuando aunque mientras pues como",
   basicVerbs: "ser estar haber tener hacer ir decir ver dar saber poder querer venir",
   basicWords: BASIC_WORDS,

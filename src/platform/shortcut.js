@@ -47,15 +47,16 @@ export async function registerShortcuts(hotkeys = {}) {
   }
 }
 
-/* A force click on the Mac's trackpad, listened for or not. What it reads
-   arrives the way a shortcut's selection does (onCapture). Answers whether
-   clicks are heard now — not before the permission is there, so it is asked
-   again when that changes. */
-export async function listenForForceClick(on) {
+/* A force click on the Mac's trackpad, listened for or not, and whether it
+   reads the word under the pointer ("word") or the sentence ("sentence").
+   What it reads arrives the way a shortcut's selection does (onCapture).
+   Answers whether clicks are heard now — not before the permission is
+   there, so it is asked again when that changes. */
+export async function listenForForceClick(mode) {
   if (!insideApp()) return false;
   const { invoke } = await import("@tauri-apps/api/core");
   try {
-    return await invoke("set_force_click", { on: !!on });
+    return await invoke("set_force_click", { on: !!mode, sentence: mode === "sentence" });
   } catch {
     return false;
   }

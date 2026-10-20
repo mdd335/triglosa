@@ -112,6 +112,9 @@ export default {
   /* The definite articles, which put a noun on a flashcard the way a
      dictionary names it — with the gender a learner has to learn with it. */
   definiteArticles: "der die das",
+  masculineArticles: "der",
+  feminineArticles: "die",
+  articles: "der die das den dem des ein eine einen einem einer eines",
   conjunctions: "und oder aber sondern denn doch dass ob weil wenn als da damit obwohl während nachdem bevor sobald falls sowie",
   basicVerbs: "sein haben werden machen gehen kommen sagen geben sehen wissen nehmen wollen können müssen sollen dürfen mögen",
   basicWords:

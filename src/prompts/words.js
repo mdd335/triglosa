@@ -117,9 +117,10 @@ export function wordsPrompt({ code, name, languages, levels, retry, lookup = nul
     "- Abbreviations the text does not spell out. Give an expansion only where you are sure of it: a confidently wrong one is the worst possible answer.",
     /* A lookup has no verb table beside it, and a looked-up verb form is
        often exactly what is hard: its base form, person and tense are asked
-       after this (ask.js). */
+       after this (ask.js). Without saying so, a note named the form instead
+       of the verb — "past tense of ir; verb conjugation" (run fifty-four). */
     lookup
-      ? "- A verb form counts like any other word: <term> is the form as the text has it, and <meaning> and <note> are about the verb itself. A fixed expression built around a verb counts as the whole expression."
+      ? "- A verb form counts like any other word: <term> is the form as the text has it, and <meaning> and <note> are about the verb itself. Its base form, person and tense are shown beside it, so <note> never names the form or how it is built - only what the verb means. A fixed expression built around a verb counts as the whole expression."
       : "- NOT a single verb: verb forms have a table of their own. A fixed expression built around a verb does count.",
     "",
     "SELECTION:",
@@ -137,7 +138,12 @@ export function wordsPrompt({ code, name, languages, levels, retry, lookup = nul
     "",
     "FORMAT - one line per item, nothing else:",
     own || lookup ? "<term> | <meaning> | <note> | <known>" : "<term> | <meaning> | <note>",
-    `- <term> is copied EXACTLY from the ${source} text: same spelling, same capitalisation, same inflected form, one contiguous piece. Never a dictionary form, never invented.`,
+    /* In its sentence a looked-up word's expression may stand apart there,
+       "tritt im Januar in Kraft": held to one piece, the term was "in
+       Kraft", and the note had to say "with treten" (run fifty-five). */
+    lookup?.inSentence
+      ? `- <term> is copied EXACTLY from the ${source} text: same spelling, same capitalisation, same inflected form, one contiguous piece. Only where the words of a fixed expression stand apart in the sentence, <term> is the whole expression in its dictionary form. Never invented.`
+      : `- <term> is copied EXACTLY from the ${source} text: same spelling, same capitalisation, same inflected form, one contiguous piece. Never a dictionary form, never invented.`,
     `- <meaning> is the ${reader} equivalent, no article, no sentence. Where ${reader} renders the term with different words in different uses, give two, separated by a comma, the one fitting this text first - never two ${reader} words that mean the same thing. For an abbreviation, what it stands for; for a proper name, what kind of thing it is.`,
     /* Not "what the thing is here": measured over 41 explanations, that
        wording produced notes that retold the sentence instead of explaining

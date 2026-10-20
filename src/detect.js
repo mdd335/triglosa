@@ -20,8 +20,8 @@
    nothing a reader can feel. What stays open is the short input where
    function words give nothing away, and that runs in short mode anyway. */
 
-import { cleanLine, stripDiacritics, stripQuotes, unspacedWords } from "./text.js";
-import { SUPPORTED, displayName, isSupported, languageLabel, wordSet } from "./languages/index.js";
+import { cleanLine, stripDiacritics, stripQuotes, unspacedWords, wordCount } from "./text.js";
+import { SUPPORTED, codeNamed, displayName, isSupported, languageLabel, lettersInScriptOf, wordSet } from "./languages/index.js";
 import { detectPrompt } from "./prompts/detect.js";
 
 export const MIN_WORDS = 8;
@@ -76,18 +76,44 @@ export const IDENTIFIER_THRESHOLD = 0.9;
    likeliest first — says: a supported language it is sure of (`code`), or
    that it is sure of one the app does not offer (`foreign`), or nothing. The
    reader's own languages are given no precedence here: every wrong answer it
-   gave in the measurement came from one. */
-export function readIdentified(top) {
+   gave in the measurement came from one. A language without a pack that the
+   reader set is taken like one of the eight where it is sure of it (`code`
+   empty, `own` the language): of 600 texts and words of the eight it named
+   two so, an Arabic word Persian and a Russian phrase Bulgarian (run
+   forty-nine). And a language none of whose script the text holds is not
+   believed, however sure: a word in Han came back Spanish at 0.99. */
+export function readIdentified(top, { languages = [], text = "" } = {}) {
   const [code, share] = (top || [])[0] || [];
-  if (!code || !(share >= IDENTIFIER_THRESHOLD)) return { code: "", foreign: false };
-  return SUPPORTED.includes(code) ? { code, foreign: false } : { code: "", foreign: true };
+  const nothing = { code: "", foreign: false };
+  if (!code || !(share >= IDENTIFIER_THRESHOLD)) return nothing;
+  if (lettersInScriptOf(code, text) === "none") return nothing;
+  if (SUPPORTED.includes(code)) return { code, foreign: false };
+  return { code: "", foreign: true, other: code, ...(languages.slice(1).includes(code) ? { own: true } : {}) };
+}
+
+/* From this confidence on the recognizer counts as sure of a language the
+   app does not offer — its own threshold for the ones it does. */
+export const RECOGNIZER_SURE = 0.9;
+
+/* The language the identifier and the device's recognizer both think
+   likeliest, where it is one the app does not offer and at least one of
+   them is sure of it; "" otherwise. Each is wrong about such a language by
+   itself — the recognizer names one it does not know as its neighbour, the
+   identifier a single word as anything — and over every text measured they
+   were never wrong together. Neither being sure, their agreeing means
+   nothing: a German word comes back Dutch from both. */
+export function agreedForeign(top, leader) {
+  const [code, share] = (top || [])[0] || [];
+  if (!code || SUPPORTED.includes(code) || code !== leader?.code) return "";
+  return share >= IDENTIFIER_THRESHOLD || leader.confidence >= RECOGNIZER_SURE ? code : "";
 }
 
 /* All four stages, in the order that costs least.
 
      1. function words — free, decides 49 of the 108 corpus texts
      2. the identifier — a hundredth of a millisecond, decides two thirds
-     3. the device's recognizer — a few ms, decides almost all of the rest
+     3. the device's recognizer — a few ms, decides almost all of the rest,
+        and with the identifier names a language the app does not offer
      4. the model — about 1.4 s, whatever is left
 
    The early stages may refuse, and that counts for more than coverage
@@ -98,48 +124,100 @@ export function readIdentified(top) {
    function words and the identifier, "device" or "model". code is a supported language — not necessarily one
    the user configured, since such a text keeps a panel of its own — or ""
    when the text is in none of them, in which case name carries the language's
-   name for display and nothing else is known about it. */
-export async function detectLanguage(text, { languages, reader, translation, llm, identifier }) {
+   name for display, and tag its code where the platform knows that name. */
+export async function detectLanguage(text, options) {
+  const found = asConfigured(await detectAmongAll(text, options), options.languages);
+  return ownWhereAnotherIsNamed(found, text, options);
+}
+
+/* An input of a word or two named as a language that is neither one of the
+   eight nor one of the reader's goes to the language without a pack the
+   reader set, where its script is that language's - the first such in their
+   list. Somebody learning Japanese who looks up a word in kanji is reading
+   Japanese, not Chinese, and a Dutch word alone is Danish or Romanian to
+   those asked. Measured over 219 words and phrases of six such languages it
+   mended 34 and took nothing from the eight (run forty-nine). */
+const LOOKED_UP_WORDS = 3;
+
+export function ownWhereAnotherIsNamed(found, text, { languages, reader }) {
+  if (found.code || wordCount(text) > LOOKED_UP_WORDS) return found;
+  const own = (languages || []).slice(1).filter((code) => !isSupported(code));
+  const named = found.iso || found.tag || "";
+  if (!own.length || own.includes(named)) return found;
+  const fitting = own.find((code) => lettersInScriptOf(code, text) === "all");
+  return fitting ? { ...found, code: fitting, name: languageLabel(fitting, reader), tag: fitting } : found;
+}
+
+/* A language without a pack that the reader set as one of their own is a
+   language of the app's for them: it takes its own panel, its level and the
+   sections its place in the list gives it. */
+export function asConfigured(found, languages) {
+  const known = found.iso || found.tag || "";
+  if (found.code || !known || !(languages || []).slice(1).includes(known)) return found;
+  return { ...found, code: known };
+}
+
+async function detectAmongAll(text, { languages, reader, translation, llm, identifier }) {
   const local = detectByStopwords(text, SUPPORTED);
   if (local) return { code: local, name: displayName(local, reader), guesses: [], by: "text" };
 
-  const identified = readIdentified(identifier ? await identifier.identify(text).catch(() => null) : null);
+  const top = identifier ? await identifier.identify(text).catch(() => null) : null;
+  const identified = readIdentified(top, { languages, text });
   if (identified.code) return { code: identified.code, name: displayName(identified.code, reader), guesses: [], by: "text" };
+  if (identified.own) return { code: "", name: languageLabel(identified.other, reader), tag: identified.other, guesses: [], by: "text" };
 
   /* What the recognizer thought likeliest, kept for a reader who corrects
      the answer: it is the first place to look for the language it missed.
      unsure is what it would name if nobody else could. */
   let guesses = [];
   let unsure = "";
+  let leader = null;
   /* The reader's own languages break a tie the recognizer cannot. */
   const askDevice = async () => (translation
     ? translation.detect(text, SUPPORTED, languages || [], (found) => {
       guesses = found?.guesses || [];
       unsure = found?.unsure || "";
+      leader = found?.leader || null;
     })
     : "");
+  const device = await askDevice();
+
+  /* A language the app does not offer, named by its code: the device
+     translates from more languages than the app has packs for, and wants
+     the code (`tag`). Null where the platform has no name for it. */
+  const foreign = (code, by) => {
+    const name = languageLabel(code, reader);
+    return name && name.toLowerCase() !== code ? { code: "", name, tag: code, guesses, by } : null;
+  };
+
+  /* Both of this machine's own opinions on one such language: named without
+     asking the model. */
+  const agreed = agreedForeign(top, leader);
+  if (agreed && foreign(agreed, "text")) return foreign(agreed, "text");
+
   /* A language the app does not offer is one the recognizer may not know
      either, and it then names the nearest it has, sure of it: Persian comes
      back Arabic, Serbian Russian. Where the identifier is sure of such a
-     language the recognizer's own verdict is passed over, and the model
-     asked. */
-  const device = await askDevice();
-  if (device && !(identified.foreign && llm)) {
+     language the recognizer's own verdict is passed over. */
+  if (device && !identified.foreign) {
     return { code: device, name: displayName(device, reader), guesses, by: "device" };
   }
 
   /* Nobody left to ask. A single word carries no function words and the
-     recognizer is rarely sure enough of one, so the model was the third and
-     last stage — and where it is not there, or cannot be reached, the panels
+     recognizer is rarely sure enough of one, so the model was the last
+     stage — and where it is not there, or cannot be reached, the panels
      stayed empty although the device could have translated the word: it
-     only ever needed a language to translate from. Apple's own best reading
-     is taken instead. Measured in run twenty-four, its first guess is the
-     model's answer for 73-76 % of one-language inputs; the other quarter
-     gets a wrong language rather than nothing, and the heading's
-     list is where the reader says which it is (author 2026-09-22). */
-  const guessed = () => (unsure
-    ? { code: unsure, name: displayName(unsure, reader), guesses, by: "device" }
-    : { code: "", name: "", guesses });
+     only ever needed a language to translate from. What the identifier is
+     sure of is taken, a language the app does not offer included; else
+     Apple's own best reading among the ones it does. Measured in run
+     twenty-four, its first guess is the model's answer for 73-76 % of
+     one-language inputs; the other quarter gets a wrong language rather
+     than nothing, and the heading's list is where the reader says which it
+     is (author 2026-09-22). */
+  const guessed = () => (identified.foreign && foreign(identified.other, "text"))
+    || (unsure
+      ? { code: unsure, name: displayName(unsure, reader), guesses, by: "device" }
+      : { code: "", name: "", guesses });
 
   if (!llm) return guessed();
   try {
@@ -148,8 +226,9 @@ export async function detectLanguage(text, { languages, reader, translation, llm
     /* A model that answered something unusable is not a model that failed:
        only an unreachable one comes through here, and the run records the
        reason from the questions that follow. */
-    if (!unsure) throw error;
-    return guessed();
+    const fallback = guessed();
+    if (!fallback.code && !fallback.tag) throw error;
+    return fallback;
   }
 }
 
@@ -187,6 +266,11 @@ export async function detectByModel(text, { languages, reader, llm }) {
   if (code && SUPPORTED.includes(code[1])) {
     return { code: code[1], name: displayName(code[1], reader) };
   }
+  /* The code of a language without a pack is an answer only where the
+     reader set that language and the question offered it. */
+  if (code && (languages || []).slice(1).includes(code[1])) {
+    return { code: "", name: languageLabel(code[1], reader), tag: code[1] };
+  }
   const name = answer.replace(/[.!?,;:]+$/, "").trim();
   /* The prompt asks for a name only for a language the app does not support,
      and a model answers "Deutsch" for "Kummerspeck" all the same. Taken as
@@ -197,6 +281,9 @@ export async function detectByModel(text, { languages, reader, llm }) {
   if (named) return { code: named, name: displayName(named, reader) };
   /* A language the app does not support: the model was asked for its name in
      the reader's language, and that is all that is needed — the text keeps
-     its own panel and gets translated into the configured ones. */
-  return { code: "", name };
+     its own panel and gets translated into the configured ones. Its code,
+     where the platform knows the name (`tag`), is for the device alone,
+     which translates from more languages than the app has packs for. */
+  const tag = codeNamed(name, reader);
+  return tag ? { code: "", name, tag } : { code: "", name };
 }

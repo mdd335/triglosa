@@ -7,9 +7,10 @@ Three kinds of helper do the work, and every box below names its own:
 
 | | Who | Where it runs |
 |---|---|---|
-| **Q1 … Q19** | the **AI model** set up in the settings | wherever its endpoint is — the only requests that leave the app |
+| **Q1 … Q20** | the **AI model** set up in the settings | wherever its endpoint is — the only requests that leave the app |
 | **Triglosa** | two small models that come with the app: the language identifier and the word aligner | on this machine |
 | **Apple** | the system's recognizer and translation | on this machine, Mac only |
+| **System** | the spelling checker of macOS or Windows | on this machine |
 
 Every request to the AI model has a number. The [table at the end](#every-request-to-the-ai-model)
 lists them all.
@@ -41,13 +42,13 @@ flowchart TD
   CH -->|no| FW["Function words, counted in the app"]
   FW -->|sure| DONE
   FW -->|silent| ID["Triglosa · language identifier"]
-  ID -->|"sure, a language the app offers"| DONE
-  ID -->|unsure| AR["Apple · recognizer"]
-  ID -->|"sure, a language the app does not offer"| Q1
-  AR -->|sure| DONE
-  AR -->|"unsure, or on Windows"| Q1["Q1 · AI model names the language"]
+  ID -->|"sure, a language the app offers or one the reader learns"| DONE
+  ID -->|"unsure, or sure of a language the app does not offer"| AR["Apple · recognizer"]
+  AR -->|"sure of a language the app offers, the identifier unsure"| DONE
+  AR -->|"names the identifier's language, one of them sure"| DONE
+  AR -->|"anything else, or on Windows"| Q1["Q1 · AI model names the language"]
   Q1 -->|answers| DONE
-  Q1 -->|"no AI model, or not reachable"| GUESS{"Apple has a best guess?"}
+  Q1 -->|"no AI model, or not reachable"| GUESS{"The identifier was sure, or Apple has a best guess?"}
   GUESS -->|yes| DONE
   GUESS -->|no| NONE(["Language not named"])
 
@@ -59,6 +60,13 @@ flowchart TD
 
 - A language the app has no pack for keeps its name and is still translated
   by the AI model; the terms are asked, the verbs and the hover are not.
+  Apple's translation steps in there as anywhere, for a language it has.
+- Such a language is named without the AI model where the identifier and
+  Apple's recognizer name the same one and at least one of them is sure.
+- A language the reader learns without the app being optimised for it has
+  its own panel and level; its verbs are not asked. A word or two named as
+  some other language outside the app's eight is read as that language where
+  it is written in its script.
 - Not named and no AI model: the panels say so, and nothing else happens.
 
 ## 2 · Translating
@@ -153,8 +161,17 @@ flowchart TD
   W["One to three words"] --> S{"Looked up with their sentence?"}
   S -->|yes| LS["Language named from the sentence (section 1)"]
   S -->|no| LW["Language named from the words (section 1)"]
-  LS --> Q11
+  LS --> WL["System · spelling checker: the words' own language, where the sentence's does not know them and one other of the reader's does"]
+  WL -->|"a dictionary missing"| Q21["Q21 · The words' language in their sentence"]
+  Q21 --> Q11
+  WL --> Q11
   LW --> Q11["Q11 · Dictionary entry, upper panel"]
+  WL --> SP
+  LW --> SP["System · spelling checker"]
+  SP -->|"no dictionary of the languages concerned knows a word"| Q20["Q20 · The word meant, or OK"]
+  Q20 -->|"before the entries"| Q11
+  SP -->|"…and no AI model"| OFFER(["Offered: Did you mean …?"])
+  Q20 -->|"a correction"| MEANT(["Shown corrected; asked on about the word meant"])
   Q11 --> Q11B["Q11 · Dictionary entry, lower panel"]
   Q11 --> Q3S["Q3 · Find the one term"]
 
@@ -163,19 +180,31 @@ flowchart TD
   APS -->|empty| NAS(["No answer received, or language pack missing"])
 
   Q3S --> Q45["Q4 · Q5: abbreviation, word class"]
-  Q3S --> VB{"With its sentence?"}
+  Q3S --> VB{"With its sentence, in the same language?"}
   VB -->|yes| Q6S["Q6 · Find the sentence's verb forms"]
   VB -->|no| Q12["Q12 · Is it a verb form?"]
   Q6S -->|"a form holds the word"| Q7S["Q7 · Explain that one verb"]
   Q12 -->|"it is one"| Q7S
-  Q7S --> ROW(["The term drawn as a verb"])
+  Q7S -->|"Q5 names no class but verb or adjective"| ROW(["The term drawn as a verb"])
+  Q45 -->|"a noun or the like"| KEEP(["The term as it came, with its class"])
 
   classDef model stroke:#18daf1,stroke-width:3px
-  class Q11,Q11B,Q3S,Q45,Q6S,Q12,Q7S model
+  class Q11,Q11B,Q3S,Q45,Q6S,Q12,Q7S,Q20,Q21 model
 ```
 
 The lower panel's entry and the term are asked side by side, after the upper
-panel's entry has arrived. Nothing is placed in the translations and no hover
+panel's entry has arrived. A word that may be misspelled is asked about
+(Q20) first, and every entry and the term are then asked about the word
+meant; the reader can have the word looked up as typed. Where the spelling
+checker is slow to answer, the upper panel's entry goes ahead as typed and
+the rest waits a second at most for the word meant. Words the language
+detection named as a language the app does not offer go to the reader's
+language whose spelling checker knows them. Words of another language than
+their sentence's — a Spanish word in an English sentence — are looked up in
+their own where the spelling checker knows them in it and not in the
+sentence's — where a dictionary that would tell is missing (Windows has
+one only for a language added to the system), the AI model is asked which
+(Q21); the entries still get the sentence, the term does not. Nothing is placed in the translations and no hover
 is worked out: the panels hold lists, not sentences.
 
 ## 5 · On request
@@ -227,12 +256,12 @@ step back along the synonyms, asks nothing again.
 
 | | Asks for | When | How many | Who answers otherwise |
 |---|---|---|---|---|
-| Q1 | the language of the text (its first 600 characters) | function words, identifier and Apple's recognizer were all unsure — or the identifier is sure of a language the app does not offer | 1 | Apple's best guess; else the language stays unnamed |
+| Q1 | the language of the text (its first 600 characters) | function words, identifier and Apple's recognizer were all unsure — or one of them is sure of a language the app does not offer and the other names another | 1 | what the identifier was sure of, else Apple's best guess; else the language stays unnamed |
 | Q2 | the translation of the whole text | the AI model goes first, or Apple came back empty | 1 per panel | Apple's translation (Mac) |
-| Q3 | the difficult terms, up to three, each with a meaning and a note | terms switched on; in short mode held to one term | 1; once more where the notes came back in the wrong language, or only loanwords were found | nobody — the section is not drawn |
+| Q3 | the difficult terms, up to three, each with a meaning and a note | terms switched on; in short mode held to one term | 1; once more where the notes came back in the wrong language (told by word lists, or by the identifier for a language the app is not optimised for), or only loanwords were found | nobody — the section is not drawn |
 | Q4 | an abbreviation written out | a term or a picked word looks like an abbreviation | 1 each | nobody — the row stands without it |
 | Q5 | the word class | a term or a picked word is a single word, or one with its article | 1 each | nobody |
-| Q6 | every verb form in the text | verbs switched on; in short mode on the looked-up word's sentence | 1 | nobody — the section is not drawn |
+| Q6 | every verb form in the text | verbs switched on; in short mode on the looked-up word's sentence, where it is in the word's language | 1 | nobody — the section is not drawn |
 | Q7 | base form, meaning, person and tense of the hardest forms | Q6 found any | 1 | nobody |
 | Q8 | where the terms went in the translations | a term is several words, or the aligner has no place for it | 1 | the word aligner, for single words |
 | Q9 | where the verb forms went in the translations | a form is several words, or the aligner has no place for it | 1 | the word aligner, for single words |
@@ -246,6 +275,8 @@ step back along the synonyms, asks nothing again.
 | Q17 | where a passage stands in the other panels | more than six words picked | 1 | nobody |
 | Q18 | a longer explanation | its button | 1 | nobody |
 | Q19 | one more example sentence | its button | 1 | nobody |
+| Q20 | the word a looked-up text was meant to be, or OK | short mode, and the system's spelling checker knows a word in none of the reader's languages nor in the one it was found to be in | 1 | the spelling checker's own word, only offered (Mac without an AI model); else nobody |
+| Q21 | the language of a looked-up word in its sentence: the sentence's or another of the reader's | short mode with the sentence, and the system's spelling checker lacks a dictionary that would tell | 1 | nobody — the sentence's language stands |
 
 For a text of a few sentences with everything switched on and the aligner
 answering, that comes to about ten requests: two translations, the terms with

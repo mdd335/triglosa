@@ -706,6 +706,58 @@ test("a looked-up word takes its sentence along, named by the sentence's languag
   assert.strictEqual(found.text.slice(found.start, found.end), "comerciantes");
 });
 
+test("a word of another of the reader's languages is looked up in that one, its sentence going along", async () => {
+  const paragraph = "I tried to encender the stove, but it would not light at all.";
+  const around = { text: paragraph, at: paragraph.indexOf("encender") };
+  const verdicts = { encender: { de: { there: true, known: false }, en: { there: true, known: false }, es: { there: true, known: true } } };
+  const found = await sentenceFor("encender", around, { settings: SETTINGS, translation: noDevice, llm: null, speller: speller(verdicts) });
+  assert.strictEqual(found.code, "en", "the sentence is English");
+  assert.deepStrictEqual([found.detected.code, found.detected.by], ["es", "text"]);
+  assert.strictEqual(found.text, paragraph);
+
+  /* A word the sentence's dictionaries know stays in the sentence's language. */
+  const loan = { encender: { ...verdicts.encender, en: { there: true, known: true } } };
+  const kept = await sentenceFor("encender", around, { settings: SETTINGS, translation: noDevice, llm: null, speller: speller(loan) });
+  assert.strictEqual(kept.detected.code, "en");
+  /* Where a dictionary that would tell is missing, the model is asked. */
+  const missing = { encender: { de: { there: true, known: false }, en: { there: false, known: false }, es: { there: false, known: false } } };
+  const asked = [];
+  const llm = { async chat({ system, user }) { asked.push({ system, user }); return system.startsWith("You name the language of a word") ? "es" : "en"; } };
+  const byModel = await sentenceFor("encender", around, { settings: SETTINGS, translation: null, llm, speller: speller(missing) });
+  assert.deepStrictEqual([byModel.code, byModel.detected.code], ["en", "es"]);
+  const question = asked.find((q) => q.system.startsWith("You name the language of a word"));
+  assert.ok(question.user.includes(paragraph) && question.user.endsWith("Input: encender"));
+  /* The dictionaries telling, the model is not asked. */
+  asked.length = 0;
+  await sentenceFor("encender", around, { settings: SETTINGS, translation: null, llm, speller: speller(verdicts) });
+  assert.ok(!asked.some((q) => q.system.startsWith("You name the language of a word")));
+  /* Nor without a checker. */
+  const alone = await sentenceFor("encender", around, { settings: SETTINGS, translation: noDevice, llm: null });
+  assert.strictEqual(alone.detected.code, "en");
+});
+
+test("a word in a sentence of another language gets its term asked about the word alone", async () => {
+  const asked = [];
+  const llm = {
+    async chat({ system, user }) {
+      asked.push({ system, user });
+      if (system.startsWith("You help")) return "NONE";
+      return "einschalten | ";
+    },
+  };
+  const settings = { ...SETTINGS, translator: "model", show: { verbs: "off", terms: "all" } };
+  const sentence = { text: "I tried to encender the stove.", start: 11, end: 19, code: "en" };
+  const state = await runText("encender", { settings, translation: noDevice, llm, language: "es", languageBy: "text", sentence, onChange: () => {} });
+  assert.strictEqual(state.sentence.apart, true);
+  const term = asked.find((q) => q.system.startsWith("You help"));
+  assert.ok(term && !term.user.includes("stove"), "the term is asked without the English sentence");
+  const entry = asked.find((q) => q.user.startsWith("Source: Spanish"));
+  assert.ok(entry.user.includes("I tried to encender the stove."), "the entry still has its sentence");
+
+  const same = await runText("encender", { settings, translation: noDevice, llm, language: "es", languageBy: "text", sentence: { ...sentence, code: "es" }, onChange: () => {} });
+  assert.ok(!same.sentence.apart);
+});
+
 test("a looked-up word with nothing around it goes alone", async () => {
   const options = { settings: SETTINGS, translation: noDevice, llm: null };
   assert.strictEqual(await sentenceFor("Einstellungen", null, options), null);
@@ -830,4 +882,164 @@ test("with the sentence, a note marked as another meaning is that meaning in the
   assert.ok(!english[0].gloss, "the first line is the meaning in the sentence");
   assert.ok(llm.asked[1].includes("that meaning in German"));
   assert.ok(llm.asked[0].includes("names the field or situation"));
+});
+
+test("the device steps in for a language the app has no pack for, where its code is known", async () => {
+  /* The model names the language and then fails; the device knows Dutch. */
+  const failing = {
+    async chat({ maxTokens }) {
+      if (maxTokens <= 12) return "Niederländisch";
+      throw new Error("the endpoint answered 500");
+    },
+  };
+  const asked = [];
+  const device = { ...noDevice, translate: async (from, to, text) => { asked.push(from); return `${to}:${text}`; } };
+  const { state } = await run({ settings: { ...SETTINGS, translator: "model" }, translation: device, llm: failing });
+  assert.strictEqual(state.source.code, "");
+  assert.deepStrictEqual(asked, ["nl", "nl"]);
+  for (const panel of state.panels.slice(1)) {
+    assert.strictEqual(panel.status, "ready");
+    assert.strictEqual(panel.engine, "device");
+    assert.strictEqual(panel.fallback, true);
+  }
+
+  /* A word alone, the same. */
+  const word = await runText("fiets", { settings: SETTINGS, translation: device, llm: failing, onChange: () => {} });
+  for (const panel of word.panels.slice(1)) assert.strictEqual(panel.text, `${panel.code}:fiets`);
+
+  /* Chosen by the reader, and no model at all. */
+  const chosen = await runText(UNNAMED, { settings: SETTINGS, translation: device, llm: null, language: "id", onChange: () => {} });
+  for (const panel of chosen.panels.slice(1)) assert.strictEqual(panel.status, "ready");
+  /* Where the device has nothing either, no download is named. */
+  const none = await runText(UNNAMED, { settings: SETTINGS, translation: noDevice, llm: null, language: "id", onChange: () => {} });
+  for (const panel of none.panels.slice(1)) assert.strictEqual(panel.status, "unknown-source");
+});
+
+/* A word looked up with a typo (run fifty-one). A German word, a model that
+   names it German, gives entries slowly, and says what was meant; a checker
+   that knows the word in none of the reader's languages. */
+function speller(verdicts) {
+  const asked = [];
+  return { asked, check: async (words, languages) => { asked.push({ words, languages }); return verdicts; } };
+}
+const UNKNOWN_EVERYWHERE = { Kollegge: Object.fromEntries(["de", "en", "es"].map((code) =>
+  [code, { there: true, known: false, correction: code === "de" ? "Kollege" : null, guesses: [] }])) };
+
+function spellingModel(meant = "Kollege") {
+  const asked = [];
+  return {
+    asked,
+    async chat({ system, user, maxTokens }) {
+      asked.push({ system, user, maxTokens });
+      if (maxTokens <= 12) return "de";
+      if (system.startsWith("You check the spelling")) return meant;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return "Kollege | üblich";
+    },
+  };
+}
+
+const KEEP_QUIET = { ...SETTINGS, translator: "model", show: { verbs: "off", terms: "off" } };
+
+test("a looked-up word no dictionary knows is corrected, and asked on about the word meant", async () => {
+  const llm = spellingModel();
+  const check = speller(UNKNOWN_EVERYWHERE);
+  const state = await runText("Kollegge", { settings: KEEP_QUIET, translation: noDevice, llm, speller: check, onChange: () => {} });
+  assert.deepStrictEqual(check.asked, [{ words: ["Kollegge"], languages: ["de", "en", "es"] }]);
+  assert.deepStrictEqual(state.spelling, { typed: "Kollegge", meant: "Kollege" });
+  assert.strictEqual(state.panels[0].text, "Kollege", "the original shows the word meant");
+  assert.strictEqual(state.text, "Kollege");
+  const entries = llm.asked.filter((q) => q.maxTokens === 200).map((q) => q.user.match(/Input: (\S+)/)[1]);
+  assert.deepStrictEqual(entries, ["Kollege", "Kollege"], "every panel about the word meant");
+});
+
+test("a word a dictionary knows asks the model nothing about its spelling", async () => {
+  const llm = spellingModel();
+  const verdicts = { Kollegge: { ...UNKNOWN_EVERYWHERE.Kollegge, en: { there: true, known: true, guesses: [] } } };
+  const state = await runText("Kollegge", { settings: KEEP_QUIET, translation: noDevice, llm, speller: speller(verdicts), onChange: () => {} });
+  assert.strictEqual(state.spelling, null);
+  assert.ok(!llm.asked.some((q) => q.system.startsWith("You check the spelling")));
+});
+
+test("a word spelled as it should be, or looked up as typed, stays as it is", async () => {
+  const fine = await runText("Kollegge", { settings: KEEP_QUIET, translation: noDevice, llm: spellingModel("OK"), speller: speller(UNKNOWN_EVERYWHERE), onChange: () => {} });
+  assert.strictEqual(fine.spelling, null);
+  assert.strictEqual(fine.panels[0].text, "Kollegge");
+
+  const check = speller(UNKNOWN_EVERYWHERE);
+  const typed = await runText("Kollegge", { settings: KEEP_QUIET, translation: noDevice, llm: spellingModel(), speller: check, asTyped: true, onChange: () => {} });
+  assert.strictEqual(typed.spelling, null);
+  assert.strictEqual(check.asked.length, 0);
+});
+
+test("without a model the checker's word is only offered", async () => {
+  const device = { ...noDevice, detect: async () => "de", translate: async (from, to, text) => `${to}:${text}` };
+  const state = await runText("Kollegge", { settings: SETTINGS, translation: device, llm: null, speller: speller(UNKNOWN_EVERYWHERE), onChange: () => {} });
+  assert.deepStrictEqual(state.spelling, { typed: "Kollegge", offer: "Kollege" });
+  assert.strictEqual(state.panels[0].text, "Kollegge");
+  assert.strictEqual(state.panels[1].text, "en:Kollegge");
+});
+
+test("where the checker is slow, the upper panel goes ahead as typed and the rest waits a moment", async () => {
+  /* Its dictionaries load the first time they are asked. */
+  const slow = { check: async () => { await new Promise((resolve) => setTimeout(resolve, 400)); return UNKNOWN_EVERYWHERE; } };
+  const llm = {
+    asked: [],
+    async chat({ system, user, maxTokens }) {
+      this.asked.push({ system, user, maxTokens });
+      if (maxTokens <= 12) return "de";
+      if (system.startsWith("You check the spelling")) {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return "Kollege";
+      }
+      return "Kollege | üblich";
+    },
+  };
+  await runText("Kollegge", { settings: KEEP_QUIET, translation: noDevice, llm, speller: slow, onChange: () => {} });
+  const entries = llm.asked.filter((q) => q.maxTokens === 200).map((q) => q.user.match(/Input: (\S+)/)[1]);
+  assert.deepStrictEqual(entries, ["Kollegge", "Kollege"]);
+});
+
+test("a short text the model names Dutch is German where only German's dictionary knows it, and is corrected", async () => {
+  const verdicts = {
+    gläsrene: { de: { there: true, known: false, correction: "gläserne", guesses: [] }, en: { there: true, known: false }, es: { there: true, known: false } },
+    Decke: { de: { there: true, known: true }, en: { there: true, known: false }, es: { there: true, known: false } },
+  };
+  const llm = {
+    async chat({ system, maxTokens }) {
+      if (maxTokens <= 12) return "Niederländisch";
+      if (system.startsWith("You check the spelling")) return "gläserne Decke";
+      return "glass ceiling | übertragen";
+    },
+  };
+  const state = await runText("gläsrene Decke", { settings: KEEP_QUIET, translation: noDevice, llm, speller: speller(verdicts), onChange: () => {} });
+  assert.deepStrictEqual([state.source.code, state.source.by], ["de", "text"]);
+  assert.deepStrictEqual(state.spelling, { typed: "gläsrene Decke", meant: "gläserne Decke" });
+});
+
+test("a language the reader named is not overruled by the dictionaries", async () => {
+  const verdicts = { Decke: { de: { there: true, known: true }, en: { there: true, known: false }, es: { there: true, known: false } } };
+  const state = await runText("Decke", { settings: KEEP_QUIET, translation: noDevice, llm: spellingModel("OK"), speller: speller(verdicts), language: "nl", onChange: () => {} });
+  assert.deepStrictEqual([state.source.code, state.source.iso], ["", "nl"]);
+});
+
+test("in its sentence, the term and the entries are asked with the word meant in the typo's place", async () => {
+  const verdicts = { uncertian: { en: { there: true, known: false }, de: { there: true, known: false }, es: { there: true, known: false } } };
+  const asked = [];
+  const llm = {
+    async chat({ system, user, maxTokens }) {
+      asked.push({ system, user, maxTokens });
+      if (maxTokens <= 12) return "en";
+      if (system.startsWith("You check the spelling")) return "uncertain";
+      return "unsicher | üblich";
+    },
+  };
+  const sentence = { text: "The budget was still too uncertian.", start: 25, end: 34 };
+  const settings = { ...SETTINGS, translator: "model", show: { verbs: "off", terms: "all" } };
+  const state = await runText("uncertian", { settings, translation: noDevice, llm, speller: speller(verdicts), sentence, language: "en", onChange: () => {} });
+  assert.deepStrictEqual(state.spelling, { typed: "uncertian", meant: "uncertain" });
+  assert.strictEqual(state.sentence.text, sentence.text, "the window keeps the sentence as it came");
+  const questions = asked.filter((q) => !q.system.startsWith("You check the spelling") && q.maxTokens > 12).map((q) => q.user);
+  assert.ok(questions.length >= 3, "two entries and the term");
+  for (const question of questions) assert.ok(!question.includes("uncertian"), `asked about the typo: ${question.slice(0, 120)}`);
 });

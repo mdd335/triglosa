@@ -13,7 +13,7 @@ import { loadApiKey } from "../platform/keychain.js";
 import { createLlmBackend } from "../platform/llm.js";
 import { completeCard, improveCard } from "../ask.js";
 import { faultOf } from "../faults.js";
-import { isSupported } from "../languages/index.js";
+import { isChoosable } from "../languages/index.js";
 import { createAnkiBackend } from "../platform/anki.js";
 import { ankiConfigured, levelFor } from "../settings.js";
 import {
@@ -85,7 +85,7 @@ let drawn = null;
    settings: the reading window shares nothing with it. A fault is worded here,
    in the reader's language, so the card only has to show the sentence. */
 async function improverFor(card) {
-  if (!settings.endpoint || !isSupported(card.termLanguage) || !isSupported(card.meaningLanguage)) {
+  if (!settings.endpoint || !isChoosable(card.termLanguage) || !isChoosable(card.meaningLanguage)) {
     return null;
   }
   const llm = createLlmBackend(
@@ -131,7 +131,11 @@ async function draw() {
       configured: ankiConfigured(settings),
       fields: settings.cards.anki.fields,
       openSettings: () => openSettings(windowTitle(text.settings)),
-      add: (edited) => anki.add(edited, settings.cards.anki),
+      add: async (edited) => {
+        const answer = await anki.add(edited, settings.cards.anki);
+        if (answer.kind === "saved" && settings.cards.anki.sync) anki.sync();
+        return answer;
+      },
       start: () => anki.start(),
       /* A card that reached the deck has nothing left to say, and this
          window is the last click of an export nobody wants to make. */

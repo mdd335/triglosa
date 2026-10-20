@@ -64,6 +64,9 @@ export default {
   /* The definite articles, which put a noun on a flashcard the way a
      dictionary names it — with the gender a learner has to learn with it. */
   definiteArticles: "o a os as",
+  masculineArticles: "o",
+  feminineArticles: "a",
+  articles: "o a os as um uma uns umas",
   conjunctions: "e ou mas nem porque se quando embora enquanto que como pois",
   basicVerbs: "ser estar ter haver fazer ir dizer ver dar saber poder querer vir",
   basicWords: BASIC_WORDS,

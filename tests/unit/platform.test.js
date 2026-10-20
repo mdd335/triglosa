@@ -456,6 +456,20 @@ test("the settings are offered what Anki actually has", async () => {
   assert.deepStrictEqual(await anki.fieldsOf("Basic"), ["Front", "Back"]);
 });
 
+test("a sync is Anki's own button pressed, and a failure is only false", async () => {
+  const asked = [];
+  const anki = createAnkiBackend(async (body) => {
+    asked.push(JSON.parse(body).action);
+    return JSON.stringify({ result: null, error: null });
+  });
+  assert.strictEqual(await anki.sync(), true);
+  assert.deepStrictEqual(asked, ["sync"]);
+  const refused = createAnkiBackend(async () => JSON.stringify({ result: null, error: "sync: auth not configured" }));
+  assert.strictEqual(await refused.sync(), false);
+  const gone = createAnkiBackend(async () => { throw new Error("connection refused"); });
+  assert.strictEqual(await gone.sync(), false);
+});
+
 test("a deck's note types are counted over the whole deck, not the sample", async () => {
   /* The types are found in the first hundred notes; how many use each is
      asked of Anki for the whole deck, or a deck of 400 said "(100)". */

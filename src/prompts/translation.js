@@ -96,9 +96,26 @@ export function alternativesPrompt({ source, target, reader, spelling, capitalis
    which the window sets like a translation. The "=" in front tells it from
    the note of a near-synonym, which says how that one is used. Where the
    list is in the reader's language already the line says the meaning
-   itself, and the note names where it belongs. */
-export function alternativesInput({ source, target, reader = target, text, sentence }) {
+   itself, and the note names where it belongs.
+
+   A word looked up with its article asked about its gender, and gets the
+   translations with theirs (`article`: an article of the input's pack leads
+   it, and the target's pack has articles). The cloud model left the article
+   out in 28 entries of 36 and the local one in 13; with the line they do in
+   one and in none. The line is short because a longer one cost the local
+   model the genders it had right: told to match the kind of article and
+   mind the gender, it wrote "eine Vorhang" and "der Geländer" in nine German
+   entries of thirty. It stands only where an article leads the input —
+   said to every input of several words, the local model put articles in
+   front of some that had none — and never for a target without articles,
+   where the local model invented one. The same word under two articles,
+   which the local model writes as two lines, is read back as one (run
+   forty-five). */
+export function alternativesInput({ source, target, reader = target, text, sentence, article = false }) {
   const lines = [`Source: ${source} | Target: ${target} | Input: ${text}`];
+  if (article) {
+    lines.push("The input is a noun with its article. Give each translation with its article too.");
+  }
   if (sentence) {
     const note = reader === target
       ? "for those, <note> names the field or situation that meaning belongs to"

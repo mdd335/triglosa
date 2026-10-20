@@ -17,6 +17,7 @@ mod keychain;
 mod model;
 mod overlay;
 mod pieces;
+mod spelling;
 mod update;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -143,6 +144,18 @@ fn is_pinned(app: &tauri::AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+/* Whether a window stays above every other program's. All of them do while
+the reading window is pinned. The first steps always do: an app without a
+Dock icon falls behind as soon as the reader clicks anywhere else, the first
+step sends them to the menu bar, and nothing on the screen leads back. The
+settings join them while they are open, or the button that opens the
+settings would open them underneath. */
+fn stays_above(app: &tauri::AppHandle, label: &str, pinned: bool) -> bool {
+    pinned
+        || label == "welcome"
+        || (label == "settings" && app.get_webview_window("welcome").is_some())
+}
+
 fn apply_presence_to(app: &tauri::AppHandle, pinned: bool, icon: &str) {
     let Some(presence) = app.try_state::<Presence>() else {
         return;
@@ -154,8 +167,8 @@ fn apply_presence_to(app: &tauri::AppHandle, pinned: bool, icon: &str) {
     /* Every window this app has, not only the reading one: the settings and
     a card are opened from a pinned window, and at the ordinary level they
     would open underneath it. */
-    for window in app.webview_windows().values() {
-        let _ = window.set_always_on_top(pinned);
+    for (label, window) in app.webview_windows().iter() {
+        let _ = window.set_always_on_top(stays_above(app, label, pinned));
     }
     /* A Dock icon means an ordinary app, a menu bar symbol alone an accessory
     one — the policy is what puts the icon in the Dock. */
@@ -701,6 +714,7 @@ fn show_window(app: &tauri::AppHandle) {
             *height.0.lock().unwrap() =
                 f64::from(outer.height) / window.scale_factor().unwrap_or(1.0);
         }
+        overlay::rejoin_all_spaces(&window);
         let _ = window.show();
         let target = window.clone();
         let _ = window.run_on_main_thread(move || overlay::bring_to_front(&target));
@@ -916,7 +930,7 @@ fn settings_window(app: &tauri::AppHandle, about: bool) -> Result<(), String> {
     .inner_size(560.0, 720.0)
     .min_inner_size(460.0, 380.0)
     .resizable(true)
-    .always_on_top(is_pinned(app))
+    .always_on_top(stays_above(app, "settings", is_pinned(app)))
     /* Built hidden and then brought forward, the way an existing one is.
     Shown as it was built, from the menu bar, the window stood behind the
     program in front — an accessory app is not active — and was found
@@ -933,6 +947,53 @@ fn settings_window(app: &tauri::AppHandle, about: bool) -> Result<(), String> {
     window.on_window_event(move |event| {
         if let WindowEvent::Destroyed = event {
             let _ = handle.emit("settings-closed", ());
+        }
+    });
+    Ok(())
+}
+
+/* The first steps, in a window of their own: an ordinary one, which stays
+until it is closed and has a taskbar button on Windows — at a start it is
+the one thing on the screen that says the app runs. Opened rather than
+toggled, as the settings are. */
+fn welcome_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("welcome") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        "welcome",
+        tauri::WebviewUrl::App("welcome.html".into()),
+    )
+    .title(title)
+    /* Near what the page comes to: it measures itself and sets its own
+    height as soon as it has drawn. */
+    .inner_size(520.0, 520.0)
+    .min_inner_size(420.0, 300.0)
+    .resizable(true)
+    .always_on_top(true)
+    .visible(false)
+    .build()
+    .map_err(|error| error.to_string())?;
+    overlay::over_full_screen(&window, overlay::Spaces::Active);
+    let _ = window.show();
+    let target = window.clone();
+    let _ = window.run_on_main_thread(move || overlay::bring_to_front(&target));
+
+    /* The settings follow it up, and down again once it has gone. */
+    let level_settings = |app: &tauri::AppHandle, above: bool| {
+        if let Some(settings) = app.get_webview_window("settings") {
+            let _ = settings.set_always_on_top(above || is_pinned(app));
+        }
+    };
+    level_settings(app, true);
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::Destroyed = event {
+            level_settings(&handle, false);
         }
     });
     Ok(())
@@ -1102,6 +1163,18 @@ fn close_settings_window(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
+async fn open_welcome_window(app: tauri::AppHandle, title: String) -> Result<(), String> {
+    welcome_window(&app, title)
+}
+
+#[tauri::command]
+fn close_welcome_window(app: tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("welcome") {
+        let _ = window.close();
+    }
+}
+
+#[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle, title: String) -> Result<(), String> {
     if let Some(state) = app.try_state::<SettingsName>() {
         *state.0.lock().unwrap() = title;
@@ -1246,10 +1319,6 @@ fn light_up(app: tauri::AppHandle, start: usize, end: usize) {
     std::thread::spawn(move || highlight::show(&app, capture::sentence_marks(start, end)));
 }
 
-/* A force click on the Mac's trackpad, switched on or off: the word under the
-pointer, or the selection the click landed in, arrives the way the
-shortcut's selection does. A click on nothing readable says nothing. Answers
-whether clicks are now heard — not without the permission. */
 /* The settings' switch for reading the selection through the permission,
 told by the page whenever the settings change. */
 #[tauri::command]
@@ -1257,10 +1326,16 @@ fn set_direct_selection(on: bool) {
     capture::use_permission(on);
 }
 
+/* A force click on the Mac's trackpad, switched on or off: the word under the
+pointer, or the selection the click landed in, arrives the way the
+shortcut's selection does — or, with `sentence`, the sentence there, as its
+shortcut reads it. A click on nothing readable says nothing. Answers whether
+clicks are now heard — not without the permission. */
 #[tauri::command]
-fn set_force_click(app: tauri::AppHandle, on: bool) -> bool {
+fn set_force_click(app: tauri::AppHandle, on: bool, sentence: bool) -> bool {
     capture::watch_force_click(
         on,
+        sentence,
         std::sync::Arc::new(move |selection, marks| {
             highlight::show(&app, marks);
             deliver(&app, Ok(selection))
@@ -1527,6 +1602,7 @@ pub fn run() {
             align::align_words,
             identify::identifier_ready,
             identify::identify_language,
+            spelling::check_spelling,
             update::install_update,
             diagnostics::note_fault,
             diagnostics::system_report,
@@ -1548,6 +1624,8 @@ pub fn run() {
             set_direct_selection,
             open_settings_window,
             close_settings_window,
+            open_welcome_window,
+            close_welcome_window,
             open_card_window,
             close_card_window,
             take_card,

@@ -5,7 +5,7 @@
    dictionary is for, and picking one for the reader throws that away. */
 
 import { cleanLine, stripQuotes } from "../text.js";
-import { languagePack } from "../languages/index.js";
+import { languagePack, withoutArticle } from "../languages/index.js";
 import { saysNothing } from "../strings.js";
 
 export const MAX_ALTERNATIVES = 3;
@@ -42,7 +42,7 @@ function quotesBack(key, asked) {
   return at > 0 && new RegExp(QUOTE).test(key[at - 1]) && new RegExp(QUOTE).test(key[at + asked.length] || "");
 }
 
-export function parseAlternatives(raw, input, reader, target, source = "") {
+export function parseAlternatives(raw, input, reader, target, source = target) {
   const normalize = languagePack(reader).normalizeNote;
   const asked = String(input || "").trim().toLowerCase();
   const seen = new Set();
@@ -63,19 +63,25 @@ export function parseAlternatives(raw, input, reader, target, source = "") {
        twice is one entry — except as the model's first answer in another
        language than the word's, where it is the word that language uses
        too: "easy" in a German sentence is "easy" in English, "playlist" in
-       a Spanish one "playlist" (run thirty-one). Further down, the word
-       again is a model going round in circles. */
-    const shared = key === asked && firstLine && source && target && source !== target;
+       a Spanish one "playlist" (run thirty-one). A language nobody could
+       name is another one as far as anyone knows: there the word again is
+       mostly a name. Further down, the word again is a model going round in
+       circles. */
+    /* The same word under another article, or without one, is that word
+       again: "le tournevis" and "un tournevis" are one entry. */
+    const word = withoutArticle(target, key);
+    const shared = key === asked && firstLine && target && source !== target;
     /* Where the model does not know a word it sometimes writes so into the
        list instead of leaving the line out. Printed as a translation that is
        worse than a shorter list. */
     /* A translation that begins with the mark of a meaning's note has its
        fields out of place: nothing on the line is what it says it is. */
-    if (!key || (key === asked && !shared) || seen.has(key) || saysNothing(key) || /^[=＝]/.test(key)) continue;
+    if (!key || (key === asked && !shared) || seen.has(key) || seen.has(word) || saysNothing(key) || /^[=＝]/.test(key)) continue;
     /* Nor is a sentence about the word: longer than any translation, or
        with the word quoted back in it. */
     if (key.split(/\s+/).length > MOST_WORDS || (asked && quotesBack(key, asked))) continue;
     seen.add(key);
+    seen.add(word);
 
     const note = stripQuotes(cut === -1 ? "" : L.slice(cut + 1));
     out.push({ text, note: normalize ? normalize(note) : note });

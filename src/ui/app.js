@@ -20,11 +20,11 @@ import { otherPanels } from "../panels.js";
 import { fragmentsAcross } from "../match/links.js";
 import { HELPER_URL, createTranslationBackend } from "../platform/translation.js";
 import { createLlmBackend } from "../platform/llm.js";
-import { appFetch, copyText, ensureTranslationHelper, insideApp, languageIdentifier, modelFetch, noteFault, openUrl, searchUrl, wordAligner } from "../platform/env.js";
+import { appFetch, copyText, ensureTranslationHelper, insideApp, languageIdentifier, modelFetch, noteFault, openUrl, searchUrl, spellingChecker, wordAligner } from "../platform/env.js";
 import { faultLine } from "../diagnostics.js";
 import { accessibilityGranted, insertText, keyLabels, useDirectSelection } from "../platform/capture.js";
 import { hotkeyLabel, menuAccelerator } from "../hotkey.js";
-import { applyPresence, applyTray, fitReadingWindow, hideWindow, onAppearAsked, onFreshAsked, unveilWindow, onSettingsChanged, onWindowShown, openCard, openSettings, updateCard, showWindow } from "../platform/windows.js";
+import { applyPresence, applyTray, fitReadingWindow, hideWindow, onAppearAsked, onFreshAsked, unveilWindow, onSettingsChanged, onWindowShown, openCard, openSettings, openWelcome, updateCard, showWindow } from "../platform/windows.js";
 import { lightUp, listenForForceClick, onCapture, onCardCapture, registerShortcuts } from "../platform/shortcut.js";
 import { selectionSpan, sentenceAfter, sentenceUnder } from "../sentence.js";
 import { searchLink } from "../platform/search.js";
@@ -377,10 +377,10 @@ async function applyShortcut() {
   listenForForceClick(wantsForceClick());
 }
 
-/* The force click has a switch of its own; the shell hears it only with
-   the permission. */
+/* What the force click reads, where it stands in one of the two fields;
+   the shell hears it only with the permission. */
 function wantsForceClick() {
-  return settings.forceClick && !onWindows();
+  return onWindows() ? false : settings.forceClick;
 }
 
 /* Everything a row's buttons can set off. Assembled once per run, because
@@ -560,6 +560,7 @@ function drawReading() {
     onStep: stepTrail,
     sentences: neighbours(),
     onSentence: stepSentence,
+    onSpelling: spellingChoice,
     onFold: fold,
     onMore: more,
     onExample: example,
@@ -628,7 +629,7 @@ async function backends() {
         await modelFetch(),
       )
     : null;
-  return { translation, llm, identifier: await languageIdentifier() };
+  return { translation, llm, identifier: await languageIdentifier(), speller: await spellingChecker() };
 }
 
 async function translate() {
@@ -799,10 +800,38 @@ async function chooseLanguage(code) {
   await read(entry);
 }
 
+/* The texts the reader asked to have looked up as they typed them, not as
+   corrected: for as long as the app runs, like the languages they chose. */
+const asTyped = new Set();
+
+/* The line under a word found misspelled. Corrected, the reader may want it
+   as they typed it — read again in its place, like a language corrected; a
+   word only offered is looked up as if typed. */
+async function spellingChoice({ typed, offer }) {
+  if (offer) {
+    draft = offer;
+    editing = false;
+    lookup = null;
+    await translate();
+    return;
+  }
+  const old = showing();
+  if (!old || editing || !typed) return;
+  asTyped.add(old.draft);
+  const entry = { draft: old.draft, source: old.source, state: null, key: readingKey(settings), sentence: old.sentence };
+  if (walked()) walk.entries[walk.at] = entry;
+  history[history.indexOf(old)] = entry;
+  current = null;
+  draw();
+  toTop();
+  say("");
+  await read(entry);
+}
+
 /* One reading, start to finish, into its entry. */
 async function read(entry) {
   const choice = chosen.get(entry.draft);
-  const { translation, llm, identifier } = await backends();
+  const { translation, llm, identifier, speller } = await backends();
   currentLlm = llm;
   tools = await makeTools();
   await ensureTranslationHelper(translation);
@@ -815,12 +844,14 @@ async function read(entry) {
       llm,
       aligner: await wordAligner(),
       identifier,
+      speller,
+      asTyped: asTyped.has(entry.draft),
       waitTurn: quietTurn,
       language: choice?.code || entry.sentence?.detected.code || "",
       languageBy: choice?.code ? "reader" : entry.sentence?.detected.by || "",
       guesses: choice?.guesses || entry.sentence?.detected.guesses || [],
       sentence: entry.sentence
-        ? { text: entry.sentence.text, start: entry.sentence.start, end: entry.sentence.end }
+        ? { text: entry.sentence.text, start: entry.sentence.start, end: entry.sentence.end, code: entry.sentence.code || "" }
         : null,
       onChange(state) {
         /* Kept for a problem report, once per run: the diagnostics in the
@@ -884,6 +915,9 @@ const WARM_DELAY_MS = 500;
 let warmTimer = 0;
 
 function warmSoon() {
+  /* The spelling checker's dictionaries at once: they load on a thread of
+     their own, and the first word looked up is the one that would wait. */
+  spellingChecker().then((speller) => speller?.warm(settings.languages), () => {});
   clearTimeout(warmTimer);
   warmTimer = setTimeout(() => { warmDevice().catch(() => {}); }, WARM_DELAY_MS);
 }
@@ -1119,12 +1153,14 @@ async function lookUp(word, previous) {
     .filter(Boolean)
     .map((entry) => ({ code: entry.code, text: entry.text }));
 
+  const identifier = await languageIdentifier();
   try {
     const marked = await waitedOn(() => explainMarked(currentLlm, {
       term: word,
       text: panel.text,
       source: askedLanguage(panel),
       reader: settings.languages[0],
+      identifier,
       others,
       /* It does not stand in the text — it came out of another word's
          synonyms — so the text is not sent and there is nothing to locate. */
@@ -1244,13 +1280,15 @@ async function pick(choice) {
   const knownSpot = places.length && places.every(Boolean) ? `${places[0]} | ${places[1] || "-"}` : "";
 
   const asked = term;
+  const identifier = await languageIdentifier();
   try {
     const marked = await waitedOn(() => explainMarked(currentLlm, {
       spot: knownSpot,
       term,
       text: from,
-      source: askedLanguage(panel),
+      source: choice.inSentence && current.sentence?.apart ? current.sentence.code : askedLanguage(panel),
       reader: settings.languages[0],
+      identifier,
       others,
       /* In short mode the other panels hold a list of translations rather
          than a sentence, so there is no text to find the word in over there
@@ -1550,3 +1588,7 @@ applyLanguage();
 applyPresence(settings);
 draw();
 focusDraft();
+
+/* The first steps, at every start until the reader says not to: a window of
+   their own, the reading window staying hidden as ever. */
+if (settings.welcome) openWelcome(windowTitle(text.welcome.steps));

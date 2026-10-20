@@ -65,6 +65,9 @@ export default {
   /* The definite articles, which put a noun on a flashcard the way a
      dictionary names it — with the gender a learner has to learn with it. */
   definiteArticles: "le la les l'",
+  masculineArticles: "le",
+  feminineArticles: "la",
+  articles: "le la les l' un une des",
   conjunctions: "et ou mais ni donc car or que qu' si quand lorsque puisque comme parce",
   basicVerbs: "être avoir faire aller dire voir venir savoir pouvoir vouloir prendre donner",
   basicWords: BASIC_WORDS,

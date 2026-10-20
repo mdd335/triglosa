@@ -9,11 +9,11 @@
    list and the verb *forms* — not the verb *annotation*, which takes about two
    and a half times as long. */
 
-import { detectLanguage, chosenLanguage } from "./detect.js";
+import { asConfigured, detectLanguage, chosenLanguage } from "./detect.js";
 import { faultOf } from "./faults.js";
 import { showsSection } from "./settings.js";
 import { panelLanguages } from "./panels.js";
-import { displayName } from "./languages/index.js";
+import { displayName, isSupported } from "./languages/index.js";
 import { withoutVerbs, VERB_CANDIDATES, selectVerbForms } from "./parse/verbs.js";
 import { containsWord } from "./text.js";
 import { fixSwappedColumns } from "./match/columns.js";
@@ -26,7 +26,10 @@ import {
   translateText,
   alternativesFor,
   glanceSentence,
+  spellingFor,
+  wordLanguageFor,
 } from "./ask.js";
+import { checkerOffer, languageByDictionaries, mayBeMisspelled, spellingLanguages, spellingWords, wordLanguage } from "./spelling.js";
 import { glancePairs, placeUnits } from "./glance.js";
 import { unitsFromLinks } from "./parse/glance.js";
 import { fragmentsAcross, rangesAcross } from "./match/links.js";
@@ -46,23 +49,75 @@ export const SHORT_MAX_WORDS = 3;
    slowing down — including the one to a word the reader clicks meanwhile. */
 export const GLANCE_WIDTH = 3;
 
-/* The sentence a looked-up word stands in (sentence.js), and the language
-   it is in — named from the sentence, which is more than the word and so
-   named more often without asking the model, and all that leaves the
-   machine. Null where the word goes alone: nothing around it came along, or
-   its sentence holds no other word. */
-export async function sentenceFor(word, around, { settings, translation, llm, identifier }) {
+/* A looked-up word's spelling (see spelling.js). The checker answers in a
+   few milliseconds once its dictionaries are loaded, and is waited for this
+   long before the entry is asked for. A word it finds suspect is asked about
+   first and every panel and the term about the word meant: asked as typed,
+   the entry called "garanteirt" old and southern German (author 2026-10-16).
+   That costs a misspelled word the spelling question, 0.4 s on the cloud
+   model and 0.7 s on the local one, waited for at most SPELLING_FIRST_MS;
+   a word spelled right costs the check alone. Where the checker was slower
+   — its dictionaries load the first time, 0.4 to 1.7 s — the upper panel
+   goes ahead as typed, and the lower panel and the term wait for the word
+   meant as long: not waited for, the term was asked about the typo and
+   explained it as one — a wait is the lesser evil (2026-10-16). */
+export const CHECK_WAIT_MS = 300;
+export const SPELLING_FIRST_MS = 3000;
+
+/* A promise's value where it comes within `ms`; undefined where it does
+   not, null where it fails. */
+function within(promise, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), ms);
+    promise.then((value) => { clearTimeout(timer); resolve(value); }, () => { clearTimeout(timer); resolve(null); });
+  });
+}
+
+/* The sentence a looked-up word stands in (sentence.js), its language
+   (`code`), and the language the word is in (`detected`) — named from the
+   sentence, which is more than the word and so named more often without
+   asking the model, and all that leaves the machine. Unless the word is a
+   word of another of the reader's languages, as the spelling checker sees
+   it (wordLanguage): "encender" in an English sentence is Spanish. The
+   checker is asked while the sentence is named, and waited for no longer
+   than for a typo; where its dictionaries cannot tell — Windows has one
+   only for a language added to the system — the model is asked instead.
+   The language identifier is no help here: of a single word it named
+   "encender" Italian and "actual" Spanish (run fifty-three). Null where the
+   word goes alone: nothing around it came along, or its sentence holds no
+   other word. */
+export async function sentenceFor(word, around, { settings, translation, llm, identifier, speller = null }) {
   if (!around?.text) return null;
   const sentence = sentenceAround(around.text, word, around.at);
   if (!sentence) return null;
-  const detected = await detectLanguage(sentence.text, {
+  const reader = settings.languages[0];
+  const own = settings.languages.filter(isSupported);
+  const words = spellingWords(word);
+  const checking = speller && words.length ? speller.check(words, own).catch(() => ({})) : null;
+  const named = await detectLanguage(sentence.text, {
     languages: settings.languages,
-    reader: settings.languages[0],
+    reader,
     translation,
     llm,
     identifier,
   }).catch(() => ({ code: "", name: "", guesses: [] }));
-  return { ...sentence, detected };
+  let detected = named;
+  if (checking && isSupported(named.code)) {
+    const source = named.code;
+    const asked = [checking, own.includes(source) ? null : speller.check(words, [source]).catch(() => ({}))];
+    const answers = await Promise.all(asked.map((promise) => promise && within(promise, CHECK_WAIT_MS)));
+    const verdicts = {};
+    for (const answer of answers.filter(Boolean)) {
+      for (const [key, value] of Object.entries(answer)) verdicts[key] = { ...verdicts[key], ...value };
+    }
+    let code = wordLanguage(word, verdicts, { source, languages: own });
+    if (code === null && llm && own.some((other) => other !== source)) {
+      code = await wordLanguageFor(llm, { words: word, sentence: sentence.text, source, languages: own }).catch(() => "");
+      if (code === source) code = "";
+    }
+    if (code) detected = { code, name: displayName(code, reader), guesses: named.guesses || [], by: "text" };
+  }
+  return { ...sentence, code: named.code || "", detected };
 }
 
 export function emptyState() {
@@ -94,6 +149,10 @@ export function emptyState() {
        reader's own language. Nothing here writes a sentence: this file has no
        language. */
     status: { words: "", verbs: "", panels: "" },
+    /* A looked-up text found misspelled: `typed` as it was, and either the
+       word `meant`, which the reading has gone on with, or a word only
+       `offer`ed, where no model could say. */
+    spelling: null,
     /* Why nothing came of it, once. Every one of these faults is about the
        endpoint or about the helper — one address, one model — so it is a
        state of the run and not of a panel: said once, in the line the window
@@ -124,7 +183,7 @@ function untangle(state) {
   }
 }
 
-export async function runText(text, { settings, translation, llm, aligner = null, identifier = null, onChange, waitTurn, language = "", languageBy = "", guesses = [], sentence = null }) {
+export async function runText(text, { settings, translation, llm, aligner = null, identifier = null, speller = null, onChange, waitTurn, language = "", languageBy = "", guesses = [], sentence = null, asTyped = false }) {
   const state = emptyState();
   const blame = (error) => {
     const found = faultOf(error);
@@ -149,8 +208,8 @@ export async function runText(text, { settings, translation, llm, aligner = null
 
      A model that cannot be reached must not take the device's panels down
      with it: the language stays unnamed and the reason is recorded. */
-  const found = language
-    ? { ...chosenLanguage(language, reader), guesses, by: languageBy || "reader" }
+  let found = language
+    ? asConfigured({ ...chosenLanguage(language, reader), guesses, by: languageBy || "reader" }, settings.languages)
     : await detectLanguage(text, {
       languages: settings.languages,
       reader,
@@ -161,9 +220,24 @@ export async function runText(text, { settings, translation, llm, aligner = null
       blame(error);
       return { code: "", name: "" };
     });
+  /* A short text named as a language the app does not offer, by the
+     reader's dictionaries instead where they say one of the reader's
+     languages (see spelling.js). Not where the reader named it. */
+  if (!language && speller && state.short && !found.code && !found.iso) {
+    const own = settings.languages.filter(isSupported);
+    const verdicts = await speller.check(spellingWords(text), own, { full: true }).catch(() => ({}));
+    const code = languageByDictionaries(text, verdicts, own);
+    if (code) found = { code, name: displayName(code, reader), guesses: found.guesses || [], by: "text" };
+  }
   /* Who named it, for the heading's hover — a model by the name it has now. */
   const detected = found.by === "model" ? { ...found, model: settings.model || "" } : found;
   state.source = detected;
+  /* A word of another language than its sentence's ("encender" in an
+     English sentence): the term's question would call the sentence a text
+     in the word's language, so it is asked about the word alone, as
+     without a sentence; a word picked in the sentence is in the sentence's
+     language, and a card does not take the sentence along. */
+  if (state.sentence?.code && state.sentence.code !== detected.code) state.sentence = { ...state.sentence, apart: true };
   /* The language the questions name. For a language without a pack that is
      its code where the reader chose it, so the model is told it is Persian;
      where detection only found a name, the name is handed on instead. */
@@ -195,7 +269,12 @@ export async function runText(text, { settings, translation, llm, aligner = null
      What is skipped below the panels is what only a language pack can
      answer: the verb table and the hover. The terms are still asked. */
   const named = !!detected.code;
-  if (!named && !llm) {
+  /* What the device is asked to translate from: it knows more languages
+     than the app has packs for, so a language known by its code alone —
+     chosen by the reader, or named by the model in words the platform
+     knows — is still its to try. */
+  const from = detected.code || detected.iso || detected.tag || "";
+  if (!from && !llm) {
     for (const panel of state.panels.slice(1)) panel.status = "unknown-source";
     state.busy = false;
     tell();
@@ -242,17 +321,67 @@ export async function runText(text, { settings, translation, llm, aligner = null
      Below the entry, one term: the looked-up words, or the fixed expression
      in their sentence they belong to, where it is hard enough for this
      reader to explain — the terms' own question, held to one. */
+  /* What a panel nobody filled says. With an endpoint the model has just
+     tried and failed too, so the device's language downloads are not the
+     cause. Without one the device was the only engine there was — and then
+     it matters whether it refused this pair, which the reader can fix by
+     downloading it, or whether it was not answering at all, which no
+     download helps. Naming the wrong one of those sends somebody into
+     System Settings after a language that is already there; and for a
+     language the app has no pack for there is no download to name. */
+  const emptyStatus = async () => (llm
+    ? "no-answer"
+    : !named
+    ? "unknown-source"
+    : (await translation?.running?.()) ? "missing" : "no-device");
+
   if (state.short) {
-    const fillPanel = async (offset, code) => {
+    /* A typo (see CHECK_WAIT_MS): the spelling checker first, and only
+       where it knows the word in none of the languages concerned the model,
+       in a question of its own; the reading goes on with the word meant.
+       Without a model the checker's word is only offered. Not where the
+       reader asked for the word as typed. */
+    const about = { source: detected.code, languages: settings.languages };
+    const checking = speller && named && !asTyped;
+    const suspicion = checking
+      ? speller.check(spellingWords(text), spellingLanguages(detected.code, settings.languages), { full: !llm })
+        .then((verdicts) => (mayBeMisspelled(text, verdicts, about) ? verdicts : null), () => null)
+      : null;
+    const spelled = suspicion && suspicion.then(async (verdicts) => {
+      if (!verdicts) return;
+      if (!llm) {
+        const offer = checkerOffer(text, verdicts, about);
+        if (offer) state.spelling = { typed: text, offer };
+        tell();
+        return;
+      }
+      /* A question that fails says nothing: the entry's own question, to
+         the same model, says it once for the whole reading. */
+      const meant = await spellingFor(llm, { text, source: detected.code }).catch(() => "");
+      if (!meant) return;
+      state.spelling = { typed: text, meant };
+      state.text = meant;
+      state.panels[0].text = meant;
+      tell();
+    }).catch(() => {});
+    if (suspicion && llm && await within(suspicion, CHECK_WAIT_MS)) await within(spelled, SPELLING_FIRST_MS);
+    /* The word meant, where a suspect word's answer is not in yet. Without
+       a model nothing is meant, only offered. */
+    const spellingSettled = async () => {
+      if (spelled && llm) await within(spelled, SPELLING_FIRST_MS);
+    };
+    const looked = () => state.spelling?.meant || text;
+
+    const fillPanel = async (offset, code, words) => {
       const panel = state.panels[offset + 1];
       if (llm) {
         try {
           panel.alternatives = await alternativesFor(llm, {
-            text,
+            text: words,
             source: asked,
             target: code,
             reader,
-            sentence: state.sentence?.text || "",
+            sentence: askedSentence()?.text || "",
           });
         } catch (error) {
           panel.fault = blame(error);
@@ -264,49 +393,59 @@ export async function runText(text, { settings, translation, llm, aligner = null
         panel.model = settings.model || "";
       } else {
         panel.alternatives = undefined;
-        const translated = named ? await translation?.translate(detected.code, code, text) : "";
+        const translated = from ? await translation?.translate(from, code, words) : "";
         panel.text = translated || "";
         panel.engine = translated ? "device" : undefined;
         panel.fallback = !!translated && !!llm;
-        panel.status = translated
-          ? "ready"
-          : llm
-          ? "no-answer"
-          : (await translation?.running?.()) ? "missing" : "no-device";
+        panel.status = translated ? "ready" : await emptyStatus();
       }
       tell();
     };
 
     const wantTerm = !!llm && showsSection(settings, "terms", detected.code);
     state.status.words = wantTerm ? "working" : "";
-    const sentence = state.sentence;
-    const askTerm = () => wordsFor(llm, {
-      text: sentence?.text || text,
-      source: asked,
-      sourceName: askedName,
-      languages: settings.languages,
-      levels: settings.levels,
-      lookup: sentence
-        ? { words: text, start: sentence.start, end: sentence.end }
-        : { words: text, start: 0, end: text.length },
-    })
-      .then((list) => {
-        state.words = list;
-        state.status.words = "";
-        tell();
+    /* The sentence as the questions get it: with the word meant where the
+       typo stood, so that nothing is asked about the typo — asked in the
+       sentence as it came, the term explained "uncertian" as a misspelling
+       (author 2026-10-16). The window keeps the sentence as it came. */
+    const askedSentence = () => {
+      const came = state.sentence;
+      const meant = state.spelling?.meant;
+      if (!came || !meant) return came;
+      return { text: came.text.slice(0, came.start) + meant + came.text.slice(came.end), start: came.start, end: came.start + meant.length };
+    };
+    const askTerm = (words) => {
+      const sentence = state.sentence?.apart ? null : askedSentence();
+      return wordsFor(llm, {
+        text: sentence?.text || words,
+        source: asked,
+        sourceName: askedName,
+        languages: settings.languages,
+        levels: settings.levels,
+        identifier,
+        lookup: sentence
+          ? { words, start: sentence.start, end: sentence.end }
+          : { words, start: 0, end: words.length },
       })
-      .catch((error) => {
-        state.words = null;
-        state.status.words = blame(error);
-        tell();
-      });
+        .then((list) => {
+          state.words = list;
+          state.status.words = "";
+          tell();
+        })
+        .catch((error) => {
+          state.words = null;
+          state.status.words = blame(error);
+          tell();
+        });
+    };
 
     /* The upper panel first and alone, so it is reliably filled first; then
        the second panel and the term side by side, the panel's question sent
        first so that a model answering one at a time answers it first. */
-    if (targets.length) await fillPanel(0, targets[0]);
-    const second = targets.length > 1 ? fillPanel(1, targets[1]) : null;
-    await Promise.all([second, wantTerm ? askTerm() : null]);
+    if (targets.length) await fillPanel(0, targets[0], looked());
+    await spellingSettled();
+    const second = targets.length > 1 ? fillPanel(1, targets[1], looked()) : null;
+    await Promise.all([second, wantTerm ? askTerm(looked()) : null, spelled]);
     state.busy = false;
     tell();
     return state;
@@ -316,7 +455,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
      whole language pairs — one it has not downloaded, a language it cannot
      name — and fails outright now and then; the model needs an endpoint. */
   const engines = {
-    device: async (code) => (named ? translation.translate(detected.code, code, text) : ""),
+    device: async (code) => (from ? translation.translate(from, code, text) : ""),
     model: async (code, panel) => {
       if (!llm) return "";
       try {
@@ -356,19 +495,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
       }
     }
     panel.text = translated;
-    /* Which of them failed decides what the panel may say, and there are
-       three answers, not one. With an endpoint the model has just tried and
-       failed too, so the device's language downloads are not the cause.
-       Without one the device was the only engine there was — and then it
-       matters whether it refused this pair, which the reader can fix by
-       downloading it, or whether it was not answering at all, which no
-       download helps. Naming the wrong one of those sends somebody into
-       System Settings after a language that is already there. */
-    panel.status = translated
-      ? "ready"
-      : llm
-      ? "no-answer"
-      : (await translation?.running?.()) ? "missing" : "no-device";
+    panel.status = translated ? "ready" : await emptyStatus();
     tell();
   };
 
@@ -471,6 +598,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
     sourceName: askedName,
     languages: settings.languages,
     levels: settings.levels,
+    identifier,
   })
     .then((list) => {
       state.words = list;

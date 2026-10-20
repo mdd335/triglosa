@@ -18,7 +18,7 @@
    TRIGLOSA_SETTINGS seeds the settings, TRIGLOSA_KEY a model key, TRIGLOSA_WAIT
    the pause after Translate — a model endpoint needs much longer than the
    device. TRIGLOSA_SCHEME is "light" or "dark", for the scheme the checker is
-   not in. TRIGLOSA_PAGE is "settings" or "card" — each is a window of its own
+   not in. TRIGLOSA_PAGE is "settings", "card" or "welcome" — each is a window of its own
    in the app and a page of its own here. A card page outside the app finds no
    card to draw, so pass one in the third argument with renderCard.
 
@@ -129,7 +129,7 @@ if (seeds.length) {
   });
 }
 
-const PAGES = { settings: "settings.html", card: "card.html" };
+const PAGES = { settings: "settings.html", card: "card.html", welcome: "welcome.html" };
 const page = PAGES[process.env.TRIGLOSA_PAGE] || "";
 await send("Page.navigate", { url: `http://localhost:1420/${page}` });
 await sleep(1200);

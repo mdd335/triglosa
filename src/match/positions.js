@@ -77,6 +77,52 @@ export function longestRunInText(text, item, codes) {
   return "";
 }
 
+/* A fixed expression named in its dictionary form where the text has its
+   words apart — "in Kraft treten" for "tritt im Januar in Kraft": the runs
+   of it that stand in the text, in the text's order, joined with a plus as
+   a verb form the text splits is. The whole entry where it stands in one
+   piece. "" unless every word of it that carries meaning stands there but
+   one, and that one could be a word of the text in another form, beginning
+   with its letter or holding its first three ("stellen" in "gestellt"): a
+   verb's form is what the dictionary changes, and nothing may be added. */
+export function scatteredRunsInText(text, item, codes) {
+  const parts = String(item || "").trim().split(/\s+/).filter(Boolean);
+  const low = String(text || "").toLowerCase();
+  const runs = [];
+  const missing = [];
+  for (let i = 0; i < parts.length;) {
+    let found = null;
+    for (let j = parts.length; j > i && !found; j--) {
+      const candidate = parts.slice(i, j).join(" ");
+      if (tooShort(candidate) || isFunctionWord(candidate, codes)) continue;
+      let at = wordIndexOf(low, candidate.toLowerCase());
+      let run = at === -1 ? "" : String(text).slice(at, at + candidate.length);
+      if (!run && !isUnspaced(candidate)) {
+        run = stemRunInText(text, candidate);
+        at = run ? wordIndexOf(low, run.toLowerCase()) : -1;
+      }
+      if (run) found = { at, run, next: j };
+    }
+    if (found) {
+      runs.push(found);
+      i = found.next;
+    } else {
+      if (!isFunctionWord(parts[i], codes)) missing.push(parts[i]);
+      i++;
+    }
+  }
+  if (!runs.length || missing.length > 1 || (missing.length && !anotherFormIn(text, missing[0], codes))) return "";
+  return runs.sort((a, b) => a.at - b.at).map((found) => found.run).join(" + ");
+}
+
+function anotherFormIn(text, word, codes) {
+  const fold = (w) => stripDiacritics(w).toLowerCase();
+  const wanted = fold(word);
+  if (letters(wanted) < 3) return false;
+  return toTokens(String(text)).some((token) => token.isWord && !isFunctionWord(token.text, codes)
+    && (fold(token.text)[0] === wanted[0] || fold(token.text).includes(wanted.slice(0, 3))));
+}
+
 /* How much of two words has to agree before they count as the same word in
    another form, and how much of the ending may differ.
 

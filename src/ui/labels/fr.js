@@ -19,6 +19,10 @@ export default {
   inSentence: "ici",
   previousSentence: "Phrase précédente",
   nextSentenceLine: "Phrase suivante",
+  /* A looked-up word found misspelled: the line under it, the typed word
+     in it a link that looks it up as typed. */
+  correctedFrom: (typed) => `Corrigé de ${typed}`,
+  didYouMean: (word) => `Tu voulais dire ${word} ?`,
   synonyms: "apparentés",
   wordClasses: {
     noun: "nom",
@@ -154,13 +158,13 @@ export default {
   updatesHint: "Demande à GitHub la version la plus récente seulement lorsque tu cliques ici. La mise à jour n’est téléchargée que lorsque tu cliques sur « Installer maintenant ».",
   updatesNone: "Tu as la version la plus récente.",
   updatesFound: (version) => `La version ${version} est disponible.`,
-  updatesDownload: "Aller au téléchargement",
+  updatesDownload: "Afficher le téléchargement et les notes de version",
   updatesInstall: "Installer maintenant",
   updatesLoading: (percent) => `Téléchargement… ${percent} %`,
   updatesInstalling: "Installation… Triglosa va redémarrer.",
-  updatesInstallNone: "Cette version ne peut pas être installée d’ici. Utilise « Aller au téléchargement ».",
+  updatesInstallNone: "Cette version ne peut pas être installée d’ici. Télécharge-la manuellement.",
   updatesInstallUnreachable: "La mise à jour n’a pas pu être téléchargée. Réessaie plus tard.",
-  updatesInstallFailed: (detail) => `La mise à jour n’a pas été installée${detail ? ` (${detail})` : ""}. Utilise « Aller au téléchargement ».`,
+  updatesInstallFailed: (detail) => `La mise à jour n’a pas été installée${detail ? ` (${detail})` : ""}. Télécharge-la manuellement.`,
   diagnosticsCopy: "Copier le diagnostic",
   diagnosticsHint: "Pour signaler un problème : version, système, langues, modèle d’IA et dernières erreurs. Jamais tes textes ni ta clé API. Rien n’est envoyé ; tu le colles toi-même.",
   updatesFailed: (status) => `Pas de réponse de GitHub${status ? ` (${status})` : ""}. Réessaie plus tard.`,
@@ -172,11 +176,14 @@ export default {
     never: "jamais",
     second: "seulement pour la deuxième langue",
     third: "seulement pour la troisième langue",
-    foreign: "pour toutes les langues étrangères prises en charge",
+    foreign: "pour toutes les langues étrangères",
   },
   cardsImprove: "Améliorer automatiquement les fiches avec l’IA",
   ankiEnabled: "Exporter directement vers Anki",
   ankiEnabledHint: (code) => `Nécessite Anki avec le module AnkiConnect (code ${code}).`,
+  ankiSync: "Synchroniser après chaque carte",
+  ankiSyncHint:
+    "Appuie sur le bouton de synchronisation d’Anki. Ne fonctionne que si AnkiWeb est configuré.",
   ankiSearching: "Recherche…",
   ankiMissing:
     "Anki ne répond pas. Lance Anki et vérifie qu’AnkiConnect est installé.",
@@ -205,6 +212,10 @@ export default {
   secondLanguage: "Deuxième langue",
   thirdLanguage: "Troisième langue (facultatif)",
   noThird: "aucune",
+  languagesTuned: "Optimisées",
+  languagesOther: "Non optimisées",
+  otherLanguageHint:
+    "Triglosa n’est pas optimisé pour cette langue : les erreurs sont plus fréquentes et il n’y a pas de section « Verbes ». Plus le modèle d’IA est performant, meilleur est le résultat.",
   levelNames: {
     A1: "Débutant",
     A2: "Élémentaire",
@@ -217,8 +228,8 @@ export default {
     never: "jamais",
     second: "seulement pour la deuxième langue",
     third: "seulement pour la troisième langue",
-    foreign: "pour toutes les langues étrangères prises en charge",
-    all: "pour toutes les langues prises en charge",
+    foreign: "pour toutes les langues étrangères optimisées",
+    all: "pour toutes les langues optimisées",
   },
   termModes: {
     never: "jamais",
@@ -332,9 +343,7 @@ export default {
   wordHotkeyLead: "Cherche le mot sur lequel se trouve le pointeur.",
   sentenceHotkey: "Phrase sous le pointeur",
   sentenceHotkeyLead: "Traduit toute la phrase sur laquelle se trouve le pointeur.",
-  forceClick: "Chercher un mot par clic forcé",
-  forceClickLead:
-    "Un clic forcé sur le trackpad cherche le mot sous le pointeur.",
+  forceClick: "Clic forcé",
   forceClickHint:
     "Pour que la recherche d’Apple ne s’ouvre pas en plus, désactive « Recherche et détection de données » dans Réglages Système, Trackpad.",
   pointerUnreliable: "Les fonctions ci-dessous ne marchent pas de manière fiable dans tous les programmes.",
@@ -384,6 +393,31 @@ export default {
   closeWindow: "Fermer la fenêtre",
   pinWindow: "Garder au premier plan",
   unpinWindow: "Ne plus garder au premier plan",
+  welcomeFind:
+    "Triglosa fonctionne en arrière-plan. Tu trouveras son symbole, un livre, en haut à droite dans la barre des menus.",
+  welcomeModel: (link) => ["Connecte un modèle d’IA dans les réglages pour des traductions plus précises, des termes, des verbes et des explications. Le ", link("guide"), " explique comment faire."],
+  welcome: {
+    heading: "Bienvenue dans Triglosa",
+    steps: "Premiers pas",
+    languages: "Choisis dans les réglages ta propre langue et les langues que tu apprends.",
+    start: {
+      title: "C’est parti.",
+      select: (key) => ["Sélectionne un texte dans n’importe quel programme et appuie sur ", key, "."],
+      copy: (key) => ["Copie un texte dans n’importe quel programme (⌘C) et appuie sur ", key, "."],
+      change: "Tu peux changer le raccourci dans les réglages.",
+      noKey: "ton raccourci",
+      set: "Tu le définis dans les réglages.",
+    },
+    permission: {
+      title: "Facultatif : lire le texte directement.",
+      body: "Avec l’autorisation macOS « Contrôle de l’appareil et accès aux données » (« Accessibilité » jusqu’à macOS 26), Triglosa lit le texte sélectionné sans le copier et insère des traductions dans d’autres programmes. Tu l’accordes dans les réglages.",
+    },
+    more: (link) => ["Toutes les informations sur Triglosa se trouvent dans le ", link("README"), " sur GitHub."],
+    hide: "Ne plus afficher",
+    settings: "Ouvrir les réglages",
+    close: "Fermer ce message",
+    open: "Afficher les premiers pas",
+  },
 };
 
 export const windows = {
@@ -405,4 +439,7 @@ export const windows = {
   copyFirst: (key) => `Astuce : sélectionne un texte dans n’importe quel programme, puis appuie sur ${key}.`,
   translateKeys: "Traduire (Ctrl+Entrée)",
   enterKey: "Ctrl+Entrée",
+  welcomeFind:
+    "Triglosa fonctionne en arrière-plan. Tu trouveras son symbole, un livre, en bas à droite près de l’horloge, en cliquant sur la petite flèche (^). Pour qu’il reste toujours visible, maintiens-le enfoncé avec la souris et fais-le glisser vers le bas, à droite de la flèche. Un clic sur le symbole ouvre la fenêtre, un clic droit ouvre le menu.",
+  welcomeModel: (link) => ["Triglosa traduit et explique avec un modèle d’IA. Connectes-en un dans les réglages. Le ", link("guide"), " explique comment faire."],
 };

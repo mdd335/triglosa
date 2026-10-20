@@ -356,6 +356,30 @@ mod tests {
         assert!(links(&[1.0, 0.0], &[1.0, 0.0], 2, &[None], &[Some(0)]).is_empty());
     }
 
+    /// The links of the pairs in a file, written to another: how a
+    /// measurement asks this aligner about its own readings
+    /// (`tests/quality.mjs --aligner`). Wants the model, so it runs only when
+    /// asked: TRIGLOSA_ALIGNER=<the folder with the model's four files>
+    /// TRIGLOSA_ITEMS=<pairs.json> TRIGLOSA_ANSWERS=<file to write>
+    /// cargo test -- --ignored the_pairs_are_aligned
+    #[test]
+    #[ignore]
+    fn the_pairs_are_aligned() {
+        let env = |name: &str| std::env::var(name).expect(name);
+        let pairs: Vec<Pair> =
+            serde_json::from_str(&std::fs::read_to_string(env("TRIGLOSA_ITEMS")).unwrap()).unwrap();
+        let mut loaded = load_from(PathBuf::from(env("TRIGLOSA_ALIGNER"))).unwrap();
+        let found: Vec<Vec<[usize; 2]>> = pairs
+            .iter()
+            .map(|pair| align(&mut loaded, pair).unwrap())
+            .collect();
+        std::fs::write(
+            env("TRIGLOSA_ANSWERS"),
+            serde_json::to_string(&found).unwrap(),
+        )
+        .unwrap();
+    }
+
     /// The measured links, pair by pair: the same model through this code
     /// has to say what it said through the measurement's
     /// (`tests/align.py`, run forty). Wants the model, so it runs only when

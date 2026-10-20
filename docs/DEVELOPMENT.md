@@ -89,7 +89,7 @@ Three lines run through all of it:
 ## Layout
 
 ```
-index.html, settings.html, card.html   the three windows' pages
+index.html, settings.html, card.html, welcome.html   the windows' pages
 src/
   run.js          one reading, start to finish — decides, draws nothing
   ask.js          every question the model is asked — sends, decides nothing
@@ -102,6 +102,7 @@ src/
   card.js         a flashcard's three fields, and which goes where
   history.js      whether a text has been read already
   sentence.js     the sentence a looked-up word stands in
+  spelling.js     whether a looked-up word may be misspelled, and as what
   settings.js     everything the reader can decide, normalised
   hotkey.js       recording a key combination
   faults.js       what went wrong, as { kind, status, detail } without words
@@ -119,6 +120,7 @@ src/
     model-fetch.js  its requests, through the shell's kept connection
     aligner.js      the word aligner in the shell, for the hover and the marks
     identifier.js   the language identifier in the shell
+    spelling.js     the system's spelling checker in the shell
     translation.js  Apple's translation through the helper (absent on Windows)
     capture.js      text from other programs, and back into them
     shortcut.js     the global shortcuts
@@ -139,6 +141,7 @@ src/
     language-choice.js  correcting the source text's language
     settings-view.js, settings-window.js   the settings
     card-view.js, card-window.js           the flashcard
+    welcome-view.js, welcome-window.js     the first steps, shown at a start
     elements.js, icons.js, preview.js      small shared pieces
     labels.js       the interface, one file per language under labels/
     style.css
@@ -149,7 +152,8 @@ src-tauri/
                   became which, by a small model on this machine) with
                   pieces.rs (the pieces a word is cut into for it),
                   identify.rs (which language a text is in, by a small
-                  model on this machine),
+                  model on this machine), spelling.rs (the system's
+                  spelling checker),
                   keychain.rs, keyboard.rs, update.rs, diagnostics.rs, main.rs
   sidecar/        translator.swift, the Mac's translation helper
   capabilities/   what each window may reach — every window label must be listed
@@ -207,7 +211,10 @@ tests/fixtures/   data the tests read: untidy.json is text as programs really
   `tests/unit/settings.test.js`.
 - **A language the app reads**: a pack in `src/languages/`, registered in
   `index.js`, which documents every field a pack may carry. The generic
-  prompts need nothing else.
+  prompts need nothing else. A language may also be learned without a pack
+  (`WITHOUT_PACK` there): the settings list it as not optimised and it gets
+  no verb section. A pack - the tense and person names, the auxiliaries, the
+  verbs of the first weeks, the articles - is what moves it up.
 - **A first language** (an interface language): a label file in
   `src/ui/labels/`, imported in `ui/labels.js`, an entry in `src/strings.js`,
   and its code in `FIRST_LANGUAGES` in `src/settings.js`.

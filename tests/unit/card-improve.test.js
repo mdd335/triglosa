@@ -26,6 +26,27 @@ test("the sentence from the text is put back where the answer dropped it", () =>
   assert.ok(card.note.startsWith("Me cogió en brazos. (Er nahm mich auf den Arm.)\n\n"));
 });
 
+test("a sentence the answer tidied is the same sentence, and stands once as given", () => {
+  const context = { sentence: "enumeró algunos puntos", translation: "sie zählte einige Punkte auf" };
+  const raw = "enumerar\naufzählen\n---\nEnumeró algunos puntos (Sie zählte einige Punkte auf).\n\nGeläufig.\n\nEnumera tus argumentos. (Zähle deine Argumente auf.)";
+  assert.strictEqual(parseImprovedCard(raw, { ...CARD, context }).note,
+    "enumeró algunos puntos (sie zählte einige Punkte auf)\n\nGeläufig.\n\nEnumera tus argumentos. (Zähle deine Argumente auf.)");
+});
+
+test("a tidied sentence that came without a translation keeps the answer's", () => {
+  const context = { sentence: "enumeró algunos puntos", translation: "" };
+  const raw = "enumerar\naufzählen\n---\nGeläufig.\n\nEnumeró algunos puntos. (Sie zählte einige Punkte (mehrere) auf.)";
+  assert.strictEqual(parseImprovedCard(raw, { ...CARD, context }).note,
+    "enumeró algunos puntos (Sie zählte einige Punkte (mehrere) auf.)\n\nGeläufig.");
+});
+
+test("a further example that only starts like the sentence is left alone", () => {
+  const context = { sentence: "enumeró algunos puntos", translation: "sie zählte einige Punkte auf" };
+  const raw = "enumerar\naufzählen\n---\nEnumeró algunos puntos importantes. (Sie zählte einige wichtige Punkte auf.)";
+  assert.strictEqual(parseImprovedCard(raw, { ...CARD, context }).note,
+    "enumeró algunos puntos (sie zählte einige Punkte auf)\n\nEnumeró algunos puntos importantes. (Sie zählte einige wichtige Punkte auf.)");
+});
+
 test("labels, brackets and fences around the fields are read through", () => {
   const card = parseImprovedCard("```\nField 1: <el brazo>\nField 2: <der Arm>\n---\nbrazo de río (Flussarm)\n```", { ...CARD, context: null });
   assert.strictEqual(card.term, "el brazo");
@@ -47,14 +68,21 @@ test("the prompt names the languages from the packs, and articles are asked only
   await improveCard(recording, CARD, { level: "A2" });
   assert.match(questions[0].system, /learning Spanish at level A2/);
   assert.match(questions[0].user, /Sentence from the text \(Spanish\): Me cogió en brazos\./);
+  assert.match(questions[0].system, /Nowhere in field 3 say how the word is conjugated or declined/);
+  assert.match(questions[0].system, /Never its article or its gender - the card adds the article itself\./);
+  /* The card names a person's both forms, so the explanation must not (run 56). */
+  assert.match(questions[0].system, /explain the word alike for both sexes/);
   /* The articles are a question of their own, asked of each side after. */
   assert.ok(questions.some((q) => /headword of a Spanish dictionary/.test(q.system)));
   assert.ok(questions.some((q) => /headword of a German dictionary/.test(q.system)));
+  assert.ok(questions.some((q) => /lists that noun in a masculine and a feminine form/.test(q.system)));
 
   questions.length = 0;
   await improveCard(recording, { ...CARD, termLanguage: "ru", meaningLanguage: "en", context: null }, { level: "C1" });
   asked = questions[0];
   assert.strictEqual(questions.length, 1, "Russian and English name no articles");
+  assert.match(asked.system, /Never its article\./, "a gender the card does not show may be said");
+  assert.doesNotMatch(asked.system, /both sexes/, "nor are both forms added where no pack names articles");
   assert.match(asked.user, /There is no sentence from a text\./);
   assert.doesNotMatch(asked.system, /copied word for word/);
 });

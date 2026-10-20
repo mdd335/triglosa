@@ -1,6 +1,6 @@
 [package]
 name = "triglosa"
-version = "0.5.0"
+version = "0.6.0"
 description = "Read in a foreign language with the words worth learning explained"
 edition = "2021"
 rust-version = "1.77.2"
@@ -37,11 +37,13 @@ ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "
 tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
 
 # Windows' own API, for what macOS reaches through its frameworks: the
-# credential store, the clipboard, UI Automation and key presses. Tauri already
+# credential store, the clipboard, UI Automation, key presses and the
+# spelling checker. Tauri already
 # builds this crate, so it adds features rather than a dependency.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = [
   "Win32_Foundation",
+  "Win32_Globalization",
   "Win32_Graphics_Dwm",
   "Win32_Graphics_Gdi",
   "Win32_Security_Credentials",

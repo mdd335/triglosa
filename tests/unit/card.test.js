@@ -385,3 +385,10 @@ test("a word looked up in its sentence takes the sentence along, without a trans
   const alone = readingCard({ text: "corría", sourceLanguage: "es", reader: "de", alternatives: [{ text: "rannte" }] });
   assert.strictEqual(alone.note, "", "without a sentence nothing is added");
 });
+
+test("a card's two forms are said with a pause between them, not a stroke", async () => {
+  const { spokenWord } = await import("../../src/card.js");
+  assert.strictEqual(spokenWord("der Lehrer / die Lehrerin"), "der Lehrer, die Lehrerin");
+  assert.strictEqual(spokenWord("el/la policía"), "el, la policía");
+  assert.strictEqual(spokenWord(" la caja "), "la caja");
+});

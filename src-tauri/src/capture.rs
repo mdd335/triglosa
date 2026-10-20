@@ -115,7 +115,7 @@ mod platform {
     pub fn read_from_menu() -> Result<Selection, String> {
         read()
     }
-    pub fn watch_force_click(_on: bool, _act: super::ForceClick) -> bool {
+    pub fn watch_force_click(_on: bool, _sentence: bool, _act: super::ForceClick) -> bool {
         false
     }
     pub fn read_under_pointer(_sentence: bool) -> Option<(Selection, Vec<super::Mark>)> {
@@ -171,8 +171,10 @@ mod platform {
     use windows::Win32::UI::Accessibility::{
         CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
         IUIAutomationTextRange, SetWinEventHook, TextPatternRangeEndpoint_End,
-        TextPatternRangeEndpoint_Start, TextUnit_Character, TextUnit_Word, UIA_TextPatternId,
-        HWINEVENTHOOK,
+        TextPatternRangeEndpoint_Start, TextUnit_Character, TextUnit_Word,
+        UIA_DataGridControlTypeId, UIA_DataItemControlTypeId, UIA_ListControlTypeId,
+        UIA_ListItemControlTypeId, UIA_TableControlTypeId, UIA_TextPatternId,
+        UIA_TreeControlTypeId, UIA_TreeItemControlTypeId, HWINEVENTHOOK,
     };
     use windows::Win32::UI::Input::KeyboardAndMouse::{
         GetAsyncKeyState, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
@@ -316,10 +318,30 @@ mod platform {
     /* A selection takes the text around it along: for the sentence of one
     to three words, and for stepping on to the sentence after a longer one,
     which is lit up from the range kept here. */
-    fn selected_by_automation() -> Option<(String, Option<super::Around>)> {
+    /* The text is empty where nothing is selected, and then the flag says
+    whether that was said plainly: a caret with no selection, or a list,
+    table or tree, whose rows are what is chosen. A copy there brings what
+    nobody selected: CodeMirror (Obsidian) the caret's whole line, a Qt
+    table (Anki's card list) its current cell. */
+    fn selected_by_automation() -> Option<(String, Option<super::Around>, bool)> {
         in_time(Duration::from_millis(700), || unsafe {
             let automation = automation()?;
             let element = automation.GetFocusedElement().ok()?;
+            let kind = element.CurrentControlType().ok();
+            if kind.is_some_and(|kind| {
+                [
+                    UIA_ListControlTypeId,
+                    UIA_ListItemControlTypeId,
+                    UIA_DataGridControlTypeId,
+                    UIA_DataItemControlTypeId,
+                    UIA_TableControlTypeId,
+                    UIA_TreeControlTypeId,
+                    UIA_TreeItemControlTypeId,
+                ]
+                .contains(&kind)
+            }) {
+                return Some((String::new(), None, true));
+            }
             /* Edge's PDF view focuses the page, a group without text of
             its own; the document above it has the selection (measured). */
             let pattern = text_pattern(&automation, element)?;
@@ -334,8 +356,23 @@ mod platform {
                 .flatten()
                 .map_or((None, None), |(around, wide)| (Some(around), Some(wide)));
             *LAST_AROUND.lock().unwrap() = wide.map(Held);
-            Some((text, context))
+            let caret = count > 0 && text.is_empty();
+            Some((text, context, caret))
         })
+    }
+
+    /* The programs asked about a selection, by process. */
+    static ASKED: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+
+    /* Whether this is the first time a program is asked; false where it was
+    asked already. */
+    fn first_asked(process: u32) -> bool {
+        let mut asked = ASKED.lock().unwrap();
+        if process == 0 || asked.contains(&process) {
+            return false;
+        }
+        asked.push(process);
+        true
     }
 
     fn handle_of(source: i32) -> HWND {
@@ -355,13 +392,32 @@ mod platform {
         let front = unsafe { GetForegroundWindow() };
         let source = front.0 as isize as i32;
 
-        let automated = selected_by_automation();
+        let mut automated = selected_by_automation();
+        /* Chromium's programs (Obsidian among them) build what they tell UI
+        Automation on the first question, and that question comes back
+        empty; the copy below would then bring what CodeMirror copies with
+        nothing selected, the caret's whole line (measured). Asked again,
+        once per program. */
+        if automated.is_none() && first_asked(process_of(front)) {
+            for _ in 0..4 {
+                std::thread::sleep(Duration::from_millis(250));
+                automated = selected_by_automation();
+                if automated.is_some() {
+                    break;
+                }
+            }
+        }
         #[cfg(debug_assertions)]
         eprintln!(
             "automation answered: {:?}",
-            automated.as_ref().map(|(text, _)| text.chars().count())
+            automated
+                .as_ref()
+                .map(|(text, _, nothing)| (text.chars().count(), nothing))
         );
-        if let Some((text, context)) = automated {
+        if let Some((text, context, nothing)) = automated {
+            if nothing {
+                return Err("empty".into());
+            }
             if !text.trim().is_empty() {
                 let context = context.or_else(|| around_pointer(&text));
                 return Ok(Selection {
@@ -513,7 +569,7 @@ mod platform {
     }
 
     /* A force click is the Mac's; Windows has nothing it could hear. */
-    pub fn watch_force_click(_on: bool, _act: super::ForceClick) -> bool {
+    pub fn watch_force_click(_on: bool, _sentence: bool, _act: super::ForceClick) -> bool {
         false
     }
 
@@ -1358,29 +1414,28 @@ mod platform {
 
         /* Route 1. Nothing is simulated and nothing is overwritten, so it is
         tried whenever there is a focused element at all. */
-        if let Some(element) = element {
-            let selected = text_attribute(element, "AXSelectedText")
-                .filter(|text| !text.trim().is_empty())
-                .or_else(|| page_selected_text(element));
-            let (context, placed) = selected
-                .as_deref()
-                .and_then(|text| {
-                    selection_around(element)
-                        .or_else(|| around_pointer(text).map(|around| (around, None)))
-                })
-                .map_or((None, None), |(around, placed)| (Some(around), placed));
-            *LAST_ANCHOR.lock().unwrap() = placed;
-            unsafe { CFRelease(element) };
-            if let Some(text) = selected {
-                if !text.trim().is_empty() {
-                    return Ok(Selection {
-                        text,
-                        source,
-                        route: "accessibility".into(),
-                        context,
-                    });
+        let mut asked = element.map(|element| ask_focused(element, source));
+        /* Chromium's programs (Obsidian among them) say nothing about their
+        text until told an assistive program is reading; until then the
+        copy below brings what CodeMirror copies with nothing selected, the
+        caret's whole line. Told once per program and waited for, as for
+        the word under the pointer. */
+        let program = if source > 0 { source } else { last_front() };
+        if matches!(asked, None | Some(Asked::Unknown)) && program > 0 && wake(program) {
+            for _ in 0..10 {
+                std::thread::sleep(Duration::from_millis(250));
+                if let Some(element) = focused_element() {
+                    asked = Some(ask_focused(element, pid_of(element)));
+                    if !matches!(asked, Some(Asked::Unknown)) {
+                        break;
+                    }
                 }
             }
+        }
+        match asked {
+            Some(Asked::Selected(selection)) => return Ok(selection),
+            Some(Asked::Nothing) => return Err("empty".into()),
+            _ => {}
         }
 
         /* Route 2. The clipboard is emptied first so that "nothing arrived"
@@ -1417,6 +1472,58 @@ mod platform {
             route: "clipboard".into(),
             context,
         })
+    }
+
+    /* What the focused element says about a selection. */
+    enum Asked {
+        Selected(Selection),
+        /* Said plainly: no copy then, since one would bring what nobody
+        selected. */
+        Nothing,
+        /* Not said either way: only a copy can tell. */
+        Unknown,
+    }
+
+    /* Asks the focused element and releases it. */
+    fn ask_focused(element: AXUIElementRef, source: i32) -> Asked {
+        let selected = text_attribute(element, "AXSelectedText")
+            .filter(|text| !text.trim().is_empty())
+            .or_else(|| page_selected_text(element));
+        let (context, placed) = selected
+            .as_deref()
+            .and_then(|text| {
+                selection_around(element)
+                    .or_else(|| around_pointer(text).map(|around| (around, None)))
+            })
+            .map_or((None, None), |(around, placed)| (Some(around), placed));
+        *LAST_ANCHOR.lock().unwrap() = placed;
+        let nothing = selected.is_none() && says_nothing_is_selected(element);
+        unsafe { CFRelease(element) };
+        match selected {
+            Some(text) => Asked::Selected(Selection {
+                text,
+                source,
+                route: "accessibility".into(),
+                context,
+            }),
+            None if nothing => Asked::Nothing,
+            None => Asked::Unknown,
+        }
+    }
+
+    /* A caret with no selection, or a list, table or outline, whose rows
+    are what is chosen. A copy there brings what nobody selected: CodeMirror
+    (Obsidian) the caret's whole line, a Qt table (Anki's card list) its
+    current cell. */
+    fn says_nothing_is_selected(element: AXUIElementRef) -> bool {
+        let collection = matches!(
+            text_attribute(element, "AXRole").as_deref(),
+            Some("AXTable" | "AXOutline" | "AXList" | "AXRow" | "AXCell" | "AXBrowser")
+        );
+        collection
+            || owned_attribute(element, "AXSelectedTextRange")
+                .and_then(|range| ax_value::<CFRange>(&range, AX_VALUE_RANGE))
+                .is_some_and(|range| range.length == 0)
     }
 
     /* Without the permission: what the reader copied, where it is new.
@@ -2291,8 +2398,43 @@ mod platform {
         }
         match text_attribute(current.0, "AXRole").as_deref() {
             Some("AXStaticText") | Some("AXLink") | None => None,
-            _ => Some(current),
+            _ => Some(around_all_of(element, current)),
         }
+    }
+
+    /* Safari sets the whole text of a paragraph that opens with code into
+    the code's own element (measured, 2026-10-20): the paragraph above it
+    holds no text of its own, and the code's element names only the code.
+    An element shorter than the text in it is no block; the one above it
+    is, as far up as the text reaches. */
+    fn around_all_of(element: AXUIElementRef, block: Owned) -> Owned {
+        let Some(area) = web_area(element) else {
+            return block;
+        };
+        let length = |of: AXUIElementRef| {
+            parameterized(area.0, "AXTextMarkerRangeForUIElement", of)
+                .filter(is_marker_range)
+                .and_then(|range| parameterized(area.0, "AXStringForTextMarkerRange", range.0))
+                .and_then(|value| string_from(value.0))
+                .map(|text| text.encode_utf16().count())
+        };
+        let Some(own) = length(element) else {
+            return block;
+        };
+        let mut block = block;
+        for _ in 0..4 {
+            if length(block.0).is_none_or(|held| held >= own) {
+                break;
+            }
+            let Some(parent) = owned_attribute(block.0, "AXParent") else {
+                break;
+            };
+            if text_attribute(parent.0, "AXRole").as_deref() == Some("AXWebArea") {
+                break;
+            }
+            block = parent;
+        }
+        block
     }
 
     /* What stands in the place of a unit taken out of a text whose places
@@ -3461,7 +3603,12 @@ mod platform {
         if !trusted() {
             return None;
         }
-        let point = pointer()?;
+        under(pointer()?, sentence)
+    }
+
+    /* The same at a point: the pointer's for the shortcuts, the click's
+    for a force click that reads the sentence. */
+    fn under(point: CGPoint, sentence: bool) -> Option<(Selection, Vec<super::Mark>)> {
         let route = if sentence {
             "pointer-sentence"
         } else {
@@ -3654,6 +3801,9 @@ mod platform {
     /* Whether the click holding the pressure has been heard: a force click
     is the second stage, reported once until the stage is back at 0. */
     static HEARD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    /* Whether a force click reads the sentence under it, as the sentence's
+    shortcut does, and not the word. */
+    static SENTENCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     static ON_FORCE_CLICK: std::sync::Mutex<Option<super::ForceClick>> =
         std::sync::Mutex::new(None);
 
@@ -3723,8 +3873,15 @@ mod platform {
             let point = unsafe { CGEventGetLocation(event) };
             /* Off the tap's thread: the tap is switched off by the system
             when it answers slowly, and reading takes a while. */
+            let sentence = SENTENCE.load(Ordering::Relaxed);
             std::thread::spawn(move || {
-                let Some((selection, marks, _)) = read_at(point, "force-click", false) else {
+                let found = if sentence {
+                    under(point, true)
+                } else {
+                    read_at(point, "force-click", false)
+                        .map(|(selection, marks, _)| (selection, marks))
+                };
+                let Some((selection, marks)) = found else {
                     return;
                 };
                 let act = ON_FORCE_CLICK.lock().unwrap().clone();
@@ -3774,11 +3931,12 @@ mod platform {
         made.recv().unwrap_or(false)
     }
 
-    /* Listening switched on or off. Answers whether a force click will now be
-    heard: not before the permission is there, which the window asks about
-    again whenever the permission changes. */
-    pub fn watch_force_click(on: bool, act: super::ForceClick) -> bool {
+    /* Listening switched on or off, and what a click reads. Answers whether
+    a force click will now be heard: not before the permission is there,
+    which the window asks about again whenever the permission changes. */
+    pub fn watch_force_click(on: bool, sentence: bool, act: super::ForceClick) -> bool {
         *ON_FORCE_CLICK.lock().unwrap() = Some(act);
+        SENTENCE.store(sentence, Ordering::Relaxed);
         LISTENING.store(on, Ordering::Relaxed);
         let tap = TAP.load(Ordering::Relaxed);
         if !on {

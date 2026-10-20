@@ -28,6 +28,12 @@ test("the word itself is the first translation where the other language uses it 
     "not where the list is in the word's own language");
 });
 
+test("the word itself stands where nobody could name its language", () => {
+  const list = parseAlternatives("Lloret | Ortsname in Katalonien", "lloret", "de", "de", "");
+  assert.deepStrictEqual(list, [{ text: "Lloret", note: "Ortsname in Katalonien" }]);
+  assert.deepStrictEqual(parseAlternatives("ciudad | Stadt\nlloret | Ortsname", "lloret", "de", "es", "").map((e) => e.text), ["ciudad"]);
+});
+
 test("the same word twice is one entry", () => {
   const list = parseAlternatives("móvil | v.a. Spanien\nMóvil | noch mal", "Handy", "de");
   assert.strictEqual(list.length, 1);
@@ -88,4 +94,16 @@ test("a sentence about the word is not a translation of it", () => {
   assert.strictEqual(
     parseAlternatives("essere con la testa fra le nuvole | colloquiale", "estar en babia", "it", "it", "es")[0].text,
     "essere con la testa fra le nuvole");
+});
+
+test("the same word under another article, or without one, is one entry", () => {
+  assert.deepStrictEqual(
+    parseAlternatives("le tournevis | üblich\nun tournevis | unbestimmt\nl’outil | allgemein", "der Schraubenzieher", "de", "fr", "de").map((e) => e.text),
+    ["le tournevis", "l’outil"]);
+  assert.deepStrictEqual(
+    parseAlternatives("the screwdriver | tool\nscrewdriver | general\nThe turnscrew | dated", "el destornillador", "en", "en", "es").map((e) => e.text),
+    ["the screwdriver", "the turnscrew"]);
+  assert.deepStrictEqual(
+    parseAlternatives("pasarse por | umgangssprachlich\npasar por | neutral", "swing by", "de", "es", "en").map((e) => e.text),
+    ["pasarse por", "pasar por"]);
 });

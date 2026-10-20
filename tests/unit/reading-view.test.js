@@ -96,6 +96,7 @@ function draw(state, settings = SETTINGS, handlers = {}) {
     onReadSentence: handlers.onReadSentence,
     sentences: handlers.sentences,
     onSentence: handlers.onSentence,
+    onSpelling: handlers.onSpelling,
   });
   return { sheet, heading };
 }
@@ -334,6 +335,32 @@ test("a word in the sentence under a short text can be picked, and is framed the
   assert.ok(!framed.querySelector(".pane .box .sel"), "not in the original, where 3 to 9 is something else");
 });
 
+test("a word corrected says so under it, and can be looked up as typed", () => {
+  const chosen = [];
+  const state = { ...SHORT(), text: "meter la pata", spelling: { typed: "meter la pta", meant: "meter la pata" } };
+  const drawn = draw(state, SETTINGS, { onSpelling: (choice) => chosen.push(choice) });
+  const line = drawn.sheet.querySelector(".spelled");
+  assert.strictEqual(line.textContent, de.correctedFrom("meter la pta"));
+  assert.strictEqual(line.querySelector("button.text-link").textContent, "meter la pta", "the typed words are the link");
+  assert.ok(line.querySelector("svg"), "a tick in front of a correction");
+  assert.strictEqual(drawn.sheet.querySelector(".pane .box").textContent, "meter la pata", "the original is the word meant");
+  line.querySelector("button").click();
+  assert.deepStrictEqual(chosen, [{ typed: "meter la pta" }]);
+});
+
+test("a word only offered is one press away, and nothing without one", () => {
+  const chosen = [];
+  const state = { ...SHORT(), spelling: { typed: "meter la pata", offer: "meter la pita" } };
+  const drawn = draw(state, SETTINGS, { onSpelling: (choice) => chosen.push(choice) });
+  const press = drawn.sheet.querySelector(".spelled button");
+  assert.strictEqual(drawn.sheet.querySelector(".spelled").textContent, de.didYouMean("meter la pita"));
+  assert.strictEqual(press.textContent, "meter la pita");
+  press.click();
+  assert.deepStrictEqual(chosen, [{ offer: "meter la pita" }]);
+  assert.ok(!drawn.sheet.querySelector(".spelled svg"), "nothing ticked where nothing was corrected");
+  assert.ok(!draw(SHORT()).sheet.querySelector(".spelled"));
+});
+
 test("short mode holds a dictionary entry and nothing about a verb table", () => {
   const drawn = draw(SHORT());
   assert.deepStrictEqual(titles(drawn), ["Deutsch"]);
@@ -396,6 +423,19 @@ test("a looked-up term reaching into its sentence is a row of its own, coloured 
 
   const folded = draw({ ...state, folded: new Set(["terms"]) });
   assert.ok(!folded.sheet.querySelector(".looked-up-in .tmark0"), "folded away, the colour goes with it");
+});
+
+test("a looked-up term whose words stand apart in its sentence is drawn whole, and marked where they stand", () => {
+  const text = "Viele Fachleute stellen die Ergebnisse der Studie in Frage.";
+  const sentence = { text, start: text.indexOf("Frage"), end: text.indexOf("Frage") + 5 };
+  const state = { ...SHORT(), text: "Frage", sentence,
+    words: [{ text: "in Frage stellen", spot: "stellen + in Frage", meaning: "bezweifeln", note: "an etwas zweifeln" }] };
+  state.panels[0] = { ...state.panels[0], text: "Frage" };
+  const drawn = draw(state);
+  assert.strictEqual(sectionNamed(drawn, de.term).rows[0].querySelector(".term").textContent, "in Frage stellen");
+  const marks = [...drawn.sheet.querySelectorAll(".looked-up-in .mark.tmark0")].map((node) => node.textContent);
+  assert.deepStrictEqual(marks, ["stellen", "Frage"], "both parts, the small word between left out");
+  assert.ok(!drawn.sheet.querySelector(".pane:first-child .box .mark"), "with a sentence, marked there alone");
 });
 
 test("a lookup's term that is part of the words is marked among them, and is a row of its own", () => {
@@ -483,6 +523,15 @@ test("a marked word in short mode is drawn, because it is asked for", () => {
   assert.ok(titles(drawn).includes(markedIn("Spanisch")));
   assert.ok(drawn.sheet.querySelector(`[data-section="${MARKED}"]`), "and findable again");
   assert.strictEqual(drawn.sheet.querySelectorAll(".synonym").length, 1);
+});
+
+test("a word picked in a sentence of another language than the looked-up word's is in the sentence's", () => {
+  const sentence = { text: "I always meter la pata at parties.", start: 9, end: 22, code: "en", apart: true };
+  const state = { ...SHORT(), sentence, selection: { panel: 0, start: 2, end: 8, inSentence: true, term: "always" },
+    marked: { text: "always", meaning: "immer", note: "", synonyms: [] }, markedStatus: "" };
+  const drawn = draw(state);
+  assert.ok(titles(drawn).includes(markedIn("Englisch")));
+  assert.ok(!titles(drawn).includes(markedIn("Spanisch")));
 });
 
 test("in short mode a single word can be picked too", () => {
@@ -594,6 +643,24 @@ test("the picked word's area says which panel it was picked in", () => {
     marked: null, markedStatus: "working",
   }));
   assert.ok(titles(english).includes(markedIn("Englisch")));
+});
+
+test("a verb already in its base form has no arrow", () => {
+  /* "anfechten → anfechten" says nothing twice; the person and tense stay. */
+  const heads = (row) => [...row.querySelectorAll(".row-head > span")].map((s) => s.className);
+  const verbs = draw(reading({ verbs: [{ ...VERB, form: "Impugnar", tense: "Infinitivo", person: "" }] }));
+  assert.deepStrictEqual(heads(sectionNamed(verbs, de.verbs).rows[0]), ["term mark vmark0", "equivalent", "grammar"]);
+  const state = { ...SHORT(), text: "indicar",
+    words: [{ text: "indicar", spot: "indicar", meaning: "angeben", verb: { infinitive: "indicar", tense: "infinitivo" } }] };
+  assert.ok(!sectionNamed(draw(state), de.term).rows[0].querySelector(".arrow"), "a looked-up verb");
+  const picked = draw(reading({
+    selection: { panel: 0, start: 17, end: 24, term: "impugnó" },
+    marked: { text: "impugnar", infinitive: "impugnar", meaning: "anfechten", synonyms: [] },
+    markedStatus: "",
+  }));
+  assert.ok(!sectionNamed(picked, markedIn("Spanisch")).rows[0].querySelector(".arrow"), "a picked verb");
+  assert.ok(sectionNamed(draw(reading({ verbs: [VERB] })), de.verbs).rows[0].querySelector(".arrow"),
+    "a conjugated form keeps it");
 });
 
 test("a marked word that is not a verb has no conjugation to offer", () => {

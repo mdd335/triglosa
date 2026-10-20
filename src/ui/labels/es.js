@@ -18,6 +18,10 @@ export default {
   inSentence: "aquí",
   previousSentence: "Frase anterior",
   nextSentenceLine: "Frase siguiente",
+  /* A looked-up word found misspelled: the line under it, the typed word
+     in it a link that looks it up as typed. */
+  correctedFrom: (typed) => `Corregido de ${typed}`,
+  didYouMean: (word) => `¿Querías decir ${word}?`,
   synonyms: "relacionadas",
   wordClasses: {
     noun: "sustantivo",
@@ -153,13 +157,13 @@ export default {
   updatesHint: "Pregunta a GitHub por la versión más reciente solo cuando haces clic aquí. La actualización se descarga solo cuando haces clic en «Instalar ahora».",
   updatesNone: "Tienes la versión más reciente.",
   updatesFound: (version) => `La versión ${version} está disponible.`,
-  updatesDownload: "Ir a la descarga",
+  updatesDownload: "Ver la descarga y las notas de la versión",
   updatesInstall: "Instalar ahora",
   updatesLoading: (percent) => `Descargando… ${percent} %`,
   updatesInstalling: "Instalando… Triglosa se reiniciará.",
-  updatesInstallNone: "Esta versión no se puede instalar desde aquí. Usa «Ir a la descarga».",
+  updatesInstallNone: "Esta versión no se puede instalar desde aquí. Descárgala manualmente.",
   updatesInstallUnreachable: "No se ha podido descargar la actualización. Inténtalo de nuevo más tarde.",
-  updatesInstallFailed: (detail) => `La actualización no se ha instalado${detail ? ` (${detail})` : ""}. Usa «Ir a la descarga».`,
+  updatesInstallFailed: (detail) => `La actualización no se ha instalado${detail ? ` (${detail})` : ""}. Descárgala manualmente.`,
   diagnosticsCopy: "Copiar diagnóstico",
   diagnosticsHint: "Para informar de un problema: versión, sistema, idiomas, modelo de IA y últimos errores. Nunca tus textos ni tu clave de API. No se envía nada; lo pegas tú.",
   updatesFailed: (status) => `GitHub no ha respondido${status ? ` (${status})` : ""}. Inténtalo de nuevo más tarde.`,
@@ -171,11 +175,14 @@ export default {
     never: "nunca",
     second: "solo para el segundo idioma",
     third: "solo para el tercer idioma",
-    foreign: "para todos los idiomas extranjeros admitidos",
+    foreign: "para todos los idiomas extranjeros",
   },
   cardsImprove: "Mejorar las tarjetas automáticamente con IA",
   ankiEnabled: "Exportar directamente a Anki",
   ankiEnabledHint: (code) => `Necesita Anki con el complemento AnkiConnect (código ${code}).`,
+  ankiSync: "Sincronizar después de cada tarjeta",
+  ankiSyncHint:
+    "Pulsa el botón de sincronizar de Anki. Solo funciona si AnkiWeb está configurado.",
   ankiSearching: "Buscando…",
   ankiMissing:
     "Anki no responde. Abre Anki y comprueba que AnkiConnect esté instalado.",
@@ -204,6 +211,10 @@ export default {
   secondLanguage: "Segundo idioma",
   thirdLanguage: "Tercer idioma (opcional)",
   noThird: "ninguno",
+  languagesTuned: "Optimizados",
+  languagesOther: "No optimizados",
+  otherLanguageHint:
+    "Triglosa no está optimizado para este idioma: los errores son más frecuentes y no hay sección «Verbos». Cuanto más capaz sea el modelo de IA, mejor será el resultado.",
   levelNames: {
     A1: "Inicial",
     A2: "Básico",
@@ -216,8 +227,8 @@ export default {
     never: "nunca",
     second: "solo para el segundo idioma",
     third: "solo para el tercer idioma",
-    foreign: "para todos los idiomas extranjeros admitidos",
-    all: "para todos los idiomas admitidos",
+    foreign: "para todos los idiomas extranjeros optimizados",
+    all: "para todos los idiomas optimizados",
   },
   termModes: {
     never: "nunca",
@@ -331,9 +342,7 @@ export default {
   wordHotkeyLead: "Busca la palabra sobre la que está el puntero.",
   sentenceHotkey: "Frase bajo el puntero",
   sentenceHotkeyLead: "Traduce la frase entera sobre la que está el puntero.",
-  forceClick: "Buscar una palabra con clic fuerte",
-  forceClickLead:
-    "Un clic fuerte en el trackpad busca la palabra bajo el puntero.",
+  forceClick: "Clic fuerte",
   forceClickHint:
     "Para que no se abra también la función Consultar de Apple, desactiva “Detectores de datos y Consultar” en Ajustes del Sistema, Trackpad.",
   pointerUnreliable: "Las funciones siguientes no van de forma fiable en todos los programas.",
@@ -383,6 +392,31 @@ export default {
   closeWindow: "Cerrar ventana",
   pinWindow: "Mantener delante",
   unpinWindow: "Dejar de mantener delante",
+  welcomeFind:
+    "Triglosa funciona en segundo plano. Encontrarás su símbolo, un libro, arriba a la derecha en la barra de menús.",
+  welcomeModel: (link) => ["Conecta un modelo de IA en los ajustes para obtener traducciones más precisas, términos, verbos y explicaciones. La ", link("guía"), " explica cómo."],
+  welcome: {
+    heading: "Te damos la bienvenida a Triglosa",
+    steps: "Primeros pasos",
+    languages: "Elige en los ajustes tu propia lengua y los idiomas que estás aprendiendo.",
+    start: {
+      title: "Empezar.",
+      select: (key) => ["Selecciona un texto en cualquier programa y pulsa ", key, "."],
+      copy: (key) => ["Copia un texto en cualquier programa (⌘C) y pulsa ", key, "."],
+      change: "Puedes cambiar el atajo en los ajustes.",
+      noKey: "tu atajo",
+      set: "Lo eliges en los ajustes.",
+    },
+    permission: {
+      title: "Opcional: leer el texto directamente.",
+      body: "Con el permiso de macOS “Control de dispositivos y acceso a datos” (“Accesibilidad” hasta macOS 26), Triglosa lee el texto seleccionado sin copiarlo e inserta traducciones en otros programas. Lo concedes en los ajustes.",
+    },
+    more: (link) => ["Toda la información sobre Triglosa está en el ", link("README"), " en GitHub."],
+    hide: "No volver a mostrar",
+    settings: "Abrir los ajustes",
+    close: "Cerrar este aviso",
+    open: "Mostrar los primeros pasos",
+  },
 };
 
 export const windows = {
@@ -404,4 +438,7 @@ export const windows = {
   copyFirst: (key) => `Consejo: selecciona un texto en cualquier programa y pulsa ${key}.`,
   translateKeys: "Traducir (Ctrl+Intro)",
   enterKey: "Ctrl+Intro",
+  welcomeFind:
+    "Triglosa funciona en segundo plano. Encontrarás su símbolo, un libro, abajo a la derecha junto al reloj, al hacer clic en la flecha pequeña (^). Para tenerlo siempre a la vista, mantenlo pulsado con el ratón y muévelo hacia abajo, a la derecha de la flecha. Un clic en el símbolo abre la ventana, un clic derecho abre el menú.",
+  welcomeModel: (link) => ["Triglosa traduce y explica con un modelo de IA. Conecta uno en los ajustes. La ", link("guía"), " explica cómo."],
 };

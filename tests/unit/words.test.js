@@ -39,6 +39,18 @@ test("a note written behind a semicolon instead of a pipe is still the note", ()
   assert.strictEqual(parseWords("fianza | Kaution | Sicherheit; Mietrecht")[0].note, "Sicherheit; Mietrecht");
 });
 
+test("a note's sentence does not keep its full stop in front of the semicolon", () => {
+  const note = (raw) => parseWords(raw)[0].note;
+  assert.strictEqual(
+    note("plus tôt | earlier | Refers to an earlier moment than the one being discussed. ; everyday"),
+    "Refers to an earlier moment than the one being discussed; everyday");
+  assert.strictEqual(note("fianza | Kaution | Sicherheit beim Einzug.  ;Mietrecht"), "Sicherheit beim Einzug; Mietrecht");
+  /* A shortened word keeps its stop, and so does a note that only ends in one. */
+  assert.strictEqual(note("x | y | Kosten usw.; Verwaltung"), "Kosten usw.; Verwaltung");
+  assert.strictEqual(note("x | y | Lo que se paga al entrar... ; alquiler"), "Lo que se paga al entrar... ; alquiler");
+  assert.strictEqual(note("x | y | Sicherheit beim Einzug."), "Sicherheit beim Einzug.");
+});
+
 /* ---- the synonym line ---- */
 
 test("the synonym line is split and capped at three", () => {
@@ -116,6 +128,14 @@ test("an unknown word yields no entry rather than an invented one", () => {
   assert.strictEqual(marked("procaz | - | UNKNOWN", "- | -", "procaz", "es"), null);
   assert.strictEqual(marked("", "- | -", "procaz", "es"), null);
   assert.strictEqual(marked("no separator anywhere", "- | -", "procaz", "es"), null);
+});
+
+test("the marker for an unknown word is no equivalent", () => {
+  const m = marked("lloret | UNKNOWN | Ortsname an der Costa Brava, Teil der Gemeinde Lloret de Mar.", "- | -", "lloret", "es");
+  assert.strictEqual(m.meaning, "");
+  assert.strictEqual(m.note, "Ortsname an der Costa Brava, Teil der Gemeinde Lloret de Mar.");
+  /* In ordinary case it is what a word meaning "unknown" is in the reader's language. */
+  assert.strictEqual(marked("desconocido | unbekannt | Nicht bekannt oder nicht identifiziert, allgemein gebräuchlich.", "- | -", "desconocido", "es").meaning, "unbekannt");
 });
 
 test("an unusable spot line does not cost the explanation", () => {
@@ -927,10 +947,36 @@ test("in its sentence a lookup keeps an idiom of six words, and one the model wr
   assert.deepStrictEqual(idiom.map((word) => word.text), ["fa acqua da tutte le parti"]);
   const base = await ask("Daumen drücken | torcer | desejar boa sorte",
     "Ich drücke dir morgen die Daumen für die Prüfung.", "Daumen");
-  assert.deepStrictEqual(base.map((word) => word.text), ["Daumen drücken"], "found as drücke, and still naming the word");
+  assert.deepStrictEqual(base.map((word) => [word.text, word.spot]), [["Daumen drücken", "drücke + Daumen"]], "found where its words stand");
   const beside = await ask("für die Prüfung | para o exame | avaliação",
     "Ich drücke dir morgen die Daumen für die Prüfung.", "Daumen");
   assert.deepStrictEqual(beside, []);
+});
+
+test("in its sentence a lookup keeps an expression whose words stand apart there, and nothing made up around the word", async () => {
+  const answering = (term) => ({ async chat({ system }) { return system.includes("WHAT COUNTS:") ? term : "-"; } });
+  const ask = (term, sentence, word, source = "de") => wordsFor(answering(term), {
+    text: sentence, source, languages: ["en", source], levels: {},
+    lookup: { words: word, start: sentence.indexOf(word), end: sentence.indexOf(word) + word.length },
+  });
+  const spots = (list) => list.map((word) => [word.text, word.spot]);
+  const kraft = "Die neue Regelung tritt im Januar in Kraft.";
+  assert.deepStrictEqual(spots(await ask("in Kraft treten | come into force | a law or rule becomes valid", kraft, "Kraft")),
+    [["in Kraft treten", "in Kraft"]], "tritt is treten in another form");
+  assert.deepStrictEqual(await ask("Kraft schöpfen | gather strength | to recover one's energy", kraft, "Kraft"), [],
+    "no word of the sentence could be schöpfen");
+  assert.deepStrictEqual(await ask("in Kraft setzen lassen | enact | to make a law valid", kraft, "Kraft"), [],
+    "two words that are not there");
+  const frage = "Viele Fachleute stellen die Ergebnisse der Studie in Frage.";
+  assert.deepStrictEqual(spots(await ask("in Frage stellen | call into question | to doubt something", frage, "Frage")),
+    [["in Frage stellen", "stellen + in Frage"]]);
+  const ru = "Он не обратил на это никакого внимания.";
+  assert.deepStrictEqual(spots(await ask("обратить внимание | pay attention | to notice something", ru, "внимания", "ru")),
+    [["обратить внимание", "обратил + внимания"]], "the looked-up word stands in another case");
+  /* Alone, the words are the text, and the term is held to them. */
+  const alone = await wordsFor(answering("in Kraft treten | come into force | a law or rule becomes valid"), {
+    text: "Kraft", source: "de", languages: ["en", "de"], levels: {}, lookup: { words: "Kraft", start: 0, end: 5 } });
+  assert.deepStrictEqual(alone, []);
 });
 
 test("a lookup drops a term the model rates as known to most readers at this level", async () => {
@@ -989,6 +1035,33 @@ test("a looked-up noun gets no verb made up for it", async () => {
   const list = await wordsFor(llm, { text: "fehaciente", source: "es", languages: ["de", "es"], levels: { es: "C1" },
     lookup: { words: "fehaciente", start: 0, end: 10 } });
   assert.deepStrictEqual(list.map((word) => [word.text, word.verb]), [["fehaciente", undefined]]);
+});
+
+test("a looked-up word whose class is not a verb stays as it came, though it is also a verb form", async () => {
+  /* escala is a noun and a form of escalar: the term's answer explains the
+     noun, and the verb's meaning beside that note stood against it. */
+  const llm = { async chat({ system }) {
+    if (system.includes("WHAT COUNTS:")) return "escala | Zwischenstopp | bei Flügen ein planmäßiger Halt zum Umsteigen";
+    if (system.includes("choose and annotate")) return "escala | escalar | steigen, klettern | él/ella/usted | presente";
+    if (system.includes("Name its person and tense")) return "él/ella/usted | presente";
+    return "noun | singular | feminine";
+  } };
+  const [word] = await wordsFor(llm, { text: "escala", source: "es", languages: ["de", "en", "es"], levels: { es: "B1" },
+    lookup: { words: "escala", start: 0, end: 6 } });
+  assert.deepStrictEqual([word.text, word.verb, word.meaning, word.wordClass?.kind], ["escala", undefined, "Zwischenstopp", "noun"]);
+});
+
+test("a looked-up verb form the class calls an adjective stays a verb", async () => {
+  /* The local model called a plain past tense an adjective; an adjective
+     that is a verb form is a participle, and that has its own rule. */
+  const llm = lookingUp("beschwichtigte | beruhigte | den Ärger eines anderen mindern",
+    "beschwichtigte | beschwichtigen | beruhigen | er/sie/es | Präteritum", "er/sie/es | Präteritum");
+  const ask = (kind) => wordsFor({ async chat(request) {
+    return request.system.includes("Name its word class") ? `${kind} | - | -` : llm.chat(request);
+  } }, { text: "beschwichtigte", source: "de", languages: ["en", "de"], levels: { de: "B1" },
+    lookup: { words: "beschwichtigte", start: 0, end: 14 } });
+  assert.strictEqual((await ask("adjective"))[0].verb?.infinitive, "beschwichtigen");
+  assert.strictEqual((await ask("noun"))[0].verb, undefined);
 });
 
 test("an idiom is never taken for a looked-up verb form, and costs no verb question", async () => {
@@ -1056,4 +1129,30 @@ test("a note opening with the form and its base form loses the opening, in every
     "jemanden zu etwas bringen; gehoben", "nothing to take where the base form is not named");
   assert.strictEqual(withoutFormOpening("Eine lange Einleitung, die inducir erwähnt und noch weiter geht: Rest", "inducir", "es"),
     "Eine lange Einleitung, die inducir erwähnt und noch weiter geht: Rest", "only a short opening");
+});
+
+test("without a pack the identifier says whether a note is in the text's language", async () => {
+  const turkish = "dönüşmek | превращаться | Bir şeyin başka bir şeye geçişini anlatan, değişim vurgulu fiil.";
+  const russian = "dönüşmek | превращаться | Глагол о переходе одного в другое, с ударением на перемену.";
+  const identifier = { identify: async (note) => (/[а-я]/i.test(note) ? [["ru", 0.99]] : [["tr", 0.99]]) };
+  const run = async (answers, given) => {
+    let asked = 0;
+    const llm = {
+      async chat({ system }) {
+        if (!system.includes("<note>")) return "";
+        return answers[Math.min(asked++, answers.length - 1)];
+      },
+    };
+    const marked = await explainMarked(llm, {
+      term: "dönüşmek", text: "Sokaklar göle dönmüştü.", source: "tr", reader: "ru", others: [], withoutSpot: true, identifier: given,
+    });
+    return { asked, note: marked?.note || "" };
+  };
+  const fixed = await run([turkish, russian], identifier);
+  assert.strictEqual(fixed.asked, 2);
+  assert.ok(fixed.note.startsWith("Глагол"));
+  assert.strictEqual((await run([russian], identifier)).asked, 1);
+  assert.strictEqual((await run([turkish, russian], null)).asked, 1, "nobody to ask: the note stands");
+  const unsure = { identify: async () => [["tr", 0.6]] };
+  assert.strictEqual((await run([turkish, russian], unsure)).asked, 1, "not sure is not wrong");
 });

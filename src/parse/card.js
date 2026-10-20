@@ -8,7 +8,9 @@
 
    The sentence from the text is the one thing the explanation must keep, and
    it is not left to the model: where the answer does not carry it, it is put
-   back at the top. */
+   back at the top. A model given half a sentence — a selection, a line
+   without its full stop — hands it back tidied, with a capital and a stop:
+   that is the same sentence, and it is written as it stood, once. */
 
 import { exampleLine } from "../card.js";
 
@@ -20,6 +22,23 @@ const unwrap = (line) => String(line || "")
   .replace(/^<|>$/g, "")
   .replace(/^["“„«]|["”»]$/g, "")
   .trim();
+
+const bare = (s) => String(s || "").replace(/[\s\p{P}]+/gu, " ").trim().toLowerCase();
+
+/* An example line as its two parts: the sentence, and the translation in the
+   brackets that close the line. Brackets inside the translation are its own. */
+function exampleParts(line) {
+  const text = String(line || "").trim().replace(/(\))[.!?]$/, "$1");
+  if (!text.endsWith(")")) return { sentence: text, translation: "" };
+  let depth = 0;
+  for (let at = text.length - 1; at >= 0; at -= 1) {
+    if (text[at] === ")") depth += 1;
+    else if (text[at] === "(" && (depth -= 1) === 0) {
+      return { sentence: text.slice(0, at).trim(), translation: text.slice(at + 1, -1).trim() };
+    }
+  }
+  return { sentence: text, translation: "" };
+}
 
 export function parseImprovedCard(raw, card) {
   const text = String(raw || "")
@@ -53,7 +72,11 @@ export function parseImprovedCard(raw, card) {
 
   const context = card && card.context;
   if (context && context.sentence && !note.includes(context.sentence)) {
-    note = `${exampleLine(context)}\n\n${note}`;
+    const items = note.split("\n\n");
+    const at = items.findIndex((item) => bare(exampleParts(item).sentence) === bare(context.sentence));
+    const theirs = at === -1 ? "" : exampleParts(items.splice(at, 1)[0]).translation;
+    const line = exampleLine({ sentence: context.sentence, translation: context.translation || theirs });
+    note = [line, ...items].join("\n\n");
   }
   /* Two senses one under the other, the semicolon kept at the end of the
      first line. */

@@ -30,6 +30,17 @@
                        one ends in its apostrophe. Only where an article
                        carries the gender a learner has to learn with the
                        noun: absent in English, Russian and Arabic
+     masculineArticles, feminineArticles
+                       optional, which of them go with a masculine and with
+                       a feminine noun in the singular, same shape: a card's
+                       word listed for a man and a woman takes one of each
+                       and names the woman second
+     articles          optional, every article written apart from its noun,
+                       definite and indefinite, in all its forms, same shape;
+                       an elided one ends in its apostrophe. A word looked up
+                       with one is answered with one, and the same word under
+                       two articles is one entry. Absent in Russian, and in
+                       Arabic, which writes its article onto the word
      infinitiveMarker  optional, the particle a dictionary writes in front of
                        a verb's base form ("to" in English). Absent where the
                        language has none, which is all but one of the eight
@@ -57,6 +68,7 @@
    a wrong one — while `grammar`, which does generalise, is filled everywhere. */
 
 import { stripDiacritics } from "../text.js";
+import { ISO_639_1 } from "./iso639.js";
 import ar from "./ar.js";
 import de from "./de.js";
 import en from "./en.js";
@@ -89,6 +101,57 @@ const GENERIC = {
 
 export function languagePack(code) {
   return PACKS[String(code || "").toLowerCase()] || GENERIC;
+}
+
+/* Languages a reader may set as a learned one although the app has no pack
+   for them: the settings list them apart, as not optimised. What such a
+   reader gets was measured for six of them (run forty-nine); the list is
+   the languages many people learn that the app's identifier names, that the
+   platform has a name for, and of which no two are taken for each other in
+   a sentence. Everything a pack would know is missing for them - the verb
+   table above all, which is not drawn. */
+export const WITHOUT_PACK = (
+  "bg bn ca cs da el et fa fi he hi hr hu id is ja ko la lt lv nl no pl ro sk sl sr sv sw th tr uk ur vi zh"
+).split(" ");
+
+/* Whether a reader may set this language: one with a pack, or one of the
+   others the settings offer. */
+export function isChoosable(code) {
+  const c = String(code || "").toLowerCase();
+  return isSupported(c) || WITHOUT_PACK.includes(c);
+}
+
+/* The scripts a language is written in, by their Unicode names, from the
+   platform's own table; null where it has none. Three codes of that table
+   stand for more than one script. */
+const SEVERAL_SCRIPTS = { Jpan: ["Han", "Hiragana", "Katakana"], Kore: ["Hangul", "Han"], Hans: ["Han"], Hant: ["Han"] };
+const scriptTests = new Map();
+
+function scriptTest(code) {
+  if (!scriptTests.has(code)) {
+    let test = null;
+    try {
+      const script = new Intl.Locale(code).maximize().script;
+      const names = SEVERAL_SCRIPTS[script] || (script ? [script] : []);
+      if (names.length) test = new RegExp(`^(?:${names.map((name) => `\\p{Script=${name}}`).join("|")})$`, "u");
+    } catch {
+      /* A code the platform does not know, or a script this engine has no
+         table for: nothing is said about it. */
+    }
+    scriptTests.set(code, test);
+  }
+  return scriptTests.get(code);
+}
+
+/* How a text's letters stand to a language's script: "all" of them are in
+   it, "some", or "none"; "" where the text has no letters or the script is
+   not known. A word in Han is no Spanish word, whoever says so. */
+export function lettersInScriptOf(code, text) {
+  const test = scriptTest(String(code || "").toLowerCase());
+  const letters = String(text || "").match(/\p{L}/gu) || [];
+  if (!test || !letters.length) return "";
+  const inside = letters.filter((letter) => test.test(letter)).length;
+  return inside === letters.length ? "all" : inside ? "some" : "none";
 }
 
 export function isSupported(code) {
@@ -142,6 +205,32 @@ export function displayName(code, inLanguage) {
   }
 }
 
+/* The code of a language the platform's table knows by this name — in the
+   given language, in English or in its own — or "". For a language without
+   a pack that somebody named in words. */
+const namedCodes = new Map();
+
+export function codeNamed(name, inLanguage) {
+  const wanted = String(name || "").trim().toLowerCase();
+  if (!wanted) return "";
+  const key = inLanguage || "en";
+  if (!namedCodes.has(key)) {
+    const known = new Map();
+    for (const code of ISO_639_1) {
+      for (const language of [key, "en", code]) {
+        try {
+          const found = new Intl.DisplayNames([language], { type: "language", fallback: "none" }).of(code);
+          if (found && !known.has(found.toLowerCase())) known.set(found.toLowerCase(), code);
+        } catch {
+          /* A language the platform has no table for. */
+        }
+      }
+    }
+    namedCodes.set(key, known);
+  }
+  return namedCodes.get(key).get(wanted) || "";
+}
+
 /* The same name where it stands on its own — a menu entry, a heading, a
    field's title — with a capital at the front. Intl gives the form that
    stands inside a sentence, which in French, Spanish, Italian, Portuguese and
@@ -168,6 +257,19 @@ export function languageLabel(code, inLanguage) {
    not be found at all, because the lookup normalises the alef and the alef
    maqsura and the list does not. */
 const wordSets = new Map();
+
+/* A word without the article in front of it, by the pack's `articles`; the
+   text as it is where none leads it or nothing follows. */
+export function withoutArticle(code, text) {
+  const whole = String(text || "").trim();
+  const lead = whole.replace(/’/g, "'").toLowerCase();
+  for (const article of String((code && languagePack(code).articles) || "").split(/\s+/).filter(Boolean)) {
+    if (!lead.startsWith(article)) continue;
+    const rest = whole.slice(article.length);
+    if (article.endsWith("'") ? /^\S/.test(rest) : /^\s+\S/.test(rest)) return rest.trimStart();
+  }
+  return whole;
+}
 
 export function wordSet(code, ...fields) {
   const key = code + "/" + fields.join("+");

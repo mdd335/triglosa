@@ -8,8 +8,8 @@
    Nothing here decides what to ask for. That is run.js. */
 
 import { orderByTextPosition, wordCount } from "./text.js";
-import { englishName, languagePack } from "./languages/index.js";
-import { coversRange, longestRunInText } from "./match/positions.js";
+import { englishName, isSupported, languagePack, withoutArticle } from "./languages/index.js";
+import { coversRange, longestRunInText, scatteredRunsInText } from "./match/positions.js";
 import { contentWordCount, isBasicWord, isLoanword } from "./vocabulary.js";
 import { VERB_CANDIDATES, grammarOf, isNonFinite, knownPerson, meaningWordCount, mergeSameVerb, parseVerbForms, parseVerbTable, selectVerbForms, withoutBasicVerbs } from "./parse/verbs.js";
 import { MAX_PHRASE_WORDS, MAX_WORDS, firstFieldLine, isPassage, parseMarkedWord, parsePassage, asksForWordClass, parseWordClass, parseVerbGrammar, parseWords, namesTheLookup, withoutFormOpening, sharesContentWord, verbFormOf, withoutNestedTerms } from "./parse/words.js";
@@ -51,6 +51,9 @@ import {
 } from "./prompts/translation.js";
 import { readTranslation } from "./parse/translation.js";
 import { parseAlternatives } from "./parse/alternatives.js";
+import { spellingPrompt } from "./prompts/spelling.js";
+import { wordLanguageInput, wordLanguagePrompt } from "./prompts/word-language.js";
+import { readSpelling, readWordLanguage } from "./spelling.js";
 import { headwordPrompt, improveCardPrompt, improveCardInput } from "./prompts/card.js";
 import { parseImprovedCard } from "./parse/card.js";
 import { parseHeadword } from "./parse/headword.js";
@@ -91,6 +94,7 @@ export async function alternativesFor(llm, { text, source, target, reader, sente
       reader: englishName(reader),
       text,
       sentence,
+      article: !!languagePack(target).articles && withoutArticle(source, text) !== String(text || "").trim(),
     }),
     maxTokens: 200,
   });
@@ -102,6 +106,33 @@ export async function alternativesFor(llm, { text, source, target, reader, sente
     const note = withoutLabel(entry.note.replace(MEANING_MARK, ""));
     return gloss && note && reader !== target ? { ...entry, note, gloss } : { ...entry, note };
   });
+}
+
+/* The language a word looked up in its sentence is in: the sentence's
+   (`source`) or another of the reader's; "" where the answer names none.
+   Asked only where the dictionaries cannot tell (src/spelling.js). */
+export async function wordLanguageFor(llm, { words, sentence, source, languages }) {
+  const others = (languages || []).filter((code) => code !== source && isSupported(code));
+  const raw = await llm.chat({
+    system: wordLanguagePrompt({ source, others }),
+    user: wordLanguageInput({ sentence, words }),
+    maxTokens: 8,
+    temperature: 0,
+  });
+  return readWordLanguage(raw, [source, ...others]);
+}
+
+/* The word a looked-up text was meant to be, where it is misspelled; ""
+   where it is spelled as it should be or the answer is no correction of it.
+   Asked only where the spelling checker flagged it (src/spelling.js). */
+export async function spellingFor(llm, { text, source }) {
+  const raw = await llm.chat({
+    system: spellingPrompt({ source: englishName(source) }),
+    user: text,
+    maxTokens: 20,
+    temperature: 0,
+  });
+  return readSpelling(raw, text);
 }
 
 const MEANING_MARK = /^[=＝]\s*/;
@@ -295,6 +326,20 @@ function noteInTextLanguage(note, source, reader) {
   return !!note && source !== reader && readsAs(note, source, reader, NOTE) === source;
 }
 
+/* The same question about a language that has no pack and so no word lists
+   to read a note against: the identifier on this machine names the note's
+   language, and it is the text's where the identifier is sure of that. In
+   run forty-nine it named every such note it was shown - Turkish for a
+   Russian reader, Dutch on a Russian card - and of 414 notes in the
+   reader's language none as the text's. */
+const NOTE_SURE = 0.9;
+
+async function noteNamedAsTextLanguage(note, source, identifier) {
+  if (!note || !identifier) return false;
+  const [code, share] = ((await identifier.identify(note).catch(() => null)) || [])[0] || [];
+  return code === source && share >= NOTE_SURE;
+}
+
 /* Asks once more where the first answer's notes are in the text's language,
    and keeps whichever answer has fewer of them — the first on a tie. The
    second question is asked warmer — at the usual temperature the same input
@@ -304,13 +349,19 @@ function noteInTextLanguage(note, source, reader) {
    copied from the text (kündigte for kündigen, 5 of 45). */
 const AGAIN = { temperature: 0.7, remind: true };
 
-async function askedInReaderLanguage(ask, notesOf, source, reader) {
-  const wrong = (raw) => notesOf(raw).filter((note) => noteInTextLanguage(note, source, reader)).length;
+async function askedInReaderLanguage(ask, notesOf, source, reader, identifier = null) {
+  const byIdentifier = !!identifier && !!source && source !== reader && !isSupported(source);
+  const wrong = async (raw) => {
+    const notes = notesOf(raw);
+    if (!byIdentifier) return notes.filter((note) => noteInTextLanguage(note, source, reader)).length;
+    const named = await Promise.all(notes.map((note) => noteNamedAsTextLanguage(note, source, identifier)));
+    return named.filter(Boolean).length;
+  };
   const first = await ask();
-  const missed = wrong(first);
+  const missed = await wrong(first);
   if (!missed) return first;
   const second = await ask(AGAIN).catch(() => "");
-  return second && wrong(second) < missed ? second : first;
+  return second && (await wrong(second)) < missed ? second : first;
 }
 
 /* In the reader's own language a term the model itself rates as known to
@@ -330,7 +381,7 @@ export const knownToReader = (word, source, languages, lookup = null) =>
    where they stand in `text`, which is their sentence where one came along
    and the words themselves otherwise). A term from the sentence has to
    cover one of them. */
-export async function wordsFor(llm, { text, source, sourceName = "", languages, levels, retry, lookup = null }) {
+export async function wordsFor(llm, { text, source, sourceName = "", languages, levels, retry, lookup = null, identifier = null }) {
   /* A language the app does not support has no pack and no English name; the
      name the detection found stands in for it. */
   const name = sourceName || englishName(source);
@@ -344,12 +395,15 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
       ...(again.remind ? [writtenIn(englishName(languages[0]), "<meaning> and <note>")] : []),
     ].join("\n"),
     maxTokens: 800,
-  }), (answer) => parseWords(answer).map((word) => word.note), source, languages[0]);
+  }), (answer) => parseWords(answer).map((word) => word.note), source, languages[0], identifier);
 
   const dropped = [];
   let list = withoutNestedTerms(parseWords(raw)
     .filter((word) => {
-      word.spot = longestRunInText(text, word.text, [source]);
+      /* In its sentence a fixed expression may come in its dictionary form,
+         its words standing apart there ("in Kraft treten"): found as they
+         stand, all of them. */
+      word.spot = (inSentence && scatteredRunsInText(text, word.text, [source])) || longestRunInText(text, word.text, [source]);
       let reason = "";
       if (!word.spot) reason = "not in the text";
       else if (isBasicWord(word.text, source)) reason = "basic vocabulary";
@@ -363,12 +417,12 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
       else if (lookup ? wordCount(word.text) > MAX_PHRASE_WORDS : contentWordCount(word.text, [source]) > MAX_TERM_WORDS) {
         reason = "a piece of a sentence";
       }
-      /* Where it stands, or by its own words: "Daumen drücken" is found in
-         the sentence as "drücke" alone, and still names the word. */
+      /* Where it stands, or by its own words: a term found only in part
+         still names the word. */
       /* The looked-up words named back without a note add nothing to the
          entry above them. */
       else if (lookup && !word.note && namesTheLookup(word.text, lookup.words, source)) reason = "the looked-up words, unexplained";
-      else if (inSentence && !coversRange(text, word.spot, lookup, [source])
+      else if (inSentence && !word.spot.split(/\s*\+\s*/).some((part) => coversRange(text, part, lookup, [source]))
                && !sharesContentWord(word.text, lookup.words, source)) reason = "beside the looked-up words";
       if (reason) dropped.push(`${word.text} (${reason})`);
       return !reason;
@@ -389,7 +443,16 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
       : {},
   ]);
   /* A looked-up verb is drawn as one — base form, person and tense in place
-     of a word class — or not at all where it is too plain for this reader. */
+     of a word class — or not at all where it is too plain for this reader.
+
+     Not where the word class, asked beside it, names it anything but a verb:
+     a word that is also a verb form (*escala*, of *escalar*) was then drawn
+     as the verb, its meaning the verb's and its note, from the term's own
+     answer, about the noun — a row standing against itself. The term stays
+     as it came, and its class with it. An adjective does not count: one
+     that is also a verb form is a participle, which has its rule above,
+     and the local model called *beschwichtigte* one (run fifty-four). */
+  if (found.verb && list[0].wordClass && list[0].wordClass.kind !== "adjective") found = {};
   if (found.basic) {
     dropped.push(`${list[0].text} (a basic verb)`);
     list = [];
@@ -408,7 +471,7 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
      the prompt did not help, asking again pointedly did. Exactly once, and
      only in this case. */
   if (!list.length && !retry && dropped.some((entry) => entry.endsWith("(a loanword)"))) {
-    return wordsFor(llm, { text, source, sourceName, languages, levels, retry: true, lookup });
+    return wordsFor(llm, { text, source, sourceName, languages, levels, retry: true, lookup, identifier });
   }
   return list;
 }
@@ -436,7 +499,7 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
    explanation down with it. */
 export async function explainMarked(
   llm,
-  { term, text, source, reader, others, withoutSpot, spot: knownSpot = "", inText = true, onParagraph },
+  { term, text, source, reader, others, withoutSpot, spot: knownSpot = "", inText = true, onParagraph, identifier = null },
 ) {
   const head = `Text (${englishName(source)}): ${text}`;
   if (inText && isPassage(term)) {
@@ -500,7 +563,7 @@ export async function explainMarked(
       system: meaningPrompt({ source: englishName(source), reader: englishName(reader), inText }),
       user: again.remind ? [meaningInput, writtenIn(englishName(reader), "<meaning> and <note>")].join("\n") : meaningInput,
       maxTokens: 160,
-    }), (answer) => [firstFieldLine(answer).split("|").slice(2).join("|").trim()], source, reader),
+    }), (answer) => [firstFieldLine(answer).split("|").slice(2).join("|").trim()], source, reader, identifier),
     expansion,
     grammar,
     whole,
@@ -542,6 +605,7 @@ export async function explainMarked(
   const parse = (spotRaw) => parseMarkedWord({
     meaningRaw,
     spotRaw,
+    placed: !!knownSpot,
     term,
     code: source,
     thirdRaw,
@@ -774,6 +838,7 @@ export async function improveCard(llm, card, { level }) {
       termCapitals: !!own.capitalisesNouns,
       readerCapitals: !!theirs.capitalisesNouns,
       spelling: readerSpelling(card.meaningLanguage),
+      articles: !!own.definiteArticles,
       hasSentence: !!card.context?.sentence,
       hasTranslation: !!card.context?.translation,
     }),
@@ -791,6 +856,7 @@ export async function improveCard(llm, card, { level }) {
    meanings ("Kasse; bezahlen") asked about one by one. Answers the card with
    its sides replaced, or null where nothing changed. */
 const HEADWORD_MOST_WORDS = 3;
+export const HEADWORD_TOKENS = 40;
 
 function headwordParts(value, code) {
   if (!value || !languagePack(code).definiteArticles) return null;
@@ -810,14 +876,22 @@ export async function headwordsFor(llm, card) {
         const raw = await llm.chat({
           system: headwordPrompt({ language: englishName(code) }),
           user: part,
-          maxTokens: 30,
+          maxTokens: HEADWORD_TOKENS,
         });
         return parseHeadword(raw, part, code);
       } catch {
         return part;
       }
     }));
-    return answered.join("");
+    /* Two meanings that were the man's and the woman's form come back as
+       the same pair: it stands once. */
+    const kept = [];
+    for (let index = 0; index < answered.length; index += 2) {
+      if (kept.some((_, at) => at % 2 === 0 && kept[at] === answered[index])) continue;
+      if (kept.length) kept.push(answered[index - 1]);
+      kept.push(answered[index]);
+    }
+    return kept.join("");
   };
   const [term, meaning] = await Promise.all([
     side(card.term, card.termLanguage),

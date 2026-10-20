@@ -57,6 +57,21 @@ export async function closeSettings() {
   return true;
 }
 
+/* The first steps, in a window of their own: opened at a start until the
+   reader says not to, and from the settings. A second call brings the one
+   already there to the front. */
+export async function openWelcome(title) {
+  if (!insideApp()) return false;
+  await shell("open_welcome_window", { title });
+  return true;
+}
+
+export async function closeWelcome() {
+  if (!insideApp()) return false;
+  await shell("close_welcome_window");
+  return true;
+}
+
 /* A flashcard, in a window of its own.
 
    A layer inside the reading window was the first answer and it was wrong for

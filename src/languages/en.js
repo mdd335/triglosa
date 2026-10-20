@@ -43,6 +43,7 @@ export default {
      lists them. A verb row whose base form stands here is left out for a
      reader from B1 up, and in their own language: a table explaining it
      explains nothing. */
+  articles: "the a an",
   conjunctions: "and or but nor so yet because if when while although though that whether since unless until once which who",
   basicVerbs: "be have do go get make say come see know take give want like can will must",
   /* The particle a dictionary puts in front of a verb's base form. Shown

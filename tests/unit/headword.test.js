@@ -49,3 +49,39 @@ test("a capital at the start is the model's habit, not the word's", () => {
   /* German decides a noun's capital, and its article is still small. */
   assert.strictEqual(parseHeadword("Die Kasse", "kasse", "de"), "die Kasse");
 });
+
+test("a person or an animal comes back in both forms, the woman second", () => {
+  assert.strictEqual(parseHeadword("el profesor / la profesora", "profesor", "es"), "el profesor / la profesora");
+  assert.strictEqual(parseHeadword("La profesora/El profesor", "profesora", "es"), "el profesor / la profesora");
+  assert.strictEqual(parseHeadword("der Arzt / die Ärztin", "Arzt", "de"), "der Arzt / die Ärztin");
+  assert.strictEqual(parseHeadword("l'acteur / l'actrice", "acteur", "fr"), "l'acteur / l'actrice");
+  assert.strictEqual(parseHeadword("lo studente / la studentessa", "studente", "it"), "lo studente / la studentessa");
+});
+
+test("one word for both stands once under both articles", () => {
+  assert.strictEqual(parseHeadword("el/la policía", "policía", "es"), "el/la policía");
+  assert.strictEqual(parseHeadword("la policía/el policía", "policía", "es"), "el/la policía");
+  assert.strictEqual(parseHeadword("O jornalista/A jornalista", "jornalista", "pt"), "o/a jornalista");
+  assert.strictEqual(parseHeadword("der/die Angestellte", "Angestellte", "de"), "der/die Angestellte");
+  /* The same article twice, or one cut short beside another, is one article. */
+  assert.strictEqual(parseHeadword("la policía/la policía", "policía", "es"), "la policía");
+  assert.strictEqual(parseHeadword("l'/la insegnante", "insegnante", "it"), "l'insegnante");
+});
+
+test("a second form that is no form of the word is dropped, and the word keeps its article", () => {
+  /* Another word, a plural, two words under one article, an indefinite article. */
+  assert.strictEqual(parseHeadword("der Vater / die Mutter", "Vater", "de"), "der Vater");
+  assert.strictEqual(parseHeadword("A pessoa / As pessoas", "pessoa", "pt"), "a pessoa");
+  assert.strictEqual(parseHeadword("die Giraffe / die Giraffin", "Giraffe", "de"), "die Giraffe");
+  assert.strictEqual(parseHeadword("la souris/une souris", "souris", "fr"), "la souris");
+  /* Neither form is the word asked about. */
+  assert.strictEqual(parseHeadword("el maestro / la maestra", "profesor", "es"), "profesor");
+});
+
+test("two meanings that come back as the same pair stand once", async () => {
+  const llm = { chat: async ({ user }) => ({ Lehrer: "der Lehrer / die Lehrerin", Lehrerin: "der Lehrer / die Lehrerin", Schule: "die Schule" }[user] || user) };
+  const card = { term: "teacher", termLanguage: "en", meaning: "Lehrer;\nLehrerin", meaningLanguage: "de" };
+  assert.strictEqual((await headwordsFor(llm, card)).meaning, "der Lehrer / die Lehrerin");
+  const two = { ...card, meaning: "Lehrer; Schule; Lehrerin" };
+  assert.strictEqual((await headwordsFor(llm, two)).meaning, "der Lehrer / die Lehrerin; die Schule");
+});

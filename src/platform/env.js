@@ -63,6 +63,19 @@ export async function languageIdentifier() {
   return (identifierCached = createIdentifier(invoke));
 }
 
+/* The system's spelling checker, where there is a shell to ask. */
+let spellerCached = null;
+
+export async function spellingChecker() {
+  if (spellerCached) return spellerCached;
+  if (!insideApp()) return null;
+  const [{ invoke }, { createSpeller }] = await Promise.all([
+    import("@tauri-apps/api/core"),
+    import("./spelling.js"),
+  ]);
+  return (spellerCached = createSpeller(invoke));
+}
+
 /* The translation helper stops itself when it has been idle, so it may well
    be gone by the time someone comes back to the window. Asking for it again
    costs nothing when it is already there. */

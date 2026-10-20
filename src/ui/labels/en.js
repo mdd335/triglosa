@@ -22,6 +22,10 @@ export default {
   inSentence: "here",
   previousSentence: "Previous sentence",
   nextSentenceLine: "Next sentence",
+  /* A looked-up word found misspelled: the line under it, the typed word
+     in it a link that looks it up as typed. */
+  correctedFrom: (typed) => `Corrected from ${typed}`,
+  didYouMean: (word) => `Did you mean ${word}?`,
   synonyms: "related",
   wordClasses: {
     noun: "noun",
@@ -192,13 +196,13 @@ export default {
   updatesHint: "Asks GitHub for the newest version only when you click here. An update is downloaded only when you click “Install now”.",
   updatesNone: "You have the latest version.",
   updatesFound: (version) => `Version ${version} is available.`,
-  updatesDownload: "Go to download",
+  updatesDownload: "Show download and release notes",
   updatesInstall: "Install now",
   updatesLoading: (percent) => `Downloading … ${percent} %`,
   updatesInstalling: "Installing … Triglosa will restart.",
-  updatesInstallNone: "This version cannot be installed from here. Please use “Go to download”.",
+  updatesInstallNone: "This version cannot be installed from here. Please download it yourself.",
   updatesInstallUnreachable: "The update could not be downloaded. Please try again later.",
-  updatesInstallFailed: (detail) => `The update was not installed${detail ? ` (${detail})` : ""}. Please use “Go to download”.`,
+  updatesInstallFailed: (detail) => `The update was not installed${detail ? ` (${detail})` : ""}. Please download it yourself.`,
   diagnosticsCopy: "Copy diagnostics",
   diagnosticsHint: "For a problem report: version, system, languages, AI model and recent failures. Never your texts or your API key. Nothing is sent; you paste it yourself.",
   updatesFailed: (status) => `No answer from GitHub${status ? ` (${status})` : ""}. Please try again later.`,
@@ -213,11 +217,14 @@ export default {
     never: "never",
     second: "only for the second language",
     third: "only for the third language",
-    foreign: "for all supported foreign languages",
+    foreign: "for all foreign languages",
   },
   cardsImprove: "Improve flashcards automatically with AI",
   ankiEnabled: "Export straight to Anki",
   ankiEnabledHint: (code) => `Needs Anki with the AnkiConnect add-on (code ${code}).`,
+  ankiSync: "Sync after every card",
+  ankiSyncHint:
+    "Presses Anki’s sync button. Works only where AnkiWeb is set up.",
   ankiSearching: "Looking …",
   ankiMissing:
     "Anki is not answering. Please start Anki and check that AnkiConnect is installed.",
@@ -254,6 +261,10 @@ export default {
   secondLanguage: "Second language",
   thirdLanguage: "Third language (optional)",
   noThird: "none",
+  languagesTuned: "Optimised",
+  languagesOther: "Not optimised",
+  otherLanguageHint:
+    "Triglosa is not optimised for this language: mistakes are more frequent, and there is no “Verbs” section. The more capable the AI model, the better the result.",
   /* One word per step, for anyone the scale means nothing to. */
   levelNames: {
     A1: "Beginner",
@@ -267,8 +278,8 @@ export default {
     never: "never",
     second: "only for the second language",
     third: "only for the third language",
-    foreign: "for all supported foreign languages",
-    all: "for all supported languages",
+    foreign: "for all optimised foreign languages",
+    all: "for all optimised languages",
   },
   /* Terms are found in languages the app does not support as well. */
   termModes: {
@@ -399,9 +410,7 @@ export default {
   wordHotkeyLead: "Looks up the word the pointer is on.",
   sentenceHotkey: "Sentence under the pointer",
   sentenceHotkeyLead: "Translates the whole sentence the pointer is on.",
-  forceClick: "Look up a word with Force Click",
-  forceClickLead:
-    "A firm click on the trackpad looks up the word under the pointer.",
+  forceClick: "Force Click",
   forceClickHint:
     "So that Apple’s Look Up does not open as well, turn off “Look up & data detectors” in System Settings, Trackpad.",
   pointerUnreliable: "The features below do not work reliably in every program.",
@@ -460,6 +469,31 @@ export default {
   closeWindow: "Close window",
   pinWindow: "Keep on top",
   unpinWindow: "Stop keeping on top",
+  welcomeFind:
+    "Triglosa runs in the background. You will find its book symbol at the top right, in the menu bar.",
+  welcomeModel: (link) => ["Connect an AI model in the settings for more accurate translations, terms, verbs and explanations. The ", link("guide"), " shows how."],
+  welcome: {
+    heading: "Welcome to Triglosa",
+    steps: "First steps",
+    languages: "In the settings, choose your own language and the languages you are learning.",
+    start: {
+      title: "Get started.",
+      select: (key) => ["Select text in any program and press ", key, "."],
+      copy: (key) => ["Copy text in any program (⌘C) and press ", key, "."],
+      change: "You can change the shortcut in the settings.",
+      noKey: "your shortcut",
+      set: "You set it in the settings.",
+    },
+    permission: {
+      title: "Optional: read text directly.",
+      body: "With the macOS permission “Device Control and Data Access” (“Accessibility” up to macOS 26), Triglosa reads selected text without copying and inserts translations into other programs. You grant it in the settings.",
+    },
+    more: (link) => ["You will find all information about Triglosa in the ", link("Readme"), " on GitHub."],
+    hide: "Don’t show again",
+    settings: "Open settings",
+    close: "Close this note",
+    open: "Show first steps",
+  },
 };
 
 export const windows = {
@@ -481,4 +515,7 @@ export const windows = {
   copyFirst: (key) => `Tip: select some text in any program, then press ${key}.`,
   translateKeys: "Translate (Ctrl+Enter)",
   enterKey: "Ctrl+Enter",
+  welcomeFind:
+    "Triglosa runs in the background. You will find its book symbol at the bottom right next to the clock, after clicking the small arrow (^) there. To keep it always in view, hold it down with the mouse and move it down, to the right of the arrow. A click on the symbol opens the window, a right click the menu.",
+  welcomeModel: (link) => ["Triglosa translates and explains with an AI model. Connect one in the settings. The ", link("guide"), " shows how."],
 };

@@ -51,6 +51,12 @@ export function exampleLine({ sentence, translation }) {
   return translation ? `${sentence} (${translation})` : sentence;
 }
 
+/* A card's word as it is said aloud: the stroke between two forms or two
+   articles is a pause, not a word a voice should read out. */
+export function spokenWord(word) {
+  return String(word || "").replace(/\s*\/\s*/g, ", ").trim();
+}
+
 /* A verb goes into the deck in its base form. "andar" is vocabulary,
    "anduvo" is a spot in one text and nowhere else — the same reason the verb
    row's two buttons look up the base form. The inflected form is not lost:

@@ -63,6 +63,9 @@ export default {
   /* The definite articles, which put a noun on a flashcard the way a
      dictionary names it — with the gender a learner has to learn with it. */
   definiteArticles: "il lo la i gli le l'",
+  masculineArticles: "il lo",
+  feminineArticles: "la",
+  articles: "il lo la i gli le l' un uno una un'",
   conjunctions: "e ed o od ma però perché se quando mentre benché che come oppure",
   basicVerbs: "essere avere fare andare dire vedere venire sapere potere volere dare stare",
   basicWords: BASIC_WORDS,

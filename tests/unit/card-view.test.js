@@ -368,6 +368,44 @@ test("the wand rewrites the card, and the same place then takes it back", async 
   assert.strictEqual(wand().dataset.icon, "improve");
 });
 
+test("the way back stands only while the card reads as the model wrote it", async () => {
+  let asked = 0;
+  const { host, boxes } = show(
+    { term: "brazos", termLanguage: "es", meaning: "Arme", meaningLanguage: "de", note: "alt" },
+    { improve: async (card) => { asked += 1; return { term: "el brazo", meaning: "der Arm", note: `${card.note} neu` }; } });
+  const wand = () => host.querySelector(".card-improve button");
+  const type = (box, value) => { box.value = value; box.dispatchEvent(new window.Event("input")); };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  wand().click();
+  await settle();
+  assert.strictEqual(wand().dataset.icon, "undo");
+  const kept = wand();
+
+  /* A change in any field makes the card the reader's own again. */
+  type(boxes[2], "alt neu, ergänzt");
+  assert.strictEqual(wand().dataset.icon, "improve");
+  assert.ok(!wand().disabled);
+  /* Taken back letter by letter, the way back returns. */
+  type(boxes[2], "alt neu");
+  assert.strictEqual(wand().dataset.icon, "undo");
+  assert.notStrictEqual(wand(), kept);
+  const same = wand();
+  type(boxes[2], "alt neu");
+  assert.strictEqual(wand(), same, "the button is not redrawn while it stays the same one");
+
+  /* Improved a second time, the way back leads to the reader's version. */
+  type(boxes[2], "eigene Notiz");
+  wand().click();
+  await settle();
+  assert.strictEqual(asked, 2);
+  assert.strictEqual(boxes[2].value, "eigene Notiz neu");
+  assert.strictEqual(wand().dataset.icon, "undo");
+  wand().click();
+  assert.deepStrictEqual(boxes.map((box) => box.value), ["el brazo", "der Arm", "eigene Notiz"]);
+  assert.strictEqual(wand().dataset.icon, "improve");
+});
+
 test("no usable answer leaves the card as it was and says so", async () => {
   const host = document.createElement("div");
   document.body.append(host);

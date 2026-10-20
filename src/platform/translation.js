@@ -147,6 +147,17 @@ export function readGuesses(answer) {
   return guesses.sort((a, b) => b.confidence - a.confidence).slice(0, MOST_GUESSES).map((g) => g.code);
 }
 
+/* The recognizer's likeliest language, whichever it is, and how sure it is
+   of it: for whoever weighs it against another opinion. */
+export function readLeader(answer) {
+  let leader = { code: "", confidence: 0 };
+  for (const line of String(answer || "").trim().split("\n")) {
+    const match = line.trim().match(/^([a-z]{2,3})(?:-[a-zA-Z]+)?\s+([0-9.]+)$/);
+    if (match && parseFloat(match[2]) > leader.confidence) leader = { code: match[1], confidence: parseFloat(match[2]) };
+  }
+  return leader;
+}
+
 const trimSlash = (s) => String(s || "").replace(/\/+$/, "");
 
 /* Windows has no translation on the device. What stands in for it answers
@@ -309,7 +320,7 @@ export function createTranslationBackend({ helperUrl, system = currentSystem() }
         /* Both readings of the one answer, so that the caller needs no
            second question: what it thought likeliest, for a reader who
            corrects it, and what it would say if nothing else could. */
-        if (report) report({ guesses: readGuesses(answer), unsure: readDetection(answer, candidates, preferred, true) });
+        if (report) report({ guesses: readGuesses(answer), unsure: readDetection(answer, candidates, preferred, true), leader: readLeader(answer) });
         return readDetection(answer, candidates, preferred);
       } catch {
         return "";

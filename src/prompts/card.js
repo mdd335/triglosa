@@ -14,16 +14,20 @@
    too, and taken out again: measured, most of either model's memory aids
    were invented and the irregular line was wrong more often than right. */
 
-export function improveCardPrompt({ term, reader, level, termCapitals, readerCapitals, spelling, hasSentence, hasTranslation }) {
+export function improveCardPrompt({ term, reader, level, termCapitals, readerCapitals, spelling, articles, hasSentence, hasTranslation }) {
   const capitals = (language, nouns) => nouns
     ? `a noun with a capital first letter and every other word in lower case, as ${language} writes it`
     : `in lower case unless ${language} writes it with a capital, as for a proper name`;
 
+  const article = articles ? "its article or its gender - the card adds the article itself" : "its article";
+  const bothForms = articles
+    ? "For a person or an animal, explain the word alike for both sexes: never say which sex the given form names, never name its masculine or feminine form - the card shows both forms itself. "
+    : "";
   const noteItems = [
     hasSentence
       ? `The sentence from the text, copied word for word as given, followed by its ${hasTranslation ? "given " : ""}${reader} translation in round brackets. Always the first line.`
       : null,
-    `How the word is used, where field 2 alone does not say it: register, region, the construction it typically appears in (a preposition, a reflexive use, a pronoun or case it takes), a false friend. One line, only what a learner needs. Never describe the grammar of the form on the card or in the sentence - which person, tense, number or case it is: the card is about the word, not about one form of it.`,
+    `${bothForms}How the word is used, where field 2 alone does not say it: register, region, the construction it typically appears in (a preposition, a reflexive use, a pronoun or case it takes), a false friend. One line, only what a learner needs. Never describe the grammar of the form on the card or in the sentence - which person, tense, number or case it is: the card is about the word, not about one form of it. Never ${article}.`,
     `One or two further short, natural ${term} sentences, each followed by its ${reader} translation in round brackets on the same line, showing a typical combination or, where field 2 has one, its second sense. Keep them at the reader's level.`,
   ].filter(Boolean);
 
@@ -45,6 +49,7 @@ export function improveCardPrompt({ term, reader, level, termCapitals, readerCap
     "",
     `FIELD 3 - the explanation, written in ${reader} apart from the ${term} sentences. Plain text: no headings, no bullets, no numbering, no markdown. A blank line between items. In this order, leaving out what does not apply:`,
     ...noteItems.map((item, index) => `${index + 1}. ${item}`),
+    "Nowhere in field 3 say how the word is conjugated or declined - regular or irregular, its class, its other forms.",
     ...(spelling ? ["", spelling] : []),
     "",
     "Answer in exactly this shape and nothing else:",
@@ -75,15 +80,19 @@ export function improveCardInput({ term, reader, card }) {
    gender is knowledge, not spelling. Asked inside the prompt above, both
    models put articles in front of verbs and phrases, and the local one turned
    verbs into nouns to have something to put one in front of; asked alone,
-   measured, it is right for every noun and leaves everything else alone. */
+   measured, it is right for every noun and leaves everything else alone.
+
+   A person or an animal with a feminine form of its own is listed with
+   both, as a learner's dictionary does. */
 export function headwordPrompt({ language }) {
   return [
     `You write one ${language} word or short phrase as the headword of a ${language} dictionary entry.`,
     "",
     "RULES:",
     `1. If it is a noun, put its definite article in front, in the singular, the way a ${language} dictionary or a learner's vocabulary list names the noun.`,
-    "2. If it is not a noun - a verb, an adjective, an adverb, a phrase - leave it exactly as it is.",
-    `3. Capitalise it exactly as ${language} requires, and change nothing else: same word, same spelling.`,
-    "4. Answer with the headword alone: no explanation, no quotation marks, no second line.",
+    `2. If a ${language} dictionary lists that noun in a masculine and a feminine form - as it does for most professions and roles and for some animals - write both forms in the singular, each with its definite article, the masculine first, also when the given word is the feminine form: <article> <masculine form> / <article> <feminine form>. If one and the same word serves for both, write it once with both articles: <article>/<article> <word>. Most nouns have one gender and stay as in rule 1, also when they name a person. Never make up a form.`,
+    "3. If it is not a noun - a verb, an adjective, an adverb, a phrase - leave it exactly as it is.",
+    `4. Capitalise it exactly as ${language} requires, and change nothing else: same word, same spelling.`,
+    "5. Answer with the headword alone: no explanation, no quotation marks, no second line.",
   ].join("\n");
 }

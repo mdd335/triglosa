@@ -13,7 +13,7 @@
    reads. Anki underneath them is one way out of several, and the window works
    with nothing installed at all. */
 
-import { CARD_FIELDS, cardLine, hasCard } from "../card.js";
+import { CARD_FIELDS, cardLine, hasCard, spokenWord } from "../card.js";
 import { languageLabel, writingDirection } from "../languages/index.js";
 import { popupChoice } from "./language-choice.js";
 import { button, element, reportOn, select } from "./elements.js";
@@ -108,7 +108,7 @@ function cardField(role, card, { text, reader, anki, onCopy, speak, canSpeak }) 
      the one worth hearing. The language asked is the card's at the moment
      of the click, since the heading may have changed it. */
   const said = role === "term" && speak && card.termLanguage !== reader && canSpeak?.(card.termLanguage)
-    ? button(text.speak, () => speak(box.value.trim(), card.termLanguage), "speak")
+    ? button(text.speak, () => speak(spokenWord(box.value), card.termLanguage), "speak")
     : null;
   if (said) head.append(said);
   const copied = button(text.cardCopyField, (node) =>
@@ -310,6 +310,11 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
    before the wand is the reader's own, and that is the one worth returning
    to.
 
+   The place follows what the fields hold. The way back stands there only
+   while the card reads as the model wrote it; a card the reader has changed
+   since is theirs again, with the wand to improve it, and a change taken
+   back letter by letter brings the way back with it.
+
    The fields are closed for writing while the model works. A correction typed
    into a field in those seconds would be overwritten by the answer, and a
    reader cannot be expected to know that. */
@@ -322,7 +327,9 @@ export const enoughToImprove = (card) =>
 
 function improveButton({ text, boxes, grown, edited, improve, say, open }) {
   let before = null;
+  let written = null;
   let working = false;
+  const fields = () => Object.fromEntries(CARD_FIELDS.map((role) => [role, boxes[role].value]));
   const put = (values) => {
     CARD_FIELDS.forEach((role, index) => {
       boxes[role].value = values[role] || "";
@@ -331,17 +338,19 @@ function improveButton({ text, boxes, grown, edited, improve, say, open }) {
     open();
   };
   const holder = element("span", "card-improve");
+  /* Whether the card still reads as the model left it. */
+  const untouched = () => !!written && CARD_FIELDS.every((role) => boxes[role].value === written[role]);
 
   /* One run of the model over the card, from the button or from the window
      itself the moment the card is shown — the same run either way, so the
      card comes out the same and the way back is on the same place. */
   const run = async () => {
-    if (working || before) return;
-    const node = holder.querySelector("button");
+    if (working || untouched()) return;
     const current = edited();
+    const stood = fields();
     say(text.cardImproving, false);
     working = true;
-    if (node) node.disabled = true;
+    draw();
     for (const role of CARD_FIELDS) boxes[role].readOnly = true;
     try {
       const better = await improve(current);
@@ -349,41 +358,43 @@ function improveButton({ text, boxes, grown, edited, improve, say, open }) {
         say(text.cardImproveNothing, true);
         return;
       }
-      before = Object.fromEntries(CARD_FIELDS.map((role) => [role, current[role]]));
       put(better);
+      before = stood;
+      /* Read back from the fields: a field keeps its own line ends. */
+      written = fields();
       say("", false);
-      draw();
     } catch (error) {
       /* The window words a fault in the reader's language before it gets
          here; anything else says at least that nothing changed. */
       say((error && error.message) || text.cardImproveNothing, true);
     } finally {
       working = false;
-      const shown = holder.querySelector("button");
-      if (shown && !before) shown.disabled = !enoughToImprove(edited());
       for (const role of CARD_FIELDS) boxes[role].readOnly = false;
+      draw();
     }
   };
 
+  /* The button is kept while it stays the same one, so that typing does not
+     take it from under the pointer. */
   const draw = () => {
-    const node = before
-      ? button(text.cardUndo, () => {
-          put(before);
-          before = null;
-          say("", false);
-          draw();
-        }, "undo")
-      : button(`${text.cardImprove} (${text.enterKey})`, () => run(), "improve");
-    if (!before) node.disabled = working || !enoughToImprove(edited());
-    holder.replaceChildren(node);
+    const kind = untouched() ? "undo" : "improve";
+    let node = holder.querySelector("button");
+    if (!node || node.dataset.icon !== kind) {
+      node = kind === "undo"
+        ? button(text.cardUndo, () => {
+            put(before);
+            before = null;
+            written = null;
+            say("", false);
+            draw();
+          }, "undo")
+        : button(`${text.cardImprove} (${text.enterKey})`, () => run(), "improve");
+      holder.replaceChildren(node);
+    }
+    node.disabled = kind === "improve" && (working || !enoughToImprove(edited()));
   };
   draw();
-  for (const role of ["term", "meaning"]) {
-    boxes[role].addEventListener("input", () => {
-      const node = holder.querySelector("button");
-      if (node && !before && !working) node.disabled = !enoughToImprove(edited());
-    });
-  }
+  for (const role of CARD_FIELDS) boxes[role].addEventListener("input", draw);
   const press = () => {
     const node = holder.querySelector("button");
     if (node && node.dataset.icon === "improve" && !node.disabled) run();

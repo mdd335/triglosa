@@ -26,6 +26,7 @@ test("a fresh install starts on two languages and nothing else", () => {
   assert.strictEqual(s.show.verbs, "foreign", "not for the reader's own language");
   assert.strictEqual(s.cards.mode, "foreign", "a card for every language being learned");
   assert.strictEqual(s.cards.anki.enabled, false, "the export is a separate decision");
+  assert.strictEqual(s.cards.anki.sync, false, "Anki's login window with every card for whoever has no AnkiWeb");
 });
 
 test("a settings file that was edited by hand cannot break the app", () => {
@@ -96,6 +97,11 @@ test("switched on is not the same as set up", () => {
   const set = { cards: { anki: { ...on.cards.anki, fields: { term: "Front", meaning: "Back" } } } };
   assert.strictEqual(ankiConfigured(set), true);
   assert.strictEqual(ankiConfigured({ ...set, cards: { ...set.cards, mode: "both" } }), true);
+});
+
+test("syncing after a card is kept only where it was switched on", () => {
+  assert.strictEqual(normalizeSettings({ cards: { anki: { sync: true } } }).cards.anki.sync, true);
+  assert.strictEqual(normalizeSettings({ cards: { anki: { sync: "yes" } } }).cards.anki.sync, false);
 });
 
 /* Named by their place in the reader's list: the second language is usually
@@ -332,8 +338,16 @@ test("the window is not pinned and the app sits in the menu bar unless told othe
   assert.strictEqual(normalizeSettings({ kept: 7 }).kept, 5);
   assert.strictEqual(normalizeSettings({ kept: "10" }).kept, 5);
   assert.strictEqual(normalizeSettings({}).forceClick, false);
-  assert.strictEqual(normalizeSettings({ forceClick: true }).forceClick, true);
+  assert.strictEqual(normalizeSettings({ forceClick: "word" }).forceClick, "word");
+  assert.strictEqual(normalizeSettings({ forceClick: "sentence" }).forceClick, "sentence");
   assert.strictEqual(normalizeSettings({ forceClick: "yes" }).forceClick, false);
+  /* The switch it was meant the word; a combination set for the same thing
+     stays, and the click goes. */
+  const keys = { accelerator: "Control+Alt+KeyW", label: "W" };
+  assert.strictEqual(normalizeSettings({ forceClick: true }).forceClick, "word");
+  assert.strictEqual(normalizeSettings({ forceClick: true, wordHotkey: keys }).forceClick, false);
+  assert.strictEqual(normalizeSettings({ forceClick: true, sentenceHotkey: keys }).forceClick, "word");
+  assert.strictEqual(normalizeSettings({ forceClick: "sentence", sentenceHotkey: keys }).forceClick, false);
   assert.strictEqual(normalizeSettings({}).withSentence, true);
   assert.strictEqual(normalizeSettings({ withSentence: false }).withSentence, false);
   assert.strictEqual(normalizeSettings({ withSentence: 0 }).withSentence, true);
@@ -376,4 +390,32 @@ test("a card from the shortcut is offered in the learned languages, starting whe
   assert.deepStrictEqual(cardLanguages(three, "fr"), { choices: ["en", "es", "fr"], preset: "fr" }, "what the text is in joins");
   assert.deepStrictEqual(cardLanguages({ languages: ["en", "es"], cards: { mode: "third" } }, ""), { choices: ["es"], preset: "es" },
     "no third language: the second");
+});
+
+test("a language without a pack can be set as a learned one, never as the reader's own", () => {
+  const set = normalizeSettings({ languages: ["de", "nl", "ja"], levels: { nl: "A2", xx: "A2" } });
+  assert.deepStrictEqual(set.languages, ["de", "nl", "ja"]);
+  assert.deepStrictEqual(set.levels, { nl: "A2" });
+  assert.deepStrictEqual(normalizeSettings({ languages: ["nl", "de"] }).languages, DEFAULTS.languages);
+  const choices = choosableLanguages("de");
+  assert.ok(choices.includes("nl") && choices.includes("zh"));
+  assert.ok(choices.indexOf("ar") < choices.indexOf("nl"), "the ones with a pack first");
+  assert.ok(!FIRST_LANGUAGES.includes("nl"));
+});
+
+test("a language without a pack gets terms and cards by its place, and never the verbs", () => {
+  const s = normalizeSettings({ languages: ["de", "nl", "es"] });
+  assert.strictEqual(showsSection(s, "terms", "nl"), true);
+  assert.strictEqual(showsSection(s, "verbs", "nl"), false);
+  assert.strictEqual(showsSection({ ...s, show: { ...s.show, verbs: "all" } }, "verbs", "nl"), false);
+  assert.strictEqual(showsSection(s, "verbs", "es"), true);
+  assert.strictEqual(showsSection(s, "verbs", ""), false);
+  assert.strictEqual(offersCard(s, "nl"), true);
+  assert.strictEqual(levelFor({ ...s, levels: { nl: "C1" } }, "nl"), "C1");
+});
+
+test("the first steps are shown until the reader says not to", () => {
+  assert.strictEqual(normalizeSettings({}).welcome, true);
+  assert.strictEqual(normalizeSettings({ welcome: "no" }).welcome, true);
+  assert.strictEqual(normalizeSettings({ welcome: false }).welcome, false);
 });

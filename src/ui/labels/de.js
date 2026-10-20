@@ -15,6 +15,10 @@ export default {
   inSentence: "hier",
   previousSentence: "Vorheriger Satz",
   nextSentenceLine: "Nächster Satz",
+  /* A looked-up word found misspelled: the line under it, the typed word
+     in it a link that looks it up as typed. */
+  correctedFrom: (typed) => `Korrigiert aus ${typed}`,
+  didYouMean: (word) => `Meintest du ${word}?`,
   synonyms: "sinnverwandt",
   wordClasses: {
     noun: "Substantiv",
@@ -150,13 +154,13 @@ export default {
   updatesHint: "Fragt GitHub nach der neuesten Version, nur wenn du hier klickst. Heruntergeladen wird erst, wenn du auf „Jetzt installieren“ klickst.",
   updatesNone: "Du hast die neueste Version.",
   updatesFound: (version) => `Version ${version} ist verfügbar.`,
-  updatesDownload: "Zum Download",
+  updatesDownload: "Download und Versionshinweise anzeigen",
   updatesInstall: "Jetzt installieren",
   updatesLoading: (percent) => `Wird geladen … ${percent} %`,
   updatesInstalling: "Wird installiert … Triglosa startet gleich neu.",
-  updatesInstallNone: "Diese Version lässt sich nicht von hier aus installieren. Bitte nutze „Zum Download“.",
+  updatesInstallNone: "Diese Version lässt sich nicht von hier aus installieren. Bitte lade sie selbst herunter.",
   updatesInstallUnreachable: "Das Update ließ sich nicht laden. Bitte versuche es später noch einmal.",
-  updatesInstallFailed: (detail) => `Das Update wurde nicht installiert${detail ? ` (${detail})` : ""}. Bitte nutze „Zum Download“.`,
+  updatesInstallFailed: (detail) => `Das Update wurde nicht installiert${detail ? ` (${detail})` : ""}. Bitte lade es selbst herunter.`,
   diagnosticsCopy: "Diagnose kopieren",
   diagnosticsHint: "Für einen Problembericht: Version, System, Sprachen, KI-Modell und letzte Fehler. Nie deine Texte oder dein API-Schlüssel. Gesendet wird nichts, du fügst es selbst ein.",
   updatesFailed: (status) => `Keine Antwort von GitHub${status ? ` (${status})` : ""}. Bitte versuche es später noch einmal.`,
@@ -168,11 +172,14 @@ export default {
     never: "nie",
     second: "nur bei der zweiten Sprache",
     third: "nur bei der dritten Sprache",
-    foreign: "bei allen unterstützten Fremdsprachen",
+    foreign: "bei allen Fremdsprachen",
   },
   cardsImprove: "Lernkarten automatisch mit KI verbessern",
   ankiEnabled: "Direkt nach Anki exportieren",
   ankiEnabledHint: (code) => `Braucht Anki mit dem Add-on AnkiConnect (Code ${code}).`,
+  ankiSync: "Nach jeder Karte synchronisieren",
+  ankiSyncHint:
+    "Drückt Ankis Sync-Knopf. Funktioniert nur, wenn AnkiWeb eingerichtet ist.",
   ankiSearching: "Wird gesucht …",
   ankiMissing:
     "Anki antwortet nicht. Bitte starte Anki und prüfe, ob AnkiConnect installiert ist.",
@@ -201,6 +208,10 @@ export default {
   secondLanguage: "Zweite Sprache",
   thirdLanguage: "Dritte Sprache (optional)",
   noThird: "keine",
+  languagesTuned: "Optimiert",
+  languagesOther: "Nicht optimiert",
+  otherLanguageHint:
+    "Für diese Sprache ist Triglosa nicht optimiert: Fehler sind häufiger, und der Abschnitt „Verben“ entfällt. Je leistungsfähiger das KI-Modell, desto besser das Ergebnis.",
   levelNames: {
     A1: "Anfang",
     A2: "Grundlagen",
@@ -213,8 +224,8 @@ export default {
     never: "nie",
     second: "nur bei der zweiten Sprache",
     third: "nur bei der dritten Sprache",
-    foreign: "bei allen unterstützten Fremdsprachen",
-    all: "bei allen unterstützten Sprachen",
+    foreign: "bei allen optimierten Fremdsprachen",
+    all: "bei allen optimierten Sprachen",
   },
   termModes: {
     never: "nie",
@@ -328,9 +339,7 @@ export default {
   wordHotkeyLead: "Schlägt das Wort nach, auf dem der Zeiger steht.",
   sentenceHotkey: "Satz unter dem Zeiger",
   sentenceHotkeyLead: "Übersetzt den ganzen Satz, auf dem der Zeiger steht.",
-  forceClick: "Wort mit kräftigem Klick nachschlagen",
-  forceClickLead:
-    "Ein kräftiger Klick auf dem Trackpad schlägt das Wort unter dem Zeiger nach.",
+  forceClick: "Kräftiger Klick",
   forceClickHint:
     "Damit nicht zusätzlich Apples Nachschlagen aufgeht, deaktiviere in den Systemeinstellungen bei Trackpad die Option „Nachschlagen & Datenerkennung“.",
   pointerUnreliable: "Die folgenden Funktionen funktionieren nicht in jedem Programm zuverlässig.",
@@ -380,6 +389,31 @@ export default {
   closeWindow: "Fenster schließen",
   pinWindow: "Im Vordergrund halten",
   unpinWindow: "Nicht mehr im Vordergrund halten",
+  welcomeFind:
+    "Triglosa läuft im Hintergrund. Das Buch-Symbol findest du oben rechts in der Menüleiste.",
+  welcomeModel: (link) => ["Verbinde ein KI-Modell in den Einstellungen für genauere Übersetzungen, Begriffe, Verben und Erklärungen. Wie das geht, steht in der ", link("Anleitung"), "."],
+  welcome: {
+    heading: "Willkommen bei Triglosa",
+    steps: "Erste Schritte",
+    languages: "Wähle in den Einstellungen deine eigene Sprache und die Sprachen, die du lernst.",
+    start: {
+      title: "Loslegen.",
+      select: (key) => ["Markiere Text in einem beliebigen Programm und drücke ", key, "."],
+      copy: (key) => ["Kopiere Text in einem beliebigen Programm (⌘C) und drücke ", key, "."],
+      change: "Das Tastenkürzel kannst du in den Einstellungen ändern.",
+      noKey: "dein Tastenkürzel",
+      set: "Du legst es in den Einstellungen fest.",
+    },
+    permission: {
+      title: "Optional: Text direkt lesen.",
+      body: "Mit der macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ (bis macOS 26 „Bedienungshilfen“) liest Triglosa markierten Text ohne Kopieren und fügt Übersetzungen in andere Programme ein. Du erteilst sie in den Einstellungen.",
+    },
+    more: (link) => ["Alle Informationen zu Triglosa findest du in der ", link("Readme"), " auf GitHub."],
+    hide: "Nicht mehr anzeigen",
+    settings: "Einstellungen öffnen",
+    close: "Hinweis schließen",
+    open: "Erste Schritte anzeigen",
+  },
 };
 
 export const windows = {
@@ -401,4 +435,7 @@ export const windows = {
   copyFirst: (key) => `Tipp: Text in einem Programm markieren, dann ${key} drücken.`,
   translateKeys: "Übersetzen (Strg+Enter)",
   enterKey: "Strg+Enter",
+  welcomeFind:
+    "Triglosa läuft im Hintergrund. Das Buch-Symbol findest du unten rechts neben der Uhr, wenn du dort auf den kleinen Pfeil (^) klickst. Damit es immer zu sehen ist, halte es mit der Maus gedrückt und schiebe es nach unten, rechts neben den Pfeil. Ein Klick auf das Symbol öffnet das Fenster, ein Rechtsklick das Menü.",
+  welcomeModel: (link) => ["Triglosa übersetzt und erklärt mit einem KI-Modell. Verbinde eines in den Einstellungen. Wie das geht, steht in der ", link("Anleitung"), "."],
 };
