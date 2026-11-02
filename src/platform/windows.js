@@ -11,28 +11,33 @@
    manages. The settings page can be photographed on its own address instead;
    see scripts/shot.mjs. */
 
-import { insideApp } from "./env.js";
-
-async function shell(command, args) {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke(command, args);
-}
+import { insideApp, onDesktop, shell } from "./env.js";
+import { onPhone } from "../system.js";
 
 export async function hideWindow() {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   await shell("hide_main_window");
   return true;
 }
 
 export async function showWindow({ veiled = false } = {}) {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   await shell("show_main_window", { veiled });
+  return true;
+}
+
+/* A line said in a small window of its own that goes by itself, without
+   the reading window: what went wrong where a screenshot's text was to be
+   copied or put on a card. */
+export async function showNote(text) {
+  if (!onDesktop()) return false;
+  await shell("show_note", { text });
   return true;
 }
 
 /* A window shown veiled made visible — see appear() in app.js. */
 export async function unveilWindow() {
-  if (!insideApp()) return;
+  if (!onDesktop()) return;
   await shell("unveil_main_window");
 }
 
@@ -41,10 +46,11 @@ export async function unveilWindow() {
    gear and the menu bar entry cannot produce two of them.
 
    The title travels with the request for the same reason the menu bar entries
-   do — the shell knows nothing about which language the reader set. */
-export async function openSettings(title) {
-  if (!insideApp()) return false;
-  await shell("open_settings_window", { title });
+   do — the shell knows nothing about which language the reader set. A page
+   named opens the window at it; none opens it where it was left. */
+export async function openSettings(title, page = null) {
+  if (!onDesktop()) return false;
+  await shell("open_settings_window", { title, page });
   return true;
 }
 
@@ -52,7 +58,7 @@ export async function openSettings(title) {
    to hold ⌘W — an app without a dock icon gets none — so the window listens
    for the two keys itself and asks the shell to close it. */
 export async function closeSettings() {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   await shell("close_settings_window");
   return true;
 }
@@ -84,7 +90,7 @@ export async function closeWelcome() {
    moment at which both ends are ready, so the page asks for it once it has
    loaded. */
 export async function openCard(title, card) {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   await shell("open_card_window", { title, card: JSON.stringify(card) });
   return true;
 }
@@ -94,7 +100,7 @@ export async function openCard(title, card) {
    window — a card opened since is not overwritten by a late answer — and
    without bringing the window forward, which the reader may have left. */
 export async function updateCard(card) {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   await shell("update_card", { card: JSON.stringify(card) });
   return true;
 }
@@ -102,7 +108,7 @@ export async function updateCard(card) {
 /* What the card window asks for when it has loaded, and again when it is told
    the card changed. */
 export async function takeCard() {
-  if (!insideApp()) return null;
+  if (!onDesktop()) return null;
   const raw = await shell("take_card");
   if (!raw) return null;
   try {
@@ -113,7 +119,7 @@ export async function takeCard() {
 }
 
 export async function closeCard() {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   await shell("close_card_window");
   return true;
 }
@@ -134,7 +140,7 @@ export async function closeCard() {
    Answers the height it settled on, or 0 outside the app, where there is no
    window to measure against. */
 export async function fitCardWindow(height, grow = false) {
-  if (!insideApp()) return 0;
+  if (!onDesktop()) return 0;
   const { getCurrentWindow, LogicalSize } = await import("@tauri-apps/api/window");
   const self = getCurrentWindow();
   const scale = await self.scaleFactor();
@@ -191,10 +197,9 @@ async function measureReadingFrame() {
 }
 
 export async function fitReadingWindow(page, grow = false) {
-  if (!insideApp()) return;
+  if (!onDesktop()) return;
   const chrome = frameChrome === null ? await measureReadingFrame() : frameChrome;
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke("fit_reading_window", { height: page + chrome, grow });
+  return shell("fit_reading_window", { height: page + chrome, grow });
 }
 
 /* Whether to resize at all, and to what — or null for leaving it alone.
@@ -212,7 +217,7 @@ export function fitTo(height, current, grow) {
 /* A card sent again to a window already open — a card from the shortcut
    once its language is found — and the page is long past asking by then. */
 export async function onCardChanged(handler) {
-  if (!insideApp()) return () => {};
+  if (!onDesktop()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen("card-changed", () => handler());
 }
@@ -223,20 +228,20 @@ export async function onCardChanged(handler) {
 /* The shell asking the page to bring the window forward — from the menu bar
    symbol or the Dock — so that it can be fitted before it is seen. */
 export async function onAppearAsked(handler) {
-  if (!insideApp()) return () => {};
+  if (!onDesktop()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen("appear", (event) => handler(event.payload === true));
 }
 
 /* A blank sheet asked for from the menu bar while the window stands open. */
 export async function onFreshAsked(handler) {
-  if (!insideApp()) return () => {};
+  if (!onDesktop()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen("fresh", () => handler());
 }
 
 export async function onWindowShown(handler) {
-  if (!insideApp()) return () => {};
+  if (!onDesktop()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   return listen("shown", () => handler());
 }
@@ -249,20 +254,24 @@ export async function onWindowShown(handler) {
    instead of going away on a focus change — and where the app shows an
    icon; told to the shell, which acts on both. */
 export async function applyPresence({ pinned, appIcon }) {
-  if (!insideApp()) return;
+  if (!onDesktop()) return;
   await shell("apply_presence", { pinned, icon: appIcon });
 }
 
-/* `shortcuts` names the combination beside each of the three entries a
-   shortcut sets off — capture, fresh, card — and leaves out what is unset. */
+/* `shortcuts` names the combination beside each of the entries a shortcut
+   sets off — capture, fresh, card and the three for a screenshot — and
+   leaves out what is unset. */
 export async function applyTray(words, shortcuts = {}) {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   await shell("apply_tray", {
     words,
     shortcuts: {
       capture: shortcuts.capture || null,
       fresh: shortcuts.fresh || null,
       card: shortcuts.card || null,
+      screen: shortcuts.screen || null,
+      screenCopy: shortcuts.screenCopy || null,
+      screenCard: shortcuts.screenCard || null,
     },
   });
   return true;
@@ -274,13 +283,25 @@ export async function applyTray(words, shortcuts = {}) {
    field has focus, and closing the window that way would otherwise leave the
    app holding nothing. */
 export async function settingsChanged() {
+  if (onPhone()) {
+    for (const handler of sameWindow) handler();
+    return true;
+  }
   if (!insideApp()) return false;
   const { emit } = await import("@tauri-apps/api/event");
   await emit("settings-changed");
   return true;
 }
 
+/* On a phone the settings lie over the reading in the same page, and the
+   change is told from one to the other directly. */
+const sameWindow = new Set();
+
 export async function onSettingsChanged(handler) {
+  if (onPhone()) {
+    sameWindow.add(handler);
+    return () => sameWindow.delete(handler);
+  }
   if (!insideApp()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
   const stops = [
@@ -290,10 +311,10 @@ export async function onSettingsChanged(handler) {
   return () => stops.forEach((stop) => stop());
 }
 
-/* The settings window asked to show its last group — the menu bar's entry for
-   updates, where the window was already open. */
-export async function onAboutAsked(handler) {
-  if (!insideApp()) return () => {};
+/* The settings window asked to show one of its pages — the menu bar's entry
+   for updates, a card's deck — where the window was already open. */
+export async function onPageAsked(handler) {
+  if (!onDesktop()) return () => {};
   const { listen } = await import("@tauri-apps/api/event");
-  return listen("settings-about", () => handler());
+  return listen("settings-page", (event) => handler(event.payload));
 }

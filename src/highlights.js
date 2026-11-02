@@ -75,8 +75,7 @@ export function selectionForPanel(state, index, languages) {
   if (selection.panel === index) return [{ start: selection.start, end: selection.end }];
   if (!state.marked) return null;
 
-  const source = state.panels[0]?.code;
-  const others = otherPanels(selection.panel, source, languages);
+  const others = otherPanels(selection.panel, state.panels.map((panel) => panel.code), (languages || [])[0]);
   const position = others.indexOf(index);
   if (position === -1) return null;
 

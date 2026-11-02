@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { checkerOffer, languageByDictionaries, mayBeMisspelled, nearTyped, readSpelling, spellingLanguages, spellingWords, typoDistance, readWordLanguage, wordLanguage } from "../../src/spelling.js";
+import { checkerOffer, inAnotherLanguage, translationWords, languageByDictionaries, mayBeMisspelled, nearTyped, readSpelling, spellingLanguages, spellingWords, typoDistance, readWordLanguage, wordLanguage } from "../../src/spelling.js";
 import { spellingPrompt } from "../../src/prompts/spelling.js";
 
 const unknown = (correction = null, guesses = []) => ({ there: true, known: false, correction, guesses });
@@ -137,4 +137,57 @@ test("the model's answer about a word's language is one of the codes offered", (
   assert.strictEqual(readWordLanguage("**ES**\n", ["en", "de", "es"]), "es");
   assert.strictEqual(readWordLanguage("it", ["en", "de", "es"]), "");
   assert.strictEqual(readWordLanguage("Spanish", ["en", "de", "es"]), "");
+});
+
+test("a translation is in another language where the target's dictionaries do not know it and another's do", () => {
+  const LISTS = { target: "es", languages: ["es", "de", "en"] };
+  const verdicts = {
+    puro: { es: known, de: unknown(), en: unknown() },
+    ehrlich: { es: unknown(), de: known, en: unknown() },
+    en: { es: known, de: known, en: known },
+    voz: { es: known, de: unknown(), en: unknown() },
+    alta: { es: known, de: unknown(), en: unknown() },
+    galimatías: { es: unknown(), de: unknown(), en: unknown() },
+  };
+  assert.ok(inAnotherLanguage("ehrlich", verdicts, LISTS), "a German word in the Spanish list");
+  assert.ok(!inAnotherLanguage("puro", verdicts, LISTS));
+  assert.ok(!inAnotherLanguage("en voz alta", verdicts, LISTS), "a word several languages know is no stranger");
+  assert.ok(!inAnotherLanguage("galimatías", verdicts, LISTS), "a word no dictionary knows is a rare one");
+  assert.ok(!inAnotherLanguage("ehrlich", verdicts, { ...LISTS, languages: ["es"] }), "only the languages asked about count");
+  assert.ok(!inAnotherLanguage("ehrlich", {}, LISTS), "the checker could not be asked");
+  assert.ok(!inAnotherLanguage("ehrlich", { ehrlich: { es: absent, de: known } }, LISTS), "no Spanish dictionary on this system");
+});
+
+test("a line is in another language only where one language knows all its strangers", () => {
+  const LISTS = { target: "en", languages: ["en", "de", "es", "pt"] };
+  const verdicts = {
+    nostalgia: { en: known, de: known, es: known, pt: known },
+    por: { en: unknown(), de: unknown(), es: known, pt: known },
+    lugares: { en: unknown(), de: unknown(), es: known, pt: known },
+    distantes: { en: unknown(), de: unknown(), es: known, pt: known },
+    Weh: { en: unknown(), de: known, es: unknown(), pt: unknown() },
+    sweet: { en: known, de: unknown(), es: unknown(), pt: unknown() },
+  };
+  assert.ok(inAnotherLanguage("nostalgia por lugares distantes", verdicts, LISTS));
+  assert.ok(!inAnotherLanguage("sweet por Weh", verdicts, LISTS), "strangers of two languages: no one language to blame");
+});
+
+test("a dictionary of another script says nothing about a translation", () => {
+  /* The Mac's Arabic checker takes any Latin word as known. */
+  const verdicts = { ehrlich: { ar: known, de: known, ru: known } };
+  assert.ok(!inAnotherLanguage("ehrlich", verdicts, { target: "ru", languages: ["ru", "de"] }), "Russian cannot judge a Latin word");
+  assert.ok(!inAnotherLanguage("ehrlich", { ehrlich: { es: unknown(), ar: known } }, { target: "es", languages: ["es", "ar"] }));
+});
+
+test("a noun written small in a language that capitalises its nouns is still that language's", () => {
+  assert.deepStrictEqual(translationWords("hand", "de"), ["hand", "Hand"]);
+  assert.deepStrictEqual(translationWords("mano", "es"), ["mano"]);
+  const verdicts = {
+    hand: { de: unknown(), en: known },
+    Hand: { de: known, en: known },
+    ehrlich: { de: known, en: unknown() },
+    Ehrlich: { de: unknown(), en: unknown() },
+  };
+  assert.ok(!inAnotherLanguage("hand", verdicts, { target: "de", languages: ["de", "en"] }));
+  assert.ok(inAnotherLanguage("ehrlich", { ehrlich: { en: unknown(), de: known } }, { target: "en", languages: ["en", "de"] }));
 });

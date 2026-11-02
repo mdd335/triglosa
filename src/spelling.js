@@ -16,7 +16,7 @@
    Without a model nothing is changed by itself: the checker's own word is
    offered, and the reader decides. */
 
-import { lettersInScriptOf } from "./languages/index.js";
+import { languagePack, lettersInScriptOf } from "./languages/index.js";
 import { cleanLine, stripModelWrapping, stripQuotes, wordPieces } from "./text.js";
 
 /* The words of a looked-up text, as a spelling checker is asked about them:
@@ -191,4 +191,37 @@ export function languageByDictionaries(text, verdicts, languages) {
   const least = Math.min(...nearest.map((entry) => entry.apart));
   const closest = nearest.filter((entry) => entry.apart === least);
   return closest.length === 1 ? closest[0].code : "";
+}
+
+/* The words of a translation as a checker is asked about them for its
+   panel: in a language that writes its nouns with a capital, each also with
+   one, since a model now and then writes "kiste" and the checker knows only
+   "Kiste" — and "hand" would then be English. */
+export function translationWords(text, target) {
+  const words = spellingWords(text);
+  if (!languagePack(target)?.capitalisesNouns) return words;
+  return [...new Set(words.flatMap((word) => [word, capitalised(word)]))];
+}
+
+const capitalised = (word) => word.charAt(0).toUpperCase() + word.slice(1);
+
+/* Whether a translation in a dictionary entry is written in another
+   language than the one it was asked in: "ehrlich" and "nur" in the
+   Spanish entry for "lauter", "frente" in the German one for "lead" (run
+   sixty-five). The target's dictionaries do not know some word of it, and
+   one other language's know every such word. Nothing where the target has
+   no dictionary on this system, or none for the line's script: a word no
+   dictionary knows is a rare word, not a stranger. `verdicts` answers
+   translationWords. */
+export function inAnotherLanguage(text, verdicts, { target, languages }) {
+  const words = spellingWords(text);
+  if (!target || !words.length) return false;
+  const of = (word) => verdicts?.[word] || {};
+  if (!words.every((word) => judges(of(word)[target], target, word))) return false;
+  const capitals = !!languagePack(target)?.capitalisesNouns;
+  const strangers = words.filter((word) => !of(word)[target].known
+    && !(capitals && knows(of(capitalised(word))[target], target, word)));
+  if (!strangers.length) return false;
+  return (languages || []).some((code) => code !== target
+    && strangers.every((word) => knows(of(word)[code], code, word)));
 }

@@ -10,18 +10,13 @@
    "empty", "focus". The wording belongs in labels.js, in the reader's own
    language, and not in the layer that only knows what happened. */
 
-import { insideApp } from "./env.js";
-
-async function shell(command, args) {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke(command, args);
-}
+import { onDesktop, shell } from "./env.js";
 
 /* Whether the app may read and write in other programs at all. Asked before
    every explanation the window shows about it, because the reader may have
    granted it in System Settings while the window sat there. */
 export async function accessibilityGranted() {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   return shell("accessibility_granted");
 }
 
@@ -33,17 +28,17 @@ export async function accessibilityGranted() {
 /* Whether the permission is to be used at all — the settings' switch. The
    shell keeps it, because the shortcut reads before this page hears of it. */
 export async function useDirectSelection(on) {
-  if (!insideApp()) return;
+  if (!onDesktop()) return;
   await shell("set_direct_selection", { on: !!on });
 }
 
 export async function requestAccessibility() {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   return shell("request_accessibility");
 }
 
 export async function openAccessibilitySettings() {
-  if (!insideApp()) return false;
+  if (!onDesktop()) return false;
   await shell("open_accessibility_settings");
   return true;
 }
@@ -52,7 +47,7 @@ export async function openAccessibilitySettings() {
    { text, source, route } — source is the program to write back into, and it
    may be 0, which means the text is here but the way back is not. */
 export async function readSelection() {
-  if (!insideApp()) throw new Error("accessibility");
+  if (!onDesktop()) throw new Error("accessibility");
   return shell("read_selection");
 }
 
@@ -61,7 +56,7 @@ export async function readSelection() {
    window has to hide itself first: while it is in front, it is the program a
    keystroke would reach. */
 export async function insertText(source, text) {
-  if (!insideApp()) throw new Error("accessibility");
+  if (!onDesktop()) throw new Error("accessibility");
   return shell("insert_text", { source, text });
 }
 
@@ -71,11 +66,11 @@ export async function insertText(source, text) {
    src-tauri/src/keyboard.rs. Outside the app both are simply absent, and
    every caller manages without them. */
 export async function keyLabels() {
-  if (!insideApp()) return null;
+  if (!onDesktop()) return null;
   return shell("key_labels");
 }
 
 export async function takenShortcuts() {
-  if (!insideApp()) return [];
+  if (!onDesktop()) return [];
   return shell("taken_shortcuts");
 }

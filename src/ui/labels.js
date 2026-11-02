@@ -1,11 +1,11 @@
 import { currentSystem } from "../system.js";
-import de, { windows as deWindows } from "./labels/de.js";
-import en, { windows as enWindows } from "./labels/en.js";
-import es, { windows as esWindows } from "./labels/es.js";
-import fr, { windows as frWindows } from "./labels/fr.js";
-import it, { windows as itWindows } from "./labels/it.js";
-import pt, { windows as ptWindows } from "./labels/pt.js";
-import ru, { windows as ruWindows } from "./labels/ru.js";
+import de, { phone as dePhone, windows as deWindows } from "./labels/de.js";
+import en, { phone as enPhone, windows as enWindows } from "./labels/en.js";
+import es, { phone as esPhone, windows as esWindows } from "./labels/es.js";
+import fr, { phone as frPhone, windows as frWindows } from "./labels/fr.js";
+import it, { phone as itPhone, windows as itWindows } from "./labels/it.js";
+import pt, { phone as ptPhone, windows as ptWindows } from "./labels/pt.js";
+import ru, { phone as ruPhone, windows as ruWindows } from "./labels/ru.js";
 
 /* The interface in every language it is written in, one file each under
    labels/. A language without a file here is not one the interface can be
@@ -37,8 +37,26 @@ const WINDOWS = {
 
 const OVERLAID = {};
 
+/* The iPhone takes the Mac's wording: Apple's translation is there too.
+   Where that wording names the Mac's system, the phone's is named. */
+const OF_THE_SYSTEM = ["deviceIntro", "pairsOnTheirWay"];
+/* And its Anki is an app of its own, asked another way (anki-mobile.js). */
+const PHONE_WORDS = { de: dePhone, en: enPhone, es: esPhone, fr: frPhone, it: itPhone, pt: ptPhone, ru: ruPhone };
+const PHONE = {};
+
 export function labels(code, system = currentSystem()) {
   const language = TABLE[String(code || "").toLowerCase()] ? String(code).toLowerCase() : "en";
+  if (system === "ios") {
+    PHONE[language] = PHONE[language] || {
+      ...TABLE[language],
+      ...Object.fromEntries(OF_THE_SYSTEM.map((key) => [key, TABLE[language][key].replaceAll("macOS", "iOS")])),
+      ...PHONE_WORDS[language],
+      ankiFailed: (answer = {}) => (answer.kind === "absent"
+        ? PHONE_WORDS[language].ankiAbsent
+        : TABLE[language].ankiFailed(answer)),
+    };
+    return PHONE[language];
+  }
   if (system !== "windows") return TABLE[language];
   OVERLAID[language] = OVERLAID[language] || { ...TABLE[language], ...WINDOWS[language] };
   return OVERLAID[language];

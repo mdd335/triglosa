@@ -229,4 +229,7 @@ test("a character read under the pointer grows to the word of a script without s
   assert.deepStrictEqual(wordAround("l'homme pre-trained", 2, 7), { start: 2, end: 7 }, "not past an apostrophe");
   assert.deepStrictEqual(wordAround("l'homme pre-trained", 12, 19), { start: 12, end: 19 }, "nor past a hyphen");
   assert.strictEqual(wordAround("Die Regierung hat", 0, 13), null, "two words: where the pointer was is not known");
+  assert.deepStrictEqual(wordAround("ZweckBearbeitenQuelltext bearbeiten", 0, 5), { start: 0, end: 5 }, "not on past a capital after a small letter");
+  assert.deepStrictEqual(wordAround("ZweckBearbeitenQuelltext", 5, 15), { start: 5, end: 15 }, "nor back before one");
+  assert.deepStrictEqual(wordAround("an iPhone here", 3, 9), { start: 3, end: 9 }, "a word with such a step in it, given whole, stays whole");
 });

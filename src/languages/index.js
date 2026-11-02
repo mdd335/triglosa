@@ -30,6 +30,9 @@
                        one ends in its apostrophe. Only where an article
                        carries the gender a learner has to learn with the
                        noun: absent in English, Russian and Arabic
+     elidesBefore      optional, where an article is elided: the letters,
+                       without accents, a word may begin with after it. A
+                       card's "l'" before any other is the model's mistake
      masculineArticles, feminineArticles
                        optional, which of them go with a masculine and with
                        a feminine noun in the singular, same shape: a card's
@@ -111,7 +114,7 @@ export function languagePack(code) {
    a sentence. Everything a pack would know is missing for them - the verb
    table above all, which is not drawn. */
 export const WITHOUT_PACK = (
-  "bg bn ca cs da el et fa fi he hi hr hu id is ja ko la lt lv nl no pl ro sk sl sr sv sw th tr uk ur vi zh"
+  "bg bn ca cs cy da el eo et fa fi ga he hi hr hu hy id is ja ka ko la lt lv nl no pl ro sk sl sq sr sv sw th tl tr uk ur vi zh"
 ).split(" ");
 
 /* Whether a reader may set this language: one with a pack, or one of the
@@ -174,6 +177,16 @@ export function writingDirection(code) {
   }
 }
 
+/* The platform's table of language names in one language, made once: a
+   list of fifty languages sorted by name asks it hundreds of times. One it
+   cannot make is not kept, and throws again where it is asked for. */
+const nameTables = new Map();
+
+function namesIn(language) {
+  if (!nameTables.has(language)) nameTables.set(language, new Intl.DisplayNames([language], { type: "language" }));
+  return nameTables.get(language);
+}
+
 /* The name a prompt gives a language. A pack's own where there is one; for a
    language without a pack whose code is known — one the reader named — the
    platform's English name, so that a question about a Persian word says
@@ -181,7 +194,7 @@ export function writingDirection(code) {
 export function englishName(code) {
   if (isSupported(code) || !code) return languagePack(code).englishName;
   try {
-    const name = new Intl.DisplayNames(["en"], { type: "language" }).of(code);
+    const name = namesIn("en").of(code);
     return name && name !== code ? name : GENERIC.englishName;
   } catch {
     return GENERIC.englishName;
@@ -198,8 +211,7 @@ export function displayName(code, inLanguage) {
   if (!code) return "";
   const pack = languagePack(code);
   try {
-    const names = new Intl.DisplayNames([inLanguage || "en"], { type: "language" });
-    return names.of(pack.code || code) || pack.englishName;
+    return namesIn(inLanguage || "en").of(pack.code || code) || pack.englishName;
   } catch {
     return pack.englishName;
   }

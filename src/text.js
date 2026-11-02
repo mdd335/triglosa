@@ -17,10 +17,10 @@ export function isWordChar(ch) {
    compare equal. Note that verb analysis deliberately does NOT use this:
    "hablo" and "habló" are different tenses.
 
-   It used to decompose everything and drop every combining mark, which is
-   right for Latin and wrong elsewhere: й came apart into и plus a breve and
-   lost the breve, so мой compared equal to мои — two different words. The
-   mark is only dropped where a Latin letter carries it.
+   Decomposing everything and dropping every combining mark is right for
+   Latin and wrong elsewhere: й comes apart into и plus a breve and loses the
+   breve, so мой compares equal to мои — two different words. The mark is
+   only dropped where a Latin letter carries it.
 
    What each script needs instead:
 
@@ -113,7 +113,9 @@ for the word under the pointer may answer with one character of a Chinese
 word, or with the half of a word that stands on the pointer's line where a
 PDF broke it over two (Edge, measured: "representa" of "representation");
 the text around it says which word that belongs to. In a script written
-with spaces the word is the letters standing right against the stretch. */
+with spaces the word is the letters standing right against the stretch, up
+to a capital after a small letter: Chrome joins a heading and the links a
+page draws after it without a space ("ZweckBearbeiten", measured). */
 export function wordAround(text, start, end) {
   const s = String(text || "");
   if (!UNSPACED.test(s.slice(start, end))) {
@@ -121,8 +123,9 @@ export function wordAround(text, start, end) {
     if (start >= end || [...s.slice(start, end)].some((char) => !letter.test(char))) return null;
     let from = start;
     let to = end;
-    while (from > 0 && letter.test(s[from - 1]) && !UNSPACED.test(s[from - 1])) from--;
-    while (to < s.length && letter.test(s[to]) && !UNSPACED.test(s[to])) to++;
+    const seam = (i) => /\p{Ll}/u.test(s[i - 1]) && /\p{Lu}/u.test(s[i]);
+    while (from > 0 && letter.test(s[from - 1]) && !UNSPACED.test(s[from - 1]) && !seam(from)) from--;
+    while (to < s.length && letter.test(s[to]) && !UNSPACED.test(s[to]) && !seam(to)) to++;
     return { start: from, end: to };
   }
   const word = toTokens(s).find((token) => token.isWord && token.start <= start && end <= token.end);

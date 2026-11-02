@@ -47,3 +47,20 @@ test("a failure is one line: when, what kind, the number, what the service said"
   const line = faultLine({ kind: "refused", status: 400, detail: "model not found" }, new Date("2026-09-24T01:00:00Z"));
   assert.equal(line, "2026-09-24T01:00:00.000Z refused 400 model not found");
 });
+
+test("the app's last steps close the report, where the shell kept any", () => {
+  const steps = ["2026-10-31T07:58:01Z started 0.7.0 on macos aarch64", "2026-10-31T07:58:03Z page ready", "2026-10-31T08:01:10Z window shown at 820,120, 420×600, on a screen: no"];
+  const text = diagnosticsText({
+    version: "0.7.0",
+    report: { system: "macOS 26.1", arch: "aarch64", faults: [], journal: steps },
+    settings: SETTINGS,
+    keySet: true,
+    permission: true,
+    system: "mac",
+  });
+  const lines = text.split("\n");
+  assert.equal(lines.at(-4), "Recent steps:");
+  assert.deepEqual(lines.slice(-3), steps.map((step) => `  ${step}`));
+  assert.doesNotMatch(diagnosticsText({ version: "0.7.0", report: { faults: [] }, settings: SETTINGS, system: "mac" }), /Recent steps/,
+    "nothing kept, nothing said");
+});

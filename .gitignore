@@ -24,3 +24,6 @@ openrouter_key
 *_key
 tests/spelling-windows/target/
 tests/spelling-windows/Cargo.lock
+
+# The text recognition models for Windows, fetched by scripts/ocr-fetch.mjs
+src-tauri/resources/ocr/*.onnx

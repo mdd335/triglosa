@@ -3,11 +3,12 @@
 
 /* Everything in the settings that changes what a run produces. A reading made
    with other languages, another level, another model or another translator is an answer to a
-   different question, even where the text is the same. The shortcut and the
-   flashcards shape nothing in it. */
-export function readingKey(settings) {
+   different question, even where the text is the same, and so is one made
+   with other panels chosen in the window (`choice`, panels.js). The
+   shortcut and the flashcards shape nothing in it. */
+export function readingKey(settings, choice = null) {
   return JSON.stringify([settings.languages, settings.levels, settings.show,
-    settings.endpoint, settings.model, settings.translator, settings.glance]);
+    settings.endpoint, settings.model, settings.translator, settings.glance, choice]);
 }
 
 /* The oldest readings beyond what the settings keep, taken out of the list.
@@ -26,8 +27,8 @@ export function dropOldest(history, settings, shown = null) {
    reader tries once more. One still being worked out is, because it goes on
    filling itself in. A word looked up in its sentence is the same text only
    in the same sentence: the entry is an answer about that sentence. */
-export function keptReading(history, text, settings, sentence = "") {
-  const key = readingKey(settings);
+export function keptReading(history, text, settings, sentence = "", choice = null) {
+  const key = readingKey(settings, choice);
   return history.findLast((entry) =>
     entry.draft === text && (entry.sentence?.text || "") === sentence
     && entry.key === key && !entry.state?.fault) || null;

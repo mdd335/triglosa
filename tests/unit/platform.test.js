@@ -13,6 +13,7 @@ import {
   readDetection,
   readPairStatus,
   readProtocol,
+  readRecognized,
 } from "../../src/platform/translation.js";
 import { neededPairs } from "../../src/settings.js";
 import {
@@ -422,6 +423,17 @@ test("the search button follows the system's own setting", () => {
   assert.strictEqual(searchUrlFor(report("com.something")), SEARCH_URLS.google);
 });
 
+test("on a phone the system's engine is Safari's own search address, and a chosen one still wins", async () => {
+  const { searchUrl } = await import("../../src/platform/env.js");
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  try {
+    assert.strictEqual(searchLink(await searchUrl("system"), "a mis espaldas"), "x-web-search://?a%20mis%20espaldas");
+    assert.strictEqual(await searchUrl("duckduckgo"), SEARCH_URLS.duckduckgo);
+  } finally {
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
+});
+
 test("a chosen search engine wins, and Windows stands in with DuckDuckGo", async () => {
   const { searchUrl } = await import("../../src/platform/env.js");
   assert.strictEqual(await searchUrl("bing"), SEARCH_URLS.bing);
@@ -685,6 +697,23 @@ test("only an installed pair is one the run may use", async () => {
   assert.strictEqual(await backend.pairStatus("de", "pl"), PAIR_DOWNLOADABLE);
 });
 
+test("the helper's recognition comes back as lines with their boxes", async () => {
+  assert.deepStrictEqual(readRecognized("36 36 666 69\tWiderspruch einlegen\n39 85 775 103\tAls wir ankamen\n\nbroken line\n1 2 3 4\t  "),
+    [{ t: "Widerspruch einlegen", b: [36, 36, 666, 69], c: [] }, { t: "Als wir ankamen", b: [39, 85, 775, 103], c: [] }]);
+  assert.deepStrictEqual(readRecognized("0 0 30 10\tab c\t0 10,10 18,18 22,22 30")[0].c, [[0, 10], [10, 18], [18, 22], [22, 30]],
+    "and where each character stands");
+  let asked = "";
+  const backend = createTranslationBackend({ helperUrl: "http://h" }, async (url) => {
+    if (String(url).endsWith("/ping")) return new Response("ok 6");
+    asked = String(url);
+    return new Response("0 0 10 10\tHola");
+  });
+  assert.deepStrictEqual(await backend.recognize("/tmp/a b.png", [1.4, 2, 30, 40], ["es", "de"]), [{ t: "Hola", b: [0, 0, 10, 10], c: [] }]);
+  assert.ok(asked.includes("path=%2Ftmp%2Fa%20b.png&rect=1,2,30,40&langs=es,de"), asked);
+  const silent = createTranslationBackend({ helperUrl: "http://h" }, async () => { throw new Error("nothing there"); });
+  assert.strictEqual(await silent.recognize("/tmp/a.png", [0, 0, 1, 1]), null, "no helper, no answer — not an empty one");
+});
+
 test("without the helper nothing is known about a pair, which is not the same as no", async () => {
   const backend = createTranslationBackend({ helperUrl: "http://h" }, async () => {
     throw new Error("nothing there");
@@ -893,4 +922,80 @@ test("a frame measured against a page without its height yet is not kept", () =>
   assert.strictEqual(frameChromeOf(455, 120), null, "nor the window's");
   assert.strictEqual(frameChromeOf(455, 457), 0, "a pixel of noise");
   assert.strictEqual(frameChromeOf(455, 700), null, "a page still as tall as the window was");
+});
+
+test("a text handed over in the app's own address is taken, and nothing else is", async () => {
+  const { textHandedOver } = await import("../../src/platform/env.js");
+  assert.deepStrictEqual(textHandedOver("triglosa://read?text=hola%20mundo"), { what: "read", text: "hola mundo" });
+  assert.deepStrictEqual(textHandedOver("triglosa://card?text=a%26b%3Dc%0Ad"), { what: "card", text: "a&b=c\nd" });
+  assert.strictEqual(textHandedOver("triglosa://anki/added"), null);
+  assert.strictEqual(textHandedOver("https://read?text=x"), null);
+  assert.strictEqual(textHandedOver("triglosa://read"), null);
+  assert.strictEqual(textHandedOver(""), null);
+  /* A picture shared: the lines recognised in it, put in order by the window. */
+  const lines = "10 20 200 40\tDas Ziel ist es,\t\n10 50 180 70\tdie Lücke zu füllen.\t";
+  assert.deepStrictEqual(textHandedOver(`triglosa://card?lines=${encodeURIComponent(lines)}`), { what: "card", lines });
+  assert.strictEqual(textHandedOver("triglosa://read?lines=%20"), null);
+});
+
+test("on a phone a picture's text is asked of the app itself, and a cancelled picture is no failure", async () => {
+  const asked = [];
+  let answer = { status: 200, text: "10 20 200 40\tHola mundo\t" };
+  const internals = {
+    transformCallback: (callback) => callback,
+    invoke: async (command, args) => {
+      asked.push({ command, ...args });
+      if (answer instanceof Error) throw answer;
+      return answer;
+    },
+  };
+  globalThis.__TAURI_INTERNALS__ = internals;
+  globalThis.window = { __TAURI_INTERNALS__: internals };
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  try {
+    const { readPicture } = await import("../../src/platform/screen.js");
+    const { pasteHeld } = await import("../../src/platform/env.js");
+    let chosen = 0;
+    assert.deepStrictEqual(await readPicture("camera", ["de", "es"], () => chosen++),
+      { lines: [{ t: "Hola mundo", b: [10, 20, 200, 40], c: [] }], by: "device" });
+    assert.deepStrictEqual(asked.at(-1), { command: "apple_translation", route: "/recognize?from=picked&langs=de,es", body: "" });
+    assert.strictEqual(asked.at(-2).route, "/pick?from=camera", "the system's sheet first");
+    assert.strictEqual(chosen, 1);
+    answer = { status: 404, text: "no picture" };
+    assert.deepStrictEqual(await readPicture("library", [], () => chosen++), { none: true });
+    assert.strictEqual(chosen, 1, "nothing being recognised while nothing was chosen");
+    answer = { status: 500, text: "recognition failed" };
+    assert.deepStrictEqual(await readPicture("pasteboard"), { failed: "helper" });
+    answer = new Error("no shell");
+    assert.deepStrictEqual(await readPicture("camera"), { failed: "helper" });
+
+    /* What was copied, without reading it. */
+    answer = { status: 200, text: "picture" };
+    assert.strictEqual(await pasteHeld(), "picture");
+    assert.deepStrictEqual(asked.at(-1), { command: "apple_translation", route: "/pasteboard", body: "" });
+    answer = { status: 200, text: "" };
+    assert.strictEqual(await pasteHeld(), "");
+    answer = { status: 503, text: "not on this system" };
+    assert.strictEqual(await pasteHeld(), "text", "an app that cannot say greys nothing");
+  } finally {
+    delete globalThis.__TAURI_INTERNALS__;
+    delete globalThis.window;
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
+});
+
+test("a helper that quit in the meantime is asked after again", async () => {
+  /* It leaves after five minutes without a question; the screenshot then
+     found it gone and said the recognition had not answered. */
+  let asked = 0;
+  const backend = createTranslationBackend({ helperUrl: "http://127.0.0.1:1", system: "mac" }, async () => {
+    asked++;
+    return { ok: true, text: async () => "ok 6" };
+  });
+  await backend.running();
+  await backend.running();
+  assert.strictEqual(asked, 1);
+  backend.forget();
+  await backend.running();
+  assert.strictEqual(asked, 2);
 });

@@ -20,7 +20,7 @@ const kind = (value) =>
 const shape = (table) => entries(table).map(([path, value]) => `${path}:${kind(value)}`).sort();
 
 test("every interface language has every text, English on the same system being the measure", () => {
-  for (const system of ["mac", "windows"]) {
+  for (const system of ["mac", "windows", "ios"]) {
     const measure = shape(labels("en", system));
     for (const code of INTERFACE_LANGUAGES) {
       const own = shape(labels(code, system));

@@ -33,6 +33,9 @@ pub struct SystemReport {
     system: String,
     arch: &'static str,
     faults: Vec<String>,
+    /* The app's last steps (journal.rs): started, the window shown, a
+    shortcut pressed — no text. */
+    journal: Vec<String>,
 }
 
 #[tauri::command]
@@ -47,6 +50,7 @@ pub fn system_report() -> SystemReport {
         system: system_version(),
         arch: std::env::consts::ARCH,
         faults,
+        journal: crate::journal::recent(crate::journal::REPORTED),
     }
 }
 

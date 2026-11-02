@@ -1,4 +1,5 @@
-/* The language of the original, where the reader can say it is another one.
+/* The language of the original, where the reader can say it is another one,
+   and of a translation, where they want it in another for this reading.
 
    Detection is right about sentences and wrong now and then about a single
    word written the same way in two languages, or a language the recognizer
@@ -8,23 +9,22 @@
    on it, and then like the system's own pop-up button — a ground and the two
    chevrons — because a pop-up is what it opens.
 
-   The list, from the likeliest down:
+   The list over the original, from the likeliest down:
      the languages the reader chose by hand before, while the app runs — a
      reader of Hungarian texts picks Hungarian once, not every time
      the recognizer's own guesses, where it made any (the language it missed
      is usually its second or third)
      the reader's languages
      the other languages the app has a pack for
-     "Other language…", which turns the name into a field with every language
-     that has a two-letter code, named by the platform in the reader's
-     language — a text in Persian read as Arabic has nowhere else to go. */
+     under a heading of its own, the ones without a pack the settings offer
+     as not optimised — the languages a reader can learn here are the ones
+     worth naming a text in.
+   A translation's list is the same without the guesses, less the languages
+   already standing in a panel. */
 
 import { element } from "./elements.js";
 import { icon } from "./icons.js";
-import { SUPPORTED, languageLabel } from "../languages/index.js";
-import { ISO_639_1 } from "../languages/iso639.js";
-
-export const OTHER = "other";
+import { SUPPORTED, WITHOUT_PACK, languageLabel } from "../languages/index.js";
 
 /* A name only where the platform has one: a code it cannot name is no
    choice anyone could recognise. */
@@ -33,11 +33,20 @@ const nameOf = (code, reader) => {
   return label && label.toLowerCase() !== code ? label : "";
 };
 
-/* The groups of the list, as codes. `current` is the code standing in the
-   heading ("" where detection only found a name); it goes in front where no
-   group holds it, so the list always shows what is chosen. */
-export function languageGroups({ current = "", recent = [], guesses = [], languages = [], reader }) {
-  const seen = new Set();
+/* Each name looked up once, not at every comparison. */
+const alphabetical = (codes, reader) => {
+  const compare = new Intl.Collator(reader).compare;
+  return codes.map((code) => [code, nameOf(code, reader)])
+    .sort(([, a], [, b]) => compare(a, b))
+    .map(([code]) => code);
+};
+
+/* The groups of the list, as codes; the last one is the languages without a
+   pack. `current` is the code standing in the heading ("" where detection
+   only found a name); it goes in front where no group holds it, so the list
+   always shows what is chosen. `taken` are left out. */
+export function languageGroups({ current = "", recent = [], guesses = [], languages = [], reader, taken = [] }) {
+  const seen = new Set(taken);
   const take = (codes) => codes.filter((code) => {
     if (!code || seen.has(code) || !nameOf(code, reader)) return false;
     seen.add(code);
@@ -46,29 +55,37 @@ export function languageGroups({ current = "", recent = [], guesses = [], langua
   const chosen = take(recent);
   const guessed = take(guesses);
   const own = take(languages);
-  const rest = take(SUPPORTED.slice()
-    .sort((a, b) => nameOf(a, reader).localeCompare(nameOf(b, reader), reader)));
+  const rest = take(alphabetical(SUPPORTED, reader));
+  const other = take(alphabetical(WITHOUT_PACK, reader));
   if (current && !seen.has(current)) (chosen.length ? chosen : guessed).unshift(current);
-  return [chosen, guessed, own, rest].filter((group) => group.length);
+  return [chosen, guessed, own, rest, other];
 }
 
-/* Every language that has a two-letter code and a name, alphabetical in the
-   reader's language, for the field "Other language…" turns into. */
-export function everyLanguage(reader) {
-  return ISO_639_1
-    .map((code) => ({ code, name: nameOf(code, reader) }))
-    .filter((entry) => entry.name)
-    .sort((a, b) => a.name.localeCompare(b.name, reader));
-}
-
-/* What was typed into that field, as a code: a name as the list writes it,
-   in any case, or a code itself. Nothing recognisable is "". */
-export function languageFromName(typed, reader) {
-  const wanted = String(typed || "").trim().toLowerCase();
-  if (!wanted) return "";
-  const found = everyLanguage(reader).find((entry) =>
-    entry.name.toLowerCase() === wanted || entry.code === wanted);
-  return found ? found.code : "";
+/* The list as a select: the groups apart, the last under a line of its
+   own that names it — greyed, not a choice, and the languages under it not
+   set in as an optgroup would set them. */
+export function languageList(groups, { current, name, reader, text }) {
+  const list = element("select");
+  const last = groups.length - 1;
+  let drawn = 0;
+  groups.forEach((group, index) => {
+    if (!group.length) return;
+    const option = (code) => {
+      const item = element("option", null, code === current && !nameOf(code, reader) ? name : nameOf(code, reader));
+      item.value = code;
+      return item;
+    };
+    if (drawn) list.append(element("hr"));
+    if (index === last) {
+      const heading = element("option", null, text.languagesOther);
+      heading.disabled = true;
+      heading.value = "";
+      list.append(heading);
+    }
+    list.append(...group.map(option));
+    drawn++;
+  });
+  return list;
 }
 
 /* A heading's language as the system's pop-up button: the name as the
@@ -98,85 +115,61 @@ export function popupChoice(holder, { name, list, label }) {
 export function languageChoice({ name, current = "", recent, guesses, languages, reader, text, onChoose }) {
   const holder = element("span");
   holder.dir = "auto";
-
-  const showList = () => {
-    const list = element("select");
-    languageGroups({ current, recent, guesses, languages, reader }).forEach((group, index) => {
-      if (index) list.append(element("hr"));
-      for (const code of group) {
-        const option = element("option", null, code === current && !nameOf(code, reader) ? name : nameOf(code, reader));
-        option.value = code;
-        list.append(option);
-      }
-    });
-    if (!current) {
-      /* Detection found a name and no code: it stands first, as itself. */
-      const found = element("option", null, name);
-      found.value = "";
-      list.prepend(found);
-    }
-    list.append(element("hr"));
-    const other = element("option", null, text.otherLanguage);
-    other.value = OTHER;
-    list.append(other);
+  const list = languageList(languageGroups({ current, recent, guesses, languages, reader }), { current, name, reader, text });
+  if (!current) {
+    /* Detection found a name and no code: it stands first, as itself. */
+    const found = element("option", null, name);
+    found.value = "";
+    list.prepend(found);
+  }
+  list.value = current;
+  list.addEventListener("change", () => {
+    const picked = list.value;
     list.value = current;
+    if (picked && picked !== current) onChoose(picked);
+  });
+  popupChoice(holder, { name, list, label: text.sourceLanguage });
+  return holder;
+}
 
-    list.addEventListener("change", () => {
-      const picked = list.value;
-      list.value = current;
-      if (picked === OTHER) showField();
-      else if (picked && picked !== current) onChoose(picked);
-    });
-    holder.classList.remove("searching");
-    popupChoice(holder, { name, list, label: text.sourceLanguage });
-  };
+/* A translation's language, as a node, in the same look; `taken` are the
+   languages of every panel, its own among them. */
+export function targetChoice({ name, current, recent = [], languages = [], taken = [], reader, text, label, onChoose }) {
+  const holder = element("span");
+  holder.dir = "auto";
+  const list = languageList(languageGroups({ recent, languages, reader, taken }), { current, name, reader, text });
+  /* What stands there first, as in the list over the original. */
+  const standing = element("option", null, name);
+  standing.value = current;
+  list.prepend(standing, element("hr"));
+  list.value = current;
+  list.addEventListener("change", () => {
+    const picked = list.value;
+    list.value = current;
+    if (picked && picked !== current) onChoose(picked);
+  });
+  popupChoice(holder, { name, list, label });
+  return holder;
+}
 
-  const showField = () => {
-    const field = element("input", "language-search");
-    field.type = "text";
-    field.spellcheck = false;
-    field.placeholder = text.findLanguage;
-    field.setAttribute("aria-label", text.findLanguage);
-    const listId = "every-language";
-    field.setAttribute("list", listId);
-    const names = element("datalist");
-    names.id = listId;
-    for (const entry of everyLanguage(reader)) {
-      const option = element("option");
-      option.value = entry.name;
-      names.append(option);
-    }
-    let done = false;
-    const finish = (code) => {
-      if (done) return;
-      done = true;
-      if (code && code !== current) onChoose(code);
-      else showList();
-    };
-    /* A name picked from the suggestions arrives as a change of the value;
-       one typed out is taken on Enter. */
-    field.addEventListener("input", () => {
-      const code = languageFromName(field.value, reader);
-      if (code && everyLanguage(reader).some((entry) => entry.name === field.value)) finish(code);
-    });
-    field.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        const code = languageFromName(field.value, reader);
-        if (code) finish(code);
-      } else if (event.key === "Escape") {
-        /* The field's own way out, not the window's. */
-        event.preventDefault();
-        event.stopPropagation();
-        finish("");
-      }
-    });
-    field.addEventListener("blur", () => finish(""));
-    holder.classList.add("searching");
-    holder.replaceChildren(field, names);
-    queueMicrotask(() => field.focus());
-  };
-
-  showList();
+/* The symbol in the heading of the one translation that adds a second:
+   a list of the same languages lying over it, and its word on hover, the
+   way every symbol on the sheet has. */
+export function addChoice({ recent = [], languages = [], taken = [], reader, text, onChoose }) {
+  const holder = element("span", "language-choice add-language");
+  const list = languageList(languageGroups({ recent, languages, reader, taken }), { current: "", name: "", reader, text });
+  /* Nothing chosen: an entry for that would stand in the system's menu,
+     which shows hidden ones too, so any pick is a change. */
+  list.selectedIndex = -1;
+  list.setAttribute("aria-label", text.addLanguage);
+  list.addEventListener("mousedown", () => holder.classList.add("by-pointer"));
+  list.addEventListener("keydown", () => holder.classList.remove("by-pointer"));
+  list.addEventListener("change", () => {
+    const picked = list.value;
+    list.selectedIndex = -1;
+    list.blur();
+    if (picked) onChoose(picked);
+  });
+  holder.append(icon("addPanel"), list, element("span", "pill-label", text.addLanguage));
   return holder;
 }

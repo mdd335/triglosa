@@ -11,6 +11,10 @@
      prepare <from> <to,to> [heading]  -> the system's own download prompt
      serve [idleSeconds]               -> resident helper, see below
 
+   The resident helper also reads text off a photograph of the screen
+   (/recognize), with Apple's own recognition: the shell takes the
+   photograph and says where it is.
+
    The first three are the fallback. Normally the app talks to the resident
    helper over HTTP, because a fresh process pays the connection setup to
    translationd all over again for every translation.
@@ -23,6 +27,7 @@ import Foundation
 import NaturalLanguage
 import SwiftUI
 import Translation
+import Vision
 
 func stdinText() -> String {
   let d = FileHandle.standardInput.readDataToEndOfFile()
@@ -47,12 +52,11 @@ func statusWord(_ status: LanguageAvailability.Status) -> String {
 
 /* Which of Apple's two models translates: the fast one, wherever it is there.
 
-   Measured over 312 translations in eight languages, the careful default got
-   84 wrong in sense and the fast one 70, at a third of the time — careful is
-   not the more accurate of the two, only the slower, and it breaks grammar
-   more often. The fast strategy exists from macOS 26.4 and is a download of
-   its own, so a pair that has only the careful model keeps translating with
-   that rather than not at all. */
+   Graded blind over 312 translations in eight languages, the two are right
+   equally often, and the fast one takes a third of the time. The fast
+   strategy exists from macOS 26.4 and is a download of its own, so a pair
+   that has only the careful model keeps translating with that rather than
+   not at all. */
 func languages(_ from: String, _ to: String) -> (Locale.Language, Locale.Language) {
   (Locale.Language(identifier: from), Locale.Language(identifier: to))
 }
@@ -263,7 +267,7 @@ let PORT: UInt16 = 51737
    /ping therefore says which protocol this one speaks, and /quit lets the
    window retire a helper that speaks an older one. Raise this whenever a
    route's answer changes shape. */
-let PROTOCOL = 4
+let PROTOCOL = 6
 /* A second argument lowers the deadline — there so it can be tested without
    waiting five minutes. */
 let IDLE_SECONDS: Double =
@@ -472,7 +476,66 @@ func handle(_ fd: Int32, _ helper: Helper) {
     helper.work.unlock()
     if let o = out { respond(fd, 200, o) } else { respond(fd, 500, "translation failed: " + failure) }
 
+  /* The text in a piece of a photograph of the screen, or in an image
+     file: the file, the piece in its pixels (left, top, width, height; all
+     of it where the piece is empty) and the reader's languages,
+     which go first where Apple's recognition knows them. One line each,
+     "left top right bottom" in the piece's pixels, a tab, the text, a
+     tab, and each character's "left right", comma-separated — in the order
+     Apple answers; the window works out the reading order. */
+  case "/recognize":
+    guard let file = query["path"], let rect = query["rect"]?.split(separator: ",").compactMap({ Double($0) }),
+          rect.count == 4 else { return respond(fd, 400, "path/rect missing") }
+    let wanted = (query["langs"] ?? "").split(separator: ",").map(String.init)
+    let done = DispatchSemaphore(value: 0); var out: String? = nil; var failure = ""
+    Task {
+      do { out = try await recognize(file, CGRect(x: rect[0], y: rect[1], width: rect[2], height: rect[3]), wanted) }
+      catch { failure = "\(error)" }
+      done.signal()
+    }
+    done.wait()
+    if let o = out { respond(fd, 200, o) } else { respond(fd, 500, "recognition failed: " + failure) }
+
   default:
     respond(fd, 404, "unknown: " + path)
   }
+}
+
+/* Apple's recognition at its careful level with its language correction,
+   as Live Text reads (run sixty-six), on the piece of the photograph the
+   reader framed. */
+func recognize(_ file: String, _ piece: CGRect, _ wanted: [String]) async throws -> String {
+  guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: file) as CFURL, nil),
+        let whole = CGImageSourceCreateImageAtIndex(source, 0, nil),
+        let image = piece.isEmpty ? whole : whole.cropping(to: piece.integral) else {
+    throw NSError(domain: "recognize", code: 1, userInfo: [NSLocalizedDescriptionKey: "no image"])
+  }
+  var request = RecognizeTextRequest()
+  request.recognitionLevel = .accurate
+  request.usesLanguageCorrection = true
+  let known = Set(request.supportedRecognitionLanguages.compactMap { $0.languageCode?.identifier })
+  let languages = wanted.filter { known.contains($0) }.map { Locale.Language(identifier: $0) }
+  if !languages.isEmpty { request.recognitionLanguages = languages }
+  request.automaticallyDetectsLanguage = true
+  let observations = try await request.perform(on: image)
+  let (width, height) = (Double(image.width), Double(image.height))
+  return observations.compactMap { observation -> String? in
+    guard let candidate = observation.topCandidates(1).first else { return nil }
+    let text = candidate.string
+    let box = observation.boundingBox.cgRect
+    let left = Int(box.minX * width), right = Int(box.maxX * width)
+    let top = Int((1 - box.maxY) * height), bottom = Int((1 - box.minY) * height)
+    /* Where each character stands across the piece, for the word under
+       the pointer: left and right, one pair a character; none where Apple
+       could not say it for every one. */
+    var extents: [String] = []
+    var index = text.startIndex
+    while index < text.endIndex {
+      let next = text.index(after: index)
+      guard let part = candidate.boundingBox(for: index..<next)?.boundingBox.cgRect else { extents = []; break }
+      extents.append("\(Int(part.minX * width)) \(Int(part.maxX * width))")
+      index = next
+    }
+    return "\(left) \(top) \(right) \(bottom)\t\(text.replacingOccurrences(of: "\n", with: " "))\t\(extents.joined(separator: ","))"
+  }.joined(separator: "\n")
 }

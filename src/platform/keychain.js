@@ -12,15 +12,41 @@
    which is why the two paths are named apart here rather than hidden in one
    helper. */
 
-import { insideApp } from "./env.js";
+import { insideApp, shell } from "./env.js";
+import { keyAccount } from "../setup.js";
 
-const BROWSER_KEY = "triglosa.apiKey";
+/* The one entry from before each way had a key of its own. */
+const EARLIER = "model-endpoint";
 
-export async function loadApiKey() {
+async function read(account) {
+  if (!insideApp()) return localStorage.getItem(`triglosa.${account}`) || "";
+  return String((await shell("read_api_key", { account })) || "");
+}
+
+async function write(account, key) {
+  if (!insideApp()) {
+    if (key) localStorage.setItem(`triglosa.${account}`, key);
+    else localStorage.removeItem(`triglosa.${account}`);
+    return;
+  }
+  await shell("write_api_key", { account, key });
+}
+
+/* The key of the way the settings use. A key
+   stored before the ways had keys of their own goes to the first way that
+   asks for one and has none — the way in use when the app first starts
+   after the change, which is the provider it was typed in for. */
+export async function loadApiKey(settings) {
   try {
-    if (!insideApp()) return localStorage.getItem(BROWSER_KEY) || "";
-    const { invoke } = await import("@tauri-apps/api/core");
-    return String((await invoke("read_api_key")) || "");
+    const account = keyAccount(settings);
+    if (!account) return "";
+    const key = await read(account);
+    if (key) return key;
+    const earlier = await read(EARLIER);
+    if (!earlier) return "";
+    await write(account, earlier);
+    await write(EARLIER, "");
+    return earlier;
   } catch {
     /* A store that will not answer means no key, which the app handles. It
        must not mean a window that will not open. */
@@ -28,15 +54,13 @@ export async function loadApiKey() {
   }
 }
 
-export async function saveApiKey(key) {
+/* Saved for the way the settings use, and only for it: forgetting the key
+   of one provider leaves the other's. */
+export async function saveApiKey(key, settings) {
   const clean = String(key || "").trim();
-  if (!insideApp()) {
-    if (clean) localStorage.setItem(BROWSER_KEY, clean);
-    else localStorage.removeItem(BROWSER_KEY);
-    return clean;
-  }
-  const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("write_api_key", { key: clean });
+  const account = keyAccount(settings);
+  if (!account) return "";
+  await write(account, clean);
   return clean;
 }
 

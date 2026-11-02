@@ -1,0 +1,15 @@
+# The anonymous counter on Cloudflare's workers (worker.js). Set up once, as
+# counter/README.md says; database_id is the one `wrangler d1 create` prints.
+name = "counter"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Nothing about a request is logged: no request log, no traces.
+[observability]
+enabled = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "triglosa-counter"
+database_id = "54c40ed0-5291-4466-854a-9696875bc336"

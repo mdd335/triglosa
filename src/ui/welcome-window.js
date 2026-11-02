@@ -11,12 +11,23 @@ import { openUrl } from "../platform/env.js";
 import { closeWelcome, fitCardWindow, onSettingsChanged, openSettings, settingsChanged } from "../platform/windows.js";
 import { hotkeyLabel } from "../hotkey.js";
 import { onWindows } from "../system.js";
-import { HELP_URL, MODEL_HELP_URL } from "../updates.js";
+import { HELP_URL } from "../updates.js";
 import { labels, windowTitle } from "./labels.js";
 import { welcomeView } from "./welcome-view.js";
+import { exampleView } from "./example-view.js";
+import { closeOnKeys, quietContextMenu } from "./elements.js";
 import icon from "../../src-tauri/icons/128x128@2x.png";
 
 let settings = await loadSettings();
+/* The window that asks for the first time: a box not ticked means no, so the
+   question counts as answered, and it is not asked again at the next start.
+   A reader of an earlier version who said not to show the first steps sees
+   the box for that unticked here too. */
+let asked = settings.stats === null;
+if (asked) {
+  settings = await saveSettings({ ...settings, stats: false });
+  settingsChanged();
+}
 const layout = await keyLabels().catch(() => null);
 
 const root = document.getElementById("app");
@@ -31,7 +42,8 @@ const fit = () => {
 };
 
 async function draw() {
-  const text = labels(settings.languages[0]);
+  const reader = settings.languages[0];
+  const text = labels(reader);
   document.title = windowTitle(text.welcome.steps);
   const permission = onWindows() ? false : await accessibilityGranted().catch(() => false);
   root.replaceChildren(welcomeView({
@@ -40,17 +52,24 @@ async function draw() {
     system: onWindows() ? "windows" : "mac",
     key: settings.hotkey ? hotkeyLabel(settings.hotkey, layout) : "",
     permission,
-    hidden: !settings.welcome,
+    hidden: !settings.welcome && !asked,
+    example: exampleView(text.welcome.example, reader),
+    consent: settings.stats,
   }, {
     /* Read again first: another window may have written since. */
     onHide: async (hidden) => {
+      asked = false;
       settings = await saveSettings({ ...(await loadSettings()), welcome: !hidden });
       settingsChanged();
     },
     onSettings: () => openSettings(windowTitle(text.settings)),
     onClose: closeWelcome,
-    onGuide: () => openUrl(MODEL_HELP_URL),
     onReadme: () => openUrl(HELP_URL),
+    /* The reading window hears of it and counts the day at once. */
+    onConsent: async (yes) => {
+      settings = await saveSettings({ ...(await loadSettings()), stats: yes });
+      settingsChanged();
+    },
   }));
   fit();
   root.querySelector(".welcome-icon")?.addEventListener("load", fit);
@@ -66,10 +85,7 @@ await onSettingsChanged(async () => {
 });
 window.addEventListener("focus", draw);
 
-document.addEventListener("keydown", (event) => {
-  const closing = event.key === "Escape"
-    || (event.key.toLowerCase() === "w" && (event.metaKey || event.ctrlKey));
-  if (!closing) return;
-  event.preventDefault();
-  closeWelcome();
-});
+quietContextMenu(document);
+/* Nothing here is written in: Escape closes at once, also from the box
+   that puts the first steps away. */
+closeOnKeys(document, closeWelcome, { fields: null });

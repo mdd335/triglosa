@@ -82,8 +82,8 @@ export function alternativesPrompt({ source, target, reader, spelling, capitalis
 
 /* The sentence the input stands in, where the reader let it come along.
    With it the first line is the sense the input has there — half the wrong
-   first lines of the entry without it, on both models, and the definition
-   step that used to stand in front of this question added nothing more
+   first lines of the entry without it, on both models, and a definition
+   step in front of this question added nothing more
    (runs twenty-eight and twenty-nine). The lines after it are the input's
    other meanings, so that the entry stays a dictionary: without that rule
    the sentence turned them into near-synonyms of the one sense. Allowed two
@@ -128,8 +128,4 @@ export function alternativesInput({ source, target, reader = target, text, sente
     );
   }
   return lines.join("\n");
-}
-
-export function englishName(code) {
-  return languagePack(code).englishName;
 }

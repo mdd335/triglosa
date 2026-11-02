@@ -11,13 +11,15 @@ import { differsFromLookup, fragmentsForPanel, fragmentsForSentence, selectionFo
 import { explanationsAvailable, showsSection } from "../settings.js";
 import { entryCard, markedCard, readingCard, termCard, verbCard } from "../card.js";
 import { bareInfinitive, citationForm, languageLabel, languagePack, writingDirection } from "../languages/index.js";
-import { languageChoice } from "./language-choice.js";
+import { addChoice, languageChoice, targetChoice } from "./language-choice.js";
+import { canAddPanel, changeablePanels } from "../panels.js";
 import { creditLine, faultText, labels } from "./labels.js";
-import { actions, button, element, lockedNote, pane, reportOn } from "./elements.js";
+import { actions, button, buttonRow, element, lockedNote, nameButton, pane, reportOn, rowButton } from "./elements.js";
 import { icon } from "./icons.js";
 import { markLine, markPanel, markGroups } from "./marking.js";
-import { watchSelection } from "./selection.js";
+import { nameTouchPick, watchSelection } from "./selection.js";
 import { roomForExample } from "../examples.js";
+import { onPhone } from "../system.js";
 
 /* An abbreviation is drawn like a verb form: word, arrow, then the expansion,
    with the caveat greyed out in between and the translation behind it.
@@ -141,11 +143,9 @@ function markSource(body, state, index, settings, codes) {
     state.panels[index].text,
     markGroups(away("terms") ? [] : parts.words, termShade(state), parts.near?.words)
       .concat(markGroups(away("verbs") ? [] : parts.verbs, "vmark", parts.near?.verbs)),
-    /* The picked word's frame is the reader's own act and stays; its spots
-       in the other panels point at the area, and go with it. */
-    away(MARKED) && state.selection?.panel !== index
-      ? null
-      : selectionForPanel(state, index, settings.languages),
+    /* The picked word's frame and its spots in the other panels go with
+       its area, like the terms' and the verbs' lines. */
+    away(MARKED) ? null : selectionForPanel(state, index, settings.languages),
     codes,
     state.selection?.panel === index && !state.selection.inSentence,
   );
@@ -205,7 +205,11 @@ function panelName(entry, reader) {
    the window can act on a choice. Rebuilt only when what it says changes: it
    is drawn again with every answer that arrives, and a list the reader has
    open, or a name they are typing, would go with it. */
-export function renderHeading(node, state, { text, settings, editing, onLanguage, recent = [] }) {
+/* A line that opens a note starts with a capital, whichever doing comes
+   first in it. */
+const capitalized = (line) => line.charAt(0).toLocaleUpperCase() + line.slice(1);
+
+export function renderHeading(node, state, { text, settings, editing, onLanguage, recent = [], recognizedBy = null }) {
   const reader = settings.languages[0];
   const first = state?.panels?.[0];
   const name = !editing && first ? panelName(first, reader) || text.unknownLanguage : "";
@@ -216,7 +220,10 @@ export function renderHeading(node, state, { text, settings, editing, onLanguage
   const namedBy = { text: [TRIGLOSA], device: [{ kind: "device" }], model: [theModel(state?.source?.model)], reader: [{ kind: "reader" }] }[state?.source?.by];
   /* And who said which word became which, for the hover. */
   const matchedBy = state?.glance?.sentences ? placedBy(state.glance.by, state.model) : [];
-  const source = name && current ? creditLine(text, [["detected", namedBy], ["words", matchedBy]]) : "";
+  /* And, for text read off the screen, who recognised it — Apple, or
+     Triglosa's own recognition, both on the machine — said last. */
+  const recognizedWho = { device: [{ kind: "device" }], triglosa: [{ kind: "triglosaDevice" }] }[recognizedBy];
+  const source = name && current ? capitalized(creditLine(text, [["recognized", recognizedWho], ["detected", namedBy], ["words", matchedBy]])) : "";
   const key = JSON.stringify([text.original, text.sourceLanguage, name, current, recent, guesses, settings.languages, !!onLanguage, source]);
   if (node.dataset.key === key) return;
   node.dataset.key = key;
@@ -251,9 +258,18 @@ function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, l
     box.classList.add("writing");
     box.append(draftField(text, edit));
     /* Named, like the field, so scripts/shot.mjs can press it. */
-    const go = button(text.translateKeys, () => edit.onTranslate(), "translate");
+    const go = button(text.translate, () => edit.onTranslate(), "translate");
+    /* The key in grey after the word, as every hover names one. */
+    nameButton(go, text.translate, text.enterKey);
     go.id = "translate";
     frame.append(actions([go]));
+    /* On a phone a text can come from elsewhere instead: a picture from the
+       camera or the photo library, or what was copied — each a button of
+       its own, under the field. */
+    if (tools.picture) section.append(textSources(text, tools));
+    /* On a computer, where those buttons would stand, that a picture
+       dropped on the window is read — while the field is still empty. */
+    else if (tools.dropsPicture && !edit.draft) section.append(dropHint(text, tools.pinned?.()));
     return section;
   }
 
@@ -277,6 +293,34 @@ function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, l
     card ? cardButton(tools, text, entry?.code, card) : null,
   ].filter(Boolean)));
   return section;
+}
+
+/* The three ways to a text other than typing it, as a row of buttons across
+   the field's width (buttonRow). What was copied has the bar's symbol and
+   is greyed as the bar's button is while nothing was copied. */
+function textSources(text, tools) {
+  const source = (name, symbol, words, onClick) => {
+    const node = rowButton(words, symbol, onClick);
+    node.dataset.source = name;
+    return node;
+  };
+  const clipboard = source("clipboard", "paste", text.clipboard, () => tools.paste?.());
+  clipboard.disabled = !(tools.copied?.() ?? true);
+  return buttonRow([
+    source("camera", "camera", text.pictureCamera, () => tools.picture("camera")),
+    source("library", "photos", text.pictureLibrary, () => tools.picture("library")),
+    clipboard,
+  ], "text-sources");
+}
+
+/* Dragging a picture from another program takes the focus away, and with it
+   a window that is not pinned. */
+function dropHint(text, pinned) {
+  const line = element("p", "drop-hint");
+  const words = element("span", null, text.dropHint);
+  if (!pinned) words.append(" ", ...text.dropNeedsPin(text.pinWindow, icon("pin")));
+  line.append(icon("photos"), words);
+  return line;
 }
 
 /* A looked-up word found misspelled, right under it: corrected, what was
@@ -360,10 +404,17 @@ function draftField(text, edit) {
     edit.onDraft(field.value);
     grow();
   });
-  /* The same combination the whole system uses to send a form off. */
+  /* The same combination the whole system uses to send a form off. On a
+     phone the keyboard's own return key sends it, and says so: the button
+     beside the field is far from the thumb, and a new line in a text typed
+     on a phone is rarely wanted. A pasted text keeps its lines. */
+  const phone = onPhone();
+  if (phone) field.setAttribute("enterkeyhint", "go");
   field.addEventListener("keydown", (event) => {
-    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
+    if (event.key !== "Enter" || event.isComposing) return;
+    if (!phone && !(event.metaKey || event.ctrlKey)) return;
     event.preventDefault();
+    if (phone) field.blur();
     edit.onTranslate();
   });
   /* Once, after it is in the document: a height read before that is zero. */
@@ -664,7 +715,9 @@ function foldButton(box, key, { state, text, onFold }) {
   const fold = button(away ? text.unfoldPanel : text.foldPanel, () => onFold(key),
     away ? "next" : "open");
   fold.classList.add("fold");
-  heading.after(fold);
+  /* At the far end of the heading, after whatever it says there: in one
+     place whatever the name's length, and clear of a pop-up's chevrons. */
+  heading.closest(".label").append(fold);
 }
 
 /* One of the sections below the panels. It is visible in every state, because
@@ -742,9 +795,36 @@ export function renderReading(sheet, state, handlers) {
   return draw(sheet, state, handlers);
 }
 
-function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, onFold, onMore, onExample, sentences, onSentence, onSpelling }) {
+/* A translation's heading as a choice of another language for this
+   reading (panels.js), the name as it was until the pointer rests on it. */
+function targetHeading(box, entry, index, { state, settings, text, onTarget, recentTargets, name }) {
+  const holder = box.querySelector(".label .name");
+  const taken = [...state.panels.map((panel) => panel.code), settings.languages[0]];
+  holder.replaceChildren(targetChoice({
+    name, current: entry.code, recent: recentTargets, languages: settings.languages, taken,
+    reader: settings.languages[0], text, label: text.sourceLanguage, onChoose: (code) => onTarget(index, code),
+  }));
+}
+
+/* Where there are two panels, the symbol in the translation's heading
+   that adds a third, before the fold. */
+function addPanelButton(box, state, { settings, text, onTarget, recentTargets }) {
+  const label = box.querySelector(".label");
+  const taken = [...state.panels.map((panel) => panel.code), settings.languages[0]];
+  const add = addChoice({
+    recent: recentTargets, languages: settings.languages, taken,
+    reader: settings.languages[0], text, onChoose: (code) => onTarget(state.panels.length, code),
+  });
+  const fold = label.querySelector(".fold");
+  if (fold) fold.before(add);
+  else label.append(add);
+}
+
+function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, onFold, onMore, onExample, sentences, onSentence, onSpelling,
+                              onTarget = null, onRemoveTarget = null, recentTargets = [] }) {
   const text = labels(settings.languages[0]);
   sheet.textContent = "";
+  nameTouchPick(text.marked);
 
   /* Nothing read yet: a first start, a text still being typed, or a run that
      came to nothing. The original field stands either way — it is the field
@@ -793,6 +873,8 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
     return fragments || "";
   };
 
+  const panelCodes = state.panels.map((entry) => entry.code);
+  const changeable = onTarget ? changeablePanels(panelCodes, settings.languages[0]) : [];
   state.panels.forEach((entry, index) => {
     /* The first panel says both what it is and which language it turned out
        to be — the language is a finding, not a setting — and it is the one
@@ -842,7 +924,17 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
       status: written ? creditLine(text, [["translated", [entry.engine === "device" ? { kind: "device" } : theModel(entry.model)]]]) : "",
     });
     if (written && !entry.fallback) box.querySelector(".label .status").classList.add("on-hover");
+    if (changeable.includes(index)) targetHeading(box, entry, index, { state, settings, text, onTarget, recentTargets, name: named(entry) });
     foldButton(box, `panel:${entry.code || entry.name || index}`, { state, text, onFold });
+    if (onTarget && index === 1 && canAddPanel(panelCodes)) addPanelButton(box, state, { settings, text, onTarget, recentTargets });
+    /* The panel the reader added can be taken away again, before the fold. */
+    if (onRemoveTarget && index === state.panels.length - 1) {
+      const away = button(text.removeLanguage, () => onRemoveTarget(), "close");
+      away.classList.add("fold");
+      const fold = box.querySelector(".label .fold");
+      if (fold) fold.before(away);
+      else box.querySelector(".label").append(away);
+    }
     const body = box.querySelector(".box");
 
     if (entry.status === "waiting") {

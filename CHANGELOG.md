@@ -1,6 +1,34 @@
 # Changelog
 
-## 0.6.0 (2026-10-20)
+## 0.7.0
+
+### New
+- Triglosa for the iPhone, in the App Store: copy a text and tap the paste button, take or choose a photo of a text, or share a text or a picture to Triglosa from Safari, Mail, Photos and other apps, also straight onto a flashcard. It asks before the first text goes to an AI model; without one, Apple translates on the iPhone.
+- Windows: Triglosa is in the Microsoft Store, which brings its updates. The installer stays for a direct download.
+- Text from a screenshot: from the menu or a shortcut of its own, mark a piece of the screen and Triglosa translates the text in it, copies it, or puts it on a flashcard. An image file selected in the Finder or in Explorer, or dropped on the window, is read the same way, and the word and the sentence under the pointer are read off the screen where a program hands over no text. The picture is read on your computer; only the text goes to the AI model. Mac: this needs the permission for screen recording, asked for in the settings.
+- The settings help you connect an AI model: Online through OpenRouter (recommended for most), with its steps, or another provider you enter yourself, with a button each for the addresses of LM Studio and Ollama.
+- The first steps show an example straight away and name the page of the settings for each step. A box there lets you allow counting anonymously how often Triglosa is used, not ticked at first; you can change it in the settings at any time.
+- A reading can get a translation into another language: a symbol in a translation's heading adds a third, and with three a translation's language can be changed there. The choice holds until you quit Triglosa.
+- Each language can send its flashcards to an Anki deck of its own.
+- Seven further languages can be learned (not optimised): Albanian, Armenian, Esperanto, Filipino, Georgian, Irish and Welsh.
+
+### Changed
+- Mac: Triglosa is signed and checked by Apple, so it opens without a warning and without a detour through the system settings.
+- The license is now GPL-3.0: a copy built on Triglosa has to stay open too. Versions up to 0.6.0 stay under MIT.
+- The settings are split into pages, listed at the left, each setting in a box of its own. *Text from other programs* is now called *Other programs*.
+- The preset shortcut is Ctrl+Alt+T on Windows and ⌃⌥T on the Mac. A shortcut you already set stays as it is.
+
+### Fixed
+- The sentence under the pointer in a search result in Chrome no longer runs the result's name and address into the sentence.
+- The shortcuts for the word and the sentence under the pointer always bring the window up quickly and say what they are doing; where nothing could be read, the window says why instead of staying away.
+- Mac: the shortcut shows the window over a program in full screen again, also after another program went into full screen or came out of it.
+- The window no longer stays out of sight when the screen it last stood on is gone.
+- A looked-up word's translations no longer list a word of another language: "lauter" in Spanish showed German "ehrlich" and "nur" beside "puro".
+- An improved flashcard's explanation is written from the word and its meaning alone, and an adjective is no longer made a person: "moreno" stays "moreno", not "el moreno / la morena".
+- Mac: after five minutes without use, Apple's translation and text recognition are started again when needed, instead of failing.
+- Libraries with known security holes are updated: how secure connections check certificates, and on Windows how an update is unpacked.
+
+## 0.6.0
 
 ### New
 - A word looked up with a typo is looked up as meant, with "Corrected from …" under it.

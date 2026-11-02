@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Triglosa</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #000; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+      #photo { position: fixed; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+      #veil { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.32); pointer-events: none; }
+      #frame { position: fixed; display: none; outline: 1.5px solid #18daf1; box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.32); pointer-events: none; }
+      #hint { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); padding: 7px 14px; border-radius: 8px;
+        background: rgba(30, 30, 30, 0.82); color: #fff; font: 13px/1.35 -apple-system, "Segoe UI", system-ui, sans-serif; pointer-events: none; white-space: nowrap; }
+      body.drawing #veil, body.drawing #hint { display: none; }
+    </style>
+  </head>
+  <body>
+    <img id="photo" alt="" />
+    <div id="veil"></div>
+    <div id="frame"></div>
+    <div id="hint"></div>
+    <script type="module" src="/src/ui/screen-window.js"></script>
+  </body>
+</html>

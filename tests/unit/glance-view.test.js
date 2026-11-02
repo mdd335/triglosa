@@ -23,7 +23,7 @@ const SETTINGS = {
   endpoint: "http://model.invalid/v1",
   model: "a-model",
   glance: true,
-  cards: { mode: "foreign", anki: { enabled: false, deck: "", noteType: "", fields: {} } },
+  cards: { mode: "foreign", anki: { enabled: false, decks: {} } },
 };
 const TOOLS = { reader: "de", copy: async () => {}, open: async () => {}, search: async () => {},
                 card: null, cardFor: () => false, insert: null };

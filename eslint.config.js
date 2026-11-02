@@ -22,6 +22,8 @@ export default [
     },
   },
   { files: ["src/**/*.js"], languageOptions: { globals: globals.browser } },
+  /* The counter runs on Cloudflare's workers, which have the web's globals. */
+  { files: ["counter/**/*.js"], languageOptions: { globals: globals.serviceworker } },
   {
     files: ["scripts/**/*.mjs", "tests/**/*.{js,mjs}", "*.config.js"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },

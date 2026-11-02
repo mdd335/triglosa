@@ -65,6 +65,8 @@ export default {
   /* The definite articles, which put a noun on a flashcard the way a
      dictionary names it — with the gender a learner has to learn with it. */
   definiteArticles: "le la les l'",
+  /* The letters before which l' stands, h mute or not. */
+  elidesBefore: "aeiouyhœæ",
   masculineArticles: "le",
   feminineArticles: "la",
   articles: "le la les l' un une des",

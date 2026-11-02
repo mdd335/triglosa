@@ -25,9 +25,9 @@ import { currentSystem } from "./system.js";
 
 /* What the app suggests when nobody has chosen. ⌃⌥ leaves every ⌘
    combination to the programs the reader is actually working in, which is
-   where their own shortcuts live, and E stands for what the app does in both
-   interface languages — erklären, explain. All three keys are reachable with
-   the left hand alone.
+   where their own shortcuts live, and T stands for what the app does in
+   most of its languages — translate, traduire, traducir, tradurre, traduzir.
+   All three keys are reachable with the left hand alone.
 
    It was ⌃⌥D first, for the D of macOS' own look-up on ⌃⌘D. That key turned
    out to be swallowed before any window saw it on the one machine it was
@@ -43,13 +43,13 @@ import { currentSystem } from "./system.js";
    One combination it is worth knowing about: with VoiceOver running, ⌃⌥ is
    its own modifier. That is a reason for the field, not against the
    default. */
-export const DEFAULT_HOTKEY = { accelerator: "Control+Alt+KeyE", label: "⌃⌥E" };
+export const DEFAULT_HOTKEY = { accelerator: "Control+Alt+KeyT", label: "⌃⌥T" };
 
-/* On Windows Ctrl+Alt cannot be the preset: on a German, French, Spanish or
-   Polish keyboard Ctrl+Alt *is* AltGr, and AltGr+E types €. Win+Shift leaves
-   AltGr alone and every program's own Ctrl combinations too, and Windows
-   gives no meaning of its own to Win+Shift+E. The E stays. */
-export const WINDOWS_HOTKEY = { accelerator: "Super+Shift+KeyE", label: "Win+Shift+E" };
+/* The same keys on Windows, spelled out. On a German, French, Spanish or
+   Polish keyboard Ctrl+Alt *is* AltGr, so the letter has to be one AltGr
+   types nothing with there: E would take € away, T takes nothing. The
+   Windows key is left out because many readers do not know it by name. */
+export const WINDOWS_HOTKEY = { accelerator: "Control+Alt+KeyT", label: "Ctrl+Alt+T" };
 
 export function defaultHotkey(system = currentSystem()) {
   return system === "windows" ? WINDOWS_HOTKEY : DEFAULT_HOTKEY;

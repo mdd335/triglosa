@@ -27,7 +27,7 @@ test("anything but an article of the word's own language is refused", () => {
 
 test("a card is asked about only on the sides whose language names articles", async () => {
   const asked = [];
-  const llm = { chat: async ({ user }) => { asked.push(user); return { caja: "la caja", Kasse: "die Kasse", bezahlen: "bezahlen" }[user] || user; } };
+  const llm = { chat: async ({ user }) => { const word = user.split("\n")[0]; asked.push(word); return { caja: "la caja", Kasse: "die Kasse", bezahlen: "bezahlen" }[word] || word; } };
   const card = { term: "caja", termLanguage: "es", meaning: "Kasse, bezahlen", meaningLanguage: "de", note: "x" };
   const better = await headwordsFor(llm, card);
   assert.deepStrictEqual([better.term, better.meaning, better.note], ["la caja", "die Kasse, bezahlen", "x"]);
@@ -79,9 +79,31 @@ test("a second form that is no form of the word is dropped, and the word keeps i
 });
 
 test("two meanings that come back as the same pair stand once", async () => {
-  const llm = { chat: async ({ user }) => ({ Lehrer: "der Lehrer / die Lehrerin", Lehrerin: "der Lehrer / die Lehrerin", Schule: "die Schule" }[user] || user) };
+  const llm = { chat: async ({ user }) => { const word = user.split("\n")[0]; return { Lehrer: "der Lehrer / die Lehrerin", Lehrerin: "der Lehrer / die Lehrerin", Schule: "die Schule" }[word] || word; } };
   const card = { term: "teacher", termLanguage: "en", meaning: "Lehrer;\nLehrerin", meaningLanguage: "de" };
   assert.strictEqual((await headwordsFor(llm, card)).meaning, "der Lehrer / die Lehrerin");
   const two = { ...card, meaning: "Lehrer; Schule; Lehrerin" };
   assert.strictEqual((await headwordsFor(llm, two)).meaning, "der Lehrer / die Lehrerin; die Schule");
+});
+
+test("a side is a noun only where the other side is one too", async () => {
+  const answers = { moreno: "el moreno / la morena", braun: "braun", "dunkelhäutig": "dunkelhäutig", caja: "la caja", Kasse: "die Kasse" };
+  const llm = { chat: async ({ user }) => { const word = user.split("\n")[0]; return answers[word] || word; } };
+  assert.strictEqual(await headwordsFor(llm, { term: "moreno", termLanguage: "es", meaning: "braun;\ndunkelhäutig", meaningLanguage: "de" }), null);
+  const both = await headwordsFor(llm, { term: "caja", termLanguage: "es", meaning: "Kasse", meaningLanguage: "de" });
+  assert.deepStrictEqual([both.term, both.meaning], ["la caja", "die Kasse"]);
+  /* A side whose language names no articles tells nothing. */
+  assert.strictEqual((await headwordsFor(llm, { term: "moreno", termLanguage: "es", meaning: "brown", meaningLanguage: "en" })).term, "el moreno / la morena");
+});
+
+test("an elided article stands only before a letter its language elides it in front of", () => {
+  assert.strictEqual(parseHeadword("l'/la malade", "malade", "fr"), "malade");
+  assert.strictEqual(parseHeadword("l' malade / la malade", "malade", "fr"), "malade");
+  assert.strictEqual(parseHeadword("l'malade", "malade", "fr"), "malade");
+  assert.strictEqual(parseHeadword("l'/la insegnante", "insegnante", "it"), "l'insegnante");
+  assert.strictEqual(parseHeadword("l'homme", "homme", "fr"), "l'homme");
+  assert.strictEqual(parseHeadword("l'école", "école", "fr"), "l'école");
+  assert.strictEqual(parseHeadword("l’acqua", "acqua", "it"), "l’acqua");
+  assert.strictEqual(parseHeadword("l'acteur / l'actrice", "acteur", "fr"), "l'acteur / l'actrice");
+  assert.strictEqual(parseHeadword("le/la malade", "malade", "fr"), "le/la malade");
 });

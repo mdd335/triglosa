@@ -125,7 +125,7 @@ const settled = () => new Promise((done) => setTimeout(done, 0));
 test("set up, the card goes where the reader sent it — edits and all", async () => {
   const sent = [];
   const { host, boxes } = show(CARD, {
-    anki: { ...CONFIGURED, add: async (card) => { sent.push(card); return { kind: "saved" }; },
+    anki: { ...CONFIGURED, add: async (card) => { sent.push(card); return { kind: "saved", deck: "Spanisch" }; },
             start: async () => true },
   });
   boxes[0].value = "andar (sich bewegen)";
@@ -133,7 +133,8 @@ test("set up, the card goes where the reader sent it — edits and all", async (
   await settled();
   assert.strictEqual(sent.length, 1);
   assert.strictEqual(sent[0].term, "andar (sich bewegen)");
-  assert.strictEqual(host.querySelector(".card-status").textContent, de.ankiSaved);
+  assert.strictEqual(host.querySelector(".card-status").textContent, "Die Karte liegt im Stapel „Spanisch“.",
+    "named, since every language may have a deck of its own");
 });
 
 /* "Not added" on the button, gone again after a second and a half, hid the
@@ -176,7 +177,7 @@ test("a fresh attempt clears the last answer first", async () => {
   button.dispatchEvent(new dom.window.MouseEvent("click"));
   await settled();
   const status = host.querySelector(".card-status");
-  assert.strictEqual(status.textContent, de.ankiSaved);
+  assert.strictEqual(status.textContent, de.ankiSaved());
   assert.ok(!status.classList.contains("failed"));
 });
 
@@ -194,7 +195,7 @@ test("a card that reached the deck closes its own window", async () => {
   await settled();
   assert.strictEqual(closed, 0, "the sentence is readable first");
   assert.strictEqual(host.querySelector(".card-status").textContent,
-    `${de.ankiSaved} ${de.cardClosing}`, "and says what is about to happen");
+    `${de.ankiSaved()} ${de.cardClosing}`, "and says what is about to happen");
   await new Promise((done) => setTimeout(done, 2400));
   assert.strictEqual(closed, 1);
 });
@@ -520,8 +521,10 @@ test("an ordinary card that is not free stays undrawn when it is empty", () => {
 test("the word side's language is chosen in its heading, and the card takes the choice", async () => {
   const card = { term: "", termLanguage: "en", meaning: "Hund", meaningLanguage: "de", note: "", choices: ["en", "es"], free: true };
   const seen = [];
+  const remembered = [];
   const wandSlot = document.createElement("span");
-  const { host } = show(card, { wandSlot, improve: async (current) => { seen.push(current.termLanguage); return null; } });
+  const { host } = show(card, { wandSlot, improve: async (current) => { seen.push(current.termLanguage); return null; },
+    onLanguage: (code) => remembered.push(code) });
   const choice = host.querySelector(".card-field-head .language-choice select");
   assert.ok(choice, "a choice stands where the language name stood");
   assert.strictEqual(host.querySelector(".card-field-head .language-name").textContent, "Englisch");
@@ -531,6 +534,7 @@ test("the word side's language is chosen in its heading, and the card takes the 
   choice.value = "es";
   choice.dispatchEvent(new window.Event("change"));
   assert.strictEqual(host.querySelector(".card-field-head .language-name").textContent, "Spanisch", "the name follows the choice");
+  assert.deepStrictEqual(remembered, ["es"], "the choice is handed on, to be remembered for the next blank card");
   wandSlot.querySelector("button").click();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepStrictEqual(seen, ["es"], "the wand works on the language shown");
@@ -611,6 +615,14 @@ test("Tab goes to the next field and Shift-Tab to the one before", () => {
 });
 
 /* The two ways out wait for the word, like a field's own buttons. */
+test("the ways out stand side by side across the card, each with its symbol", () => {
+  const { host } = show(CARD, { anki: { ...CONFIGURED, add: async () => ({ kind: "saved" }), start: async () => true } });
+  const feet = [...host.querySelectorAll(".card-actions.button-row > .row-button")];
+  assert.deepStrictEqual(feet.map((node) => node.textContent), [de.cardCopyAll, de.cardToAnki]);
+  assert.deepStrictEqual(feet.map((node) => node.dataset.icon), ["copy", "anki"]);
+  assert.ok(feet.every((node) => node.querySelector("svg")));
+});
+
 test("copying the card and sending it to Anki wait for the word", () => {
   const anki = { enabled: true, configured: true, fields: { note: "Back" } };
   const { host, boxes } = show({ ...CARD, term: "", free: true }, { anki });
@@ -634,6 +646,7 @@ test("⌘/Ctrl+Enter improves the card the way the wand does, and names itself o
     improve: async () => { asked += 1; return { term: "el brazo", meaning: "der Arm", note: "neu" }; },
   });
   assert.strictEqual(wandSlot.querySelector("button").getAttribute("aria-label"), `${de.cardImprove} (${de.enterKey})`);
+  assert.strictEqual(wandSlot.querySelector(".pill-key").textContent, de.enterKey, "the key in grey, not in brackets");
   drawn.improve();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.strictEqual(asked, 0, "not where the wand stands greyed");

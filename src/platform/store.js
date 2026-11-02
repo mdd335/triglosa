@@ -10,20 +10,18 @@
    the app. */
 
 import { normalizeSettings } from "../settings.js";
-import { insideApp, systemLanguages } from "./env.js";
+import { insideApp, shell, systemLanguages } from "./env.js";
 
 const BROWSER_KEY = "triglosa.settings";
 
 async function readRaw() {
   if (!insideApp()) return localStorage.getItem(BROWSER_KEY) || "";
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke("read_settings");
+  return shell("read_settings");
 }
 
 async function writeRaw(contents) {
   if (!insideApp()) return localStorage.setItem(BROWSER_KEY, contents);
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke("write_settings", { contents });
+  return shell("write_settings", { contents });
 }
 
 export async function loadSettings() {

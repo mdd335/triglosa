@@ -109,6 +109,27 @@ const AFTER_REFERENCE = /\p{L}[.!?…]["'”’»“‘›]*(?:\[[^[\]\s]{1,10}\
 const startsAfterReference = (text, i) =>
   /[\p{Lu}\p{Lt}]/u.test(text[i] || "") && AFTER_REFERENCE.test(text.slice(Math.max(0, i - 40), i));
 
+/* Two blocks of a page given as one text, with nothing between them. What
+   the screen shows is then the better reading. Three ways it shows:
+   - two sentences ("thirteen.Un");
+   - an address glued to the word before it ("Basecamphttps://"), and
+   - a sentence glued to the line before it ("lstmDas Ziel"): a word in
+     small letters running into a capital that starts a function word of
+     one of the languages — both from a search result in Chrome (author
+     2026-10-31), its name, address and text as one.
+   A name with a capital inside ("JavaScript", "PowerPoint") starts no
+   function word; one that does ("LinkedIn ist") is read off the screen
+   too, which costs only the time. */
+const GLUED = /\p{Ll}{2}(\p{Lu}\p{Ll}*)(?=[\s,;:])/gu;
+let functionWords = null;
+const isFunctionWord = (word) => {
+  functionWords ||= new Set(SUPPORTED.flatMap((code) => [...wordSet(code, "functionWords")]));
+  return functionWords.has(stripDiacritics(word).toLowerCase());
+};
+export const runsTogether = (text) => /\p{Ll}[.!?]\p{Lu}\p{Ll}/u.test(text)
+  || /\p{L}https?:\/\//u.test(text)
+  || [...String(text).matchAll(GLUED)].some((glued) => isFunctionWord(glued[1]));
+
 /* A word broken over two lines, joined again with its hyphen: "Fahr-rad"
    rather than guessing whether the hyphen was the word's own. A word
    joiner stands where the shell took a unit out of the text and kept its

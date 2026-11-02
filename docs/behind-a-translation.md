@@ -174,9 +174,10 @@ flowchart TD
   Q20 -->|"a correction"| MEANT(["Shown corrected; asked on about the word meant"])
   Q11 --> Q11B["Q11 · Dictionary entry, lower panel"]
   Q11 --> Q3S["Q3 · Find the one term"]
+  Q11 --> WR["System · spelling checker: a line in another language than the panel's is left out"]
+  Q11B --> WR
 
-  Q11 -->|"empty, or no AI model"| APS["Apple · plain translation"]
-  Q11B -->|"empty, or no AI model"| APS
+  WR -->|"empty, or no AI model"| APS["Apple · plain translation"]
   APS -->|empty| NAS(["No answer received, or language pack missing"])
 
   Q3S --> Q45["Q4 · Q5: abbreviation, word class"]
@@ -204,7 +205,10 @@ their sentence's — a Spanish word in an English sentence — are looked up in
 their own where the spelling checker knows them in it and not in the
 sentence's — where a dictionary that would tell is missing (Windows has
 one only for a language added to the system), the AI model is asked which
-(Q21); the entries still get the sentence, the term does not. Nothing is placed in the translations and no hover
+(Q21); the entries still get the sentence, the term does not. A line of an
+entry that the panel's spelling checker does not know and another
+language's does — "ehrlich" in a Spanish entry — is left out; where every
+line goes, Apple translates. Nothing is placed in the translations and no hover
 is worked out: the panels hold lists, not sentences.
 
 ## 5 · On request
@@ -252,12 +256,35 @@ for the base form the meaning's answer brings. A picked word needs the AI
 model: without one the area is not drawn. A synonym already looked up, and a
 step back along the synonyms, asks nothing again.
 
+### Another language, chosen in a heading
+
+The language of the original can be corrected in its heading: the reading is
+made again in that language, from step 2, without naming it again.
+
+A reading of two panels can get a third in another language, and of three
+panels a translation can be put into another language in its heading — any
+but the one in the reader's own language; every reading after it gets the
+same until the app quits. In the reading on screen the
+original, its language, the terms and the verbs are about the original, so
+they stay as they were; only the new panel is asked for.
+
+```mermaid
+flowchart LR
+  CH["Another language for a translation"] --> NEW["Q2 · AI model translates (Q11 in short mode), or Apple"]
+  NEW --> AL["Triglosa · the word aligner places single words again"]
+  AL --> Q8["Q8 · Q9 · where terms and verbs of several words went"]
+  AL --> Q10["Q10 · the hover, where the aligner cannot answer"]
+
+  classDef model stroke:#18daf1,stroke-width:3px
+  class NEW,Q8,Q10 model
+```
+
 ## Every request to the AI model
 
 | | Asks for | When | How many | Who answers otherwise |
 |---|---|---|---|---|
 | Q1 | the language of the text (its first 600 characters) | function words, identifier and Apple's recognizer were all unsure — or one of them is sure of a language the app does not offer and the other names another | 1 | what the identifier was sure of, else Apple's best guess; else the language stays unnamed |
-| Q2 | the translation of the whole text | the AI model goes first, or Apple came back empty | 1 per panel | Apple's translation (Mac) |
+| Q2 | the translation of the whole text | the AI model goes first, or Apple came back empty | 1 per panel; 1 for a translation put into another language | Apple's translation (Mac) |
 | Q3 | the difficult terms, up to three, each with a meaning and a note | terms switched on; in short mode held to one term | 1; once more where the notes came back in the wrong language (told by word lists, or by the identifier for a language the app is not optimised for), or only loanwords were found | nobody — the section is not drawn |
 | Q4 | an abbreviation written out | a term or a picked word looks like an abbreviation | 1 each | nobody — the row stands without it |
 | Q5 | the word class | a term or a picked word is a single word, or one with its article | 1 each | nobody |
@@ -266,7 +293,7 @@ step back along the synonyms, asks nothing again.
 | Q8 | where the terms went in the translations | a term is several words, or the aligner has no place for it | 1 | the word aligner, for single words |
 | Q9 | where the verb forms went in the translations | a form is several words, or the aligner has no place for it | 1 | the word aligner, for single words |
 | Q10 | what each word of a sentence became, for the hover | the aligner could not answer | 1 per sentence, three at a time | the word aligner, as a rule |
-| Q11 | a dictionary entry: up to three translations with notes | short mode | 1 per panel | Apple's plain translation (Mac) |
+| Q11 | a dictionary entry: up to three translations with notes | short mode | 1 per panel; 1 for a panel put into another language | Apple's plain translation (Mac) |
 | Q12 | person and tense, or that it is no verb form | a picked word; a looked-up word without its sentence | 1 | nobody |
 | Q13 | meaning and note of a picked word | a word is picked, or a synonym clicked | 1; once more where the note came back in the wrong language | nobody |
 | Q14 | where a picked word stands in the other panels | not a single word the aligner found; not in short mode | 1 | the word aligner, for single words |

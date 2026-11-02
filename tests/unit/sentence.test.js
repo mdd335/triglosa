@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { POINTER_SENTENCE_MAX, SENTENCE_MAX, selectionSpan, sentenceAfter, sentenceAround, sentenceSpan, sentenceUnder } from "../../src/sentence.js";
+import { POINTER_SENTENCE_MAX, SENTENCE_MAX, runsTogether, selectionSpan, sentenceAfter, sentenceAround, sentenceSpan, sentenceUnder } from "../../src/sentence.js";
 
 const cut = (text, word, at = text.indexOf(word)) => {
   const found = sentenceAround(text, word, at);
@@ -91,6 +91,19 @@ test("the sentence under the pointer says where it stands in the text around the
   assert.strictEqual(found.text, "Die Möwen kreisten, und niemand wusste Bescheid.");
   assert.strictEqual(around.text.slice(found.start, found.end), found.text);
   assert.strictEqual(sentenceUnder(null, 3), null);
+});
+
+test("a sentence of two words is whole, under the pointer and around a looked-up word", () => {
+  const text = "The measure passed by the narrowest possible margin. Nobody celebrated.";
+  for (const word of ["Nobody", "celebrated"]) {
+    const at = text.lastIndexOf(word);
+    const under = sentenceUnder({ text, at }, word.length);
+    assert.strictEqual(under.text, "Nobody celebrated.", `under the pointer on ${word}`);
+    assert.strictEqual(text.slice(under.start, under.end), "Nobody celebrated.");
+    const around = sentenceAround(text, word, at);
+    assert.strictEqual(around.text, "Nobody celebrated.", `along with ${word}`);
+    assert.strictEqual(around.text.slice(around.start, around.end), word);
+  }
 });
 
 test("a line broken inside a word ends nothing, and the word is joined with its hyphen", () => {
@@ -269,4 +282,23 @@ test("a list's mark in front of a line stays behind", () => {
   assert.strictEqual(sentenceAfter({ text: list, cut: false }, list.indexOf("\n")).text, "Aprobación del acta anterior");
   /* A dash inside a sentence is the sentence's own. */
   assert.strictEqual(sentenceAround("Er kam – wie immer – zu spät.", "immer", 10).text, "Er kam – wie immer – zu spät.");
+});
+
+test("two blocks given as one text are told, an ordinary sentence is not", () => {
+  assert.strictEqual(runsTogether("It was thirteen.Un système hallucinant"), true);
+  assert.strictEqual(runsTogether("It was thirteen. Un système hallucinant"), false);
+  assert.strictEqual(runsTogether("See example.com or U.S.A. today"), false);
+
+  /* A search result in Chrome: its name, address and text as one. */
+  const result = "Data Basecamphttps://databasecamp.de › ki › lstmDas Ziel des LSTMs ist es, die Lücke zu füllen.";
+  assert.strictEqual(runsTogether(result), true);
+  assert.strictEqual(runsTogether("Data Basecamphttps://databasecamp.de › ki"), true, "an address glued to a name");
+  assert.strictEqual(runsTogether("databasecamp.de › ki › lstmDas Ziel ist es"), true, "a sentence glued to the line before");
+  assert.strictEqual(runsTogether("the last pageThe end came"), true);
+  /* A name with a capital inside starts no function word; an address after
+     a space is the sentence's own. */
+  for (const own of ["Er lernt JavaScript und PowerPoint.", "Sie schreibt auf WhatsApp oder YouTube.",
+    "Das neue iPhone ist da.", "Siehe https://example.org für mehr.", "Ein Treffen bei McDonald's."]) {
+    assert.strictEqual(runsTogether(own), false, own);
+  }
 });

@@ -16,7 +16,7 @@
 import { CARD_FIELDS, cardLine, hasCard, spokenWord } from "../card.js";
 import { languageLabel, writingDirection } from "../languages/index.js";
 import { popupChoice } from "./language-choice.js";
-import { button, element, reportOn, select } from "./elements.js";
+import { button, buttonRow, element, nameButton, relabel, reportOn, rowButton, select } from "./elements.js";
 
 /* How far a field may grow before it scrolls after all, in lines and in the
    line height the stylesheet gives it. */
@@ -48,7 +48,7 @@ const unmapped = (role, anki) =>
    the language names to choose from, in the heading's own place and look.
    The choice is written into the card, so everything reading the card
    afterwards — the wand, Anki — takes the language shown. */
-function languageChoice(card, { text, reader, box }) {
+function languageChoice(card, { text, reader, box, onLanguage }) {
   const node = select(
     card.choices.map((code) => ({ value: code, label: languageLabel(code, reader) })),
     card.termLanguage,
@@ -59,13 +59,15 @@ function languageChoice(card, { text, reader, box }) {
     card.termLanguage = node.value;
     shown.textContent = languageLabel(node.value, reader);
     box.dir = fieldDirection("term", card);
+    /* Remembered, so the next blank card starts there. */
+    onLanguage?.(node.value);
   });
   return holder;
 }
 
 /* One field: its heading, a copy button at the right end of that line, and
    the box underneath. */
-function cardField(role, card, { text, reader, anki, onCopy, speak, canSpeak }) {
+function cardField(role, card, { text, reader, anki, onCopy, speak, canSpeak, onLanguage, mostLines = MOST_LINES }) {
   const wrap = element("div", "card-field");
   const head = element("div", "card-field-head");
 
@@ -95,14 +97,14 @@ function cardField(role, card, { text, reader, anki, onCopy, speak, canSpeak }) 
     const px = (value) => parseFloat(value) || 0;
     const borders = px(style.borderTopWidth) + px(style.borderBottomWidth);
     const padding = px(style.paddingTop) + px(style.paddingBottom);
-    const most = MOST_LINES * LINE + padding;
+    const most = mostLines * LINE + padding;
     box.style.height = `${Math.min(box.scrollHeight, most) + borders}px`;
   };
   box.addEventListener("input", grow);
 
   const choosing = role === "term" && Array.isArray(card.choices) && card.choices.length > 1;
   head.append(choosing
-    ? languageChoice(card, { text, reader, box })
+    ? languageChoice(card, { text, reader, box, onLanguage })
     : element("span", "name", fieldTitle(role, card, text, reader)));
   /* The word side only, said as the field holds it now: a corrected word is
      the one worth hearing. The language asked is the card's at the moment
@@ -163,33 +165,36 @@ const FILED = 2200;
 function ankiButton(current, { text, anki, say, empty }) {
   if (!anki || !anki.enabled) return null;
   if (!anki.configured) {
-    return button(text.cardAnkiSetup, () => anki.openSettings());
+    return rowButton(text.cardAnkiSetup, "anki", () => anki.openSettings());
   }
 
-  return button(text.cardToAnki, async (node) => {
-    const label = node.textContent;
+  return rowButton(text.cardToAnki, "anki", async (node) => {
+    const label = text.cardToAnki;
     say("", false);
     node.disabled = true;
     node.dataset.busy = "true";
-    node.textContent = text.ankiSending;
+    relabel(node, text.ankiSending);
     try {
       let answer = await anki.add(current());
       /* Not running is not a refusal. The reader asked for this card to go
          into their deck, and Anki being closed is the ordinary state of a
          program nobody has opened today. */
       if (answer.kind === "unreachable") {
-        node.textContent = text.ankiStarting;
+        relabel(node, text.ankiStarting);
         if (await anki.start()) answer = await anki.add(current());
       }
       if (answer.kind === "saved") {
-        say(anki.filed ? `${text.ankiSaved} ${text.cardClosing}` : text.ankiSaved, false);
-        if (anki.filed) setTimeout(anki.filed, FILED);
+        const saved = text.ankiSaved(answer.deck);
+        say(anki.filed ? `${saved} ${text.cardClosing}`.trim() : saved, false);
+        if (anki.filed) setTimeout(anki.filed, anki.filedAfter ?? FILED);
       } else if (answer.kind === "duplicate") say(text.ankiDuplicate, false);
+      /* Anki said what it had to say on its own screen. */
+      else if (answer.kind === "left") say("", false);
       else say(text.ankiFailed(answer), true);
     } catch (error) {
       say(text.ankiFailed({ kind: "error", detail: (error && error.message) || "" }), true);
     } finally {
-      node.textContent = label;
+      relabel(node, label);
       delete node.dataset.busy;
       node.disabled = empty();
     }
@@ -199,7 +204,14 @@ function ankiButton(current, { text, anki, say, empty }) {
 /* Draws the card into a host element. Nothing here closes the window: the
    window has a title bar with its own button, and Escape and ⌘W are the
    page's own business — see card-window.js. */
-export function renderCard(host, card, { text, reader, anki, copy, improve, improveNow, wandSlot, speak, canSpeak }) {
+/* The wand named with its key after the word, in grey, as every hover
+   names one. */
+function named(node, text) {
+  nameButton(node, text.cardImprove, text.enterKey);
+  return node;
+}
+
+export function renderCard(host, card, { text, reader, anki, copy, improve, improveNow, wandSlot, speak, canSpeak, onLanguage, mostLines }) {
   host.textContent = "";
   wandSlot?.replaceChildren();
   if (!card || (!hasCard(card) && !card.free)) return null;
@@ -209,7 +221,7 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
   const boxes = {};
   const grown = [];
   for (const role of CARD_FIELDS) {
-    const field = cardField(role, card, { text, reader, anki, onCopy: copy, speak, canSpeak });
+    const field = cardField(role, card, { text, reader, anki, onCopy: copy, speak, canSpeak, onLanguage, mostLines });
     boxes[role] = field.box;
     grown.push(field.grow);
     sheet.append(field.wrap);
@@ -223,7 +235,8 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
     return out;
   };
 
-  const feet = element("div", "card-actions");
+  /* The ways a card leaves, side by side across the card (buttonRow). */
+  const feet = buttonRow([], "card-actions");
   /* What came of the last attempt at Anki or at improving the card, and it
      stays until the next one. Outside the actions row, because a sentence is
      not a button. */
@@ -236,7 +249,7 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
   /* A card without its word is nothing to copy out or to file — Anki refuses
      it anyway — so the two ways out wait, greyed, like a field's buttons. */
   const empty = () => !hasCard(edited());
-  const copyAll = button(text.cardCopyAll, (node) =>
+  const copyAll = rowButton(text.cardCopyAll, "copy", (node) =>
     reportOn(node, () => copy(cardLine(edited())), text.copied));
   feet.append(copyAll);
   const toAnki = ankiButton(edited, { text, anki, say, empty });
@@ -388,7 +401,7 @@ function improveButton({ text, boxes, grown, edited, improve, say, open }) {
             say("", false);
             draw();
           }, "undo")
-        : button(`${text.cardImprove} (${text.enterKey})`, () => run(), "improve");
+        : named(button(text.cardImprove, () => run(), "improve"), text);
       holder.replaceChildren(node);
     }
     node.disabled = kind === "improve" && (working || !enoughToImprove(edited()));

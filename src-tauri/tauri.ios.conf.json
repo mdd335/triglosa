@@ -1,0 +1,18 @@
+{
+  "app": {
+    "windows": [
+      {
+        "title": "Triglosa"
+      }
+    ]
+  },
+  "bundle": {
+    "resources": {
+      "resources/aligner/": null
+    },
+    "iOS": {
+      "minimumSystemVersion": "18.0",
+      "bundleVersion": "2"
+    }
+  }
+}

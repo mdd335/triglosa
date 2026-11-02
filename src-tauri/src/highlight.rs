@@ -8,7 +8,9 @@ One window around all the boxes, borderless, see-through, every click
 passing through it to the program underneath, on every Space and over a
 full screen program. Each box is a rounded layer in it. The window fades
 in, stays a moment and fades out, then is closed; nothing in it can be
-focused, so the program the reader is in stays in front.
+focused, so the program the reader is in stays in front. It stays out of
+every photograph of the screen: a reader pointing at the next word within
+the moment it stands would have it read with the text under it.
 
 On Windows the same window is a layered one the boxes are painted into
 (`paint`), in the screen's pixels, which is what UI Automation hands the
@@ -138,6 +140,7 @@ mod native {
     and out of the window cycle. */
     const BEHAVIOUR: u64 = (1 << 0) | (1 << 8) | (1 << 4) | (1 << 6);
     const NO_ANIMATION: i64 = 2;
+    const SHARING_NONE: i64 = 0;
 
     /* The window made and faded in; its address, or 0. Main thread. */
     pub fn open(frame: Rect, boxes: &[Rect]) -> usize {
@@ -181,6 +184,7 @@ mod native {
             with_integer(window, selector("setLevel:"), LEVEL);
             with_integer(window, selector("setCollectionBehavior:"), BEHAVIOUR as i64);
             with_integer(window, selector("setAnimationBehavior:"), NO_ANIMATION);
+            with_integer(window, selector("setSharingType:"), SHARING_NONE);
             with_float(window, selector("setAlphaValue:"), 0.0);
 
             let view = object(window, selector("contentView"));
@@ -344,9 +348,9 @@ mod layered {
     use windows::Win32::UI::HiDpi::GetDpiForSystem;
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, PeekMessageW,
-        RegisterClassW, ShowWindow, TranslateMessage, UpdateLayeredWindow, MSG, PM_REMOVE,
-        SW_SHOWNOACTIVATE, ULW_ALPHA, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-        WS_EX_TRANSPARENT, WS_POPUP,
+        RegisterClassW, SetWindowDisplayAffinity, ShowWindow, TranslateMessage,
+        UpdateLayeredWindow, MSG, PM_REMOVE, SW_SHOWNOACTIVATE, ULW_ALPHA, WDA_EXCLUDEFROMCAPTURE,
+        WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
     };
 
     unsafe extern "system" fn procedure(
@@ -424,6 +428,7 @@ mod layered {
             ) else {
                 return;
             };
+            let _ = SetWindowDisplayAffinity(window, WDA_EXCLUDEFROMCAPTURE);
             let screen = GetDC(None);
             let memory = CreateCompatibleDC(Some(screen));
             let info = BITMAPINFO {

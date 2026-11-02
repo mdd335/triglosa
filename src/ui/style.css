@@ -29,6 +29,12 @@
   /* The ground under a row of the list, a shade under the first step. */
   --lift-row: rgba(0, 0, 0, 0.045);
   --frame: rgba(0, 0, 0, 0.45);
+  /* The ground of a setting's box in the settings. */
+  --box: rgba(0, 0, 0, 0.035);
+  /* A button's label: a light chip in the light scheme, a grey one in the
+     dark, so the hover's translation — in the full ink — stands apart. */
+  --tip: #ffffff;
+  --tip-line: rgba(0, 0, 0, 0.12);
 
   /* Two families that already part at the hue: verbs warm (yellow 92° to
      red-orange 25°), terms cold (green 148° through turquoise to blue 262°).
@@ -68,6 +74,9 @@
     --lift-strong: rgba(255, 255, 255, 0.18);
     --lift-row: rgba(255, 255, 255, 0.08);
     --frame: rgba(255, 255, 255, 0.5);
+    --box: rgba(255, 255, 255, 0.05);
+    --tip: #3a3a40;
+    --tip-line: rgba(255, 255, 255, 0.1);
 
     --vmark0: oklch(0.8 0.11 92);
     --vmark1: oklch(0.76 0.12 55);
@@ -132,7 +141,11 @@ button {
   cursor: pointer;
 }
 
-button:hover:not(:disabled) { background: var(--control-hover); border-color: var(--control-line); }
+/* Whatever answers the pointer is drawn only where there is one: a finger
+   leaves the ground of a pointer behind on whatever it touched last. */
+@media (hover: hover) {
+  button:hover:not(:disabled) { background: var(--control-hover); border-color: var(--control-line); }
+}
 button:active:not(:disabled) { background: var(--control-hover); box-shadow: none; }
 button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 
@@ -162,7 +175,7 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
    while its own section is in view, and the original text scrolls past.
 
    The air above it is where the system's title bar band lies. Nothing is
-   drawn there any more — the shell hides the three window buttons — but a
+   drawn there — the shell hides the three window buttons — but a
    line pressed against the very top edge of a window reads as cut off. */
 .topline {
   flex: 0 0 auto;
@@ -245,14 +258,21 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   opacity: 0;
 }
 
-.language-choice:hover,
 .language-choice:not(.by-pointer):has(select:focus-visible) {
   background: var(--lift);
   color: var(--ink);
 }
+@media (hover: hover) {
+  .language-choice:hover {
+    background: var(--lift);
+    color: var(--ink);
+  }
+}
 
-.language-choice:hover .chevrons,
 .language-choice:not(.by-pointer):has(select:focus-visible) .chevrons { opacity: 1; }
+@media (hover: hover) {
+  .language-choice:hover .chevrons { opacity: 1; }
+}
 
 .language-choice select {
   position: absolute;
@@ -280,23 +300,25 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 }
 
 .language-choice .pill-label { left: 0; right: auto; }
-.language-choice:hover .pill-label { opacity: 1; }
-
-/* "Other language…": the name becomes a field to type one into. */
-.language-choice.searching { padding: 0; background: none; }
-
-.language-search {
-  width: 170px;
-  height: 20px;
-  padding: 0 6px;
-  border: 1px solid var(--control-line);
-  border-radius: 5px;
-  background: var(--field);
-  color: var(--ink);
-  font-size: 12px;
-  text-transform: none;
-  letter-spacing: 0;
+@media (hover: hover) {
+  .language-choice:hover .pill-label { opacity: 1; }
 }
+
+/* A translation's language, in the panel's heading: the name where it
+   stood, the ground reaching past it. */
+.label .name .language-choice { margin-left: -4px; }
+
+/* The symbol that adds a third panel, beside the fold and as quiet, its
+   word hung under it from the right like every button's. */
+.label .add-language {
+  width: 18px;
+  height: 18px;
+  margin: -1px 0;
+  padding: 0;
+  justify-content: center;
+}
+.label .add-language svg { width: 13px; height: 13px; stroke-width: 1.5; }
+.label .add-language .pill-label { left: auto; right: 0; }
 
 .topline .name {
   position: relative;
@@ -347,10 +369,12 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   pointer-events: none;
   transition: opacity 60ms ease;
 }
-.label:has(> .name:hover) .status.on-hover,
-.topline .heading:has(> .name:hover) .heading-note {
-  opacity: 1;
-  transition: opacity 120ms ease 800ms;
+@media (hover: hover) {
+  .label:has(> .name:hover) .status.on-hover,
+  .topline .heading:has(> .name:hover) .heading-note {
+    opacity: 1;
+    transition: opacity 120ms ease 800ms;
+  }
 }
 :root.pointer-stale .label .status.on-hover,
 :root.pointer-stale .topline .heading-note { opacity: 0; transition: none; }
@@ -377,19 +401,34 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 .label .trail { display: flex; gap: 2px; margin-block: -4px; }
 .label .trail svg { stroke-width: 1.9; }
 
-/* The fold behind a translation's name, where it leaves every heading
-   standing flush with the others. Quieter than every other button
+/* The fold at the right end of a heading, after who wrote it, where it
+   leaves every heading standing flush with the others. Quieter than every other button
    on the sheet — it is there for the long text, not for every reading — so
    smaller, without a ground of its own until the pointer is on it, and hung
    over the line rather than making it taller. */
 .label .fold {
   width: 18px;
   height: 18px;
-  margin: -1px -4px;
+  /* The right margin takes back only the heading's own padding, so the
+     ground under the pointer ends where the panel below it does. */
+  margin: -1px -2px -1px -4px;
   padding: 0;
   color: var(--ink-faint);
 }
 .label .fold svg { width: 12px; height: 12px; stroke-width: 1.8; }
+/* The fold that ends a heading stands at one place in every section, out of
+   the line's flow: whatever comes before it — the picked word's chevrons, a
+   long note of who made it — cannot push it sideways (see `.label .status`);
+   the room it takes is kept free at the line's end instead. */
+.label:has(> .fold:last-child) { padding-right: 24px; }
+.label > .fold:last-child {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  translate: 0 -50%;
+  margin: 0;
+}
+:root[data-system="ios"] .label:has(> .fold:last-child) { padding-right: 34px; }
 .pane.folded > .frame { display: none; }
 
 /* What the section is doing right now, at the right end of its heading line.
@@ -404,8 +443,15 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   color: var(--ink-faint);
 }
 
+/* Its width comes from the room left in the line, never from its own words:
+   counted from them, a long note of who made a section — present even while
+   it waits unseen for the pointer — made WebKit lay the whole heading a few
+   points wider than its section, and the fold at its end stood further right
+   than every other one (author 2026-10-31, the picked word's heading, on the
+   Mac and the iPhone, not always). */
 .label .status {
-  flex: 1 1 auto;
+  flex: 1 1 0;
+  width: 0;
   text-align: right;
   font-weight: 500;
   letter-spacing: 0;
@@ -541,9 +587,11 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
    a sentence, and a whole field lighting up would say the line is one thing
    to click. The buttons stand on the field's own ground, so they take the
    first step and not the second. */
-.box.rows.entries .row:hover { background: var(--field); }
-.box.rows.entries .row:hover .icon:hover:not(:disabled) { background: var(--lift); }
-.box.rows.entries .row:hover .icon:active:not(:disabled) { background: var(--lift-strong); color: var(--ink); }
+@media (hover: hover) {
+  .box.rows.entries .row:hover { background: var(--field); }
+  .box.rows.entries .row:hover .icon:hover:not(:disabled) { background: var(--lift); }
+  .box.rows.entries .row:hover .icon:active:not(:disabled) { background: var(--lift-strong); color: var(--ink); }
+}
 
 /* Side by side, always: the buttons are squares of one size, so there is no
    box they do not fit beside. */
@@ -564,10 +612,12 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
    the keyboard, which is also what keeps the one beside a field being
    written in. A button saying what it just did, or what went wrong, stays
    until it has said it. */
-.frame:hover > .actions,
 .frame:focus-within > .actions,
 .actions:has(.icon.reporting),
 .actions:has(.icon.failed) { opacity: 1; }
+@media (hover: hover) {
+  .frame:hover > .actions { opacity: 1; }
+}
 
 .pill {
   appearance: none;
@@ -588,7 +638,9 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 /* A written one, that is. A symbol button carries both classes, and these two
    rules and the `.icon` ones below are equally specific — which left the two
    of them to be decided by the order they happen to stand in. */
-.pill:not(.icon):hover:not(:disabled) { background: var(--frame); color: var(--ground); }
+@media (hover: hover) {
+  .pill:not(.icon):hover:not(:disabled) { background: var(--frame); color: var(--ground); }
+}
 .pill:not(.icon):disabled { opacity: 0.4; }
 
 /* A button carrying a symbol instead of a word — in a reading and in the
@@ -615,14 +667,18 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 }
 
 .icon svg { width: 15px; height: 15px; }
-.icon:hover:not(:disabled) { background: var(--lift); color: var(--ink); }
+@media (hover: hover) {
+  .icon:hover:not(:disabled) { background: var(--lift); color: var(--ink); }
+}
 .icon:active:not(:disabled) { background: var(--lift-strong); color: var(--ink); }
 
 /* One step above whatever it stands on, so the step is the same wherever the
    button is. On a row under the pointer the ground is already the first step,
    and a button taking that same step would answer the pointer with nothing. */
-.row:hover .icon:hover:not(:disabled) { background: var(--lift-strong); }
-.row:hover .icon:active:not(:disabled) { background: var(--frame); color: var(--ground); }
+@media (hover: hover) {
+  .row:hover .icon:hover:not(:disabled) { background: var(--lift-strong); }
+  .row:hover .icon:active:not(:disabled) { background: var(--frame); color: var(--ground); }
+}
 /* A chevron with nowhere to go stays where it is rather than disappearing:
    its place is what says there is a way back at all. A button that is only
    showing what it just did is not one of those.
@@ -630,9 +686,9 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
    button showed it see-through. */
 .icon:disabled { opacity: 1; }
 .icon:disabled svg { opacity: 0.4; }
-/* Its label greyed as well, but solid: mixed from the two inks rather than
-   faded, so nothing underneath shows through. */
-.icon:disabled:not(.reporting) .pill-label { background: color-mix(in oklab, var(--ink) 50%, var(--ground)); }
+/* Its label greyed as well, but solid: its words in the faint ink rather
+   than the chip faded, so nothing underneath shows through. */
+.icon:disabled:not(.reporting) .pill-label { color: var(--ink-faint); }
 /* A pinned window's pin: filled in and in the full ink, whether or not the
    pointer is on it. No colour — nothing else in the title line has one. */
 #pin[aria-pressed="true"] { color: var(--ink); }
@@ -655,9 +711,11 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   right: 0;
   z-index: 3;
   padding: 2px 7px;
+  border: 1px solid var(--tip-line);
   border-radius: 5px;
-  background: var(--ink);
-  color: var(--ground);
+  background: var(--tip);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  color: var(--ink);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0;
@@ -668,15 +726,26 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   transition: opacity 90ms ease 260ms;
 }
 
-.icon:hover .pill-label,
+/* A key that also reaches the button, after its word and greyer, the way
+   the system's menus write one. */
+.pill-label .pill-key {
+  margin-left: 6px;
+  color: var(--ink-faint);
+}
+
 .icon:focus-visible .pill-label { opacity: 1; }
+@media (hover: hover) {
+  .icon:hover .pill-label { opacity: 1; }
+}
 
 /* A group of buttons whose label is showing stands over the groups after it,
    which are lifted to the same step and would otherwise paint over the label. */
-.actions:has(.icon:hover),
 .actions:has(.icon:focus-visible),
-.row-actions:has(.icon:hover),
 .row-actions:has(.icon:focus-visible) { z-index: 4; }
+@media (hover: hover) {
+  .actions:has(.icon:hover),
+  .row-actions:has(.icon:hover) { z-index: 4; }
+}
 
 /* Just shown, the page still believes the pointer is where it was when the
    window was put away — on the close button, as often as not — and showed
@@ -684,8 +753,10 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
    under it (app.js). */
 /* Weighted past every rule that shows a label or a hover ground, or the more
    specific of those simply win. */
-:root.pointer-stale .icon:hover:not(:disabled),
-:root.pointer-stale .row:hover .icon:hover:not(:disabled) { background: transparent; color: var(--ink-faint); }
+@media (hover: hover) {
+  :root.pointer-stale .icon:hover:not(:disabled),
+  :root.pointer-stale .row:hover .icon:hover:not(:disabled) { background: transparent; color: var(--ink-faint); }
+}
 :root.pointer-stale .icon .pill-label { opacity: 0; transition: none; }
 
 /* Above the button where there is no room under it: a window as tall as what
@@ -798,7 +869,9 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 .words,
 .words .g { cursor: default; }
 
-.words .w:hover { background: var(--lift); }
+@media (hover: hover) {
+  .words .w:hover { background: var(--lift); }
+}
 .words::selection, .words .w::selection { background: transparent; }
 
 /* The picked word carries no hue but a colourless frame — it is not one of
@@ -821,11 +894,13 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 
 .sel.picked { box-shadow: inset 0 0 0 1px var(--frame); }
 
-.words .sel .w:hover { background: transparent; }
-.words .sel:hover { background: var(--lift-strong); }
+@media (hover: hover) {
+  .words .sel .w:hover { background: transparent; }
+  .words .sel:hover { background: var(--lift-strong); }
+}
 
-/* The row under the pointer and its spots in every panel belong together —
-   until now the colour had to be hunted for, now the row points at it. The
+/* The row under the pointer and its spots in every panel belong together,
+   so the row points at its colour rather than leaving it to be hunted for. The
    line alone cannot do that: it cannot grow louder without losing its resting
    state. So for the length of the hover the area it does not have joins it,
    in the same hue, so it reads as more of the same mark rather than a second
@@ -853,31 +928,52 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 /* Weighted past the ground a single word gets under the pointer, or the
    word the pointer is on stands out of its own group a shade apart. */
 .words .w.glance-lit,
-.words .g.glance-lit,
-.words .w.glance-lit:hover,
-.words .sel .w.glance-lit:hover {
+.words .g.glance-lit {
   background: var(--lift-strong);
   padding: 0;
   margin: 0;
   border-radius: 0;
 }
+@media (hover: hover) {
+  .words .w.glance-lit:hover,
+  .words .sel .w.glance-lit:hover {
+    background: var(--lift-strong);
+    padding: 0;
+    margin: 0;
+    border-radius: 0;
+  }
+}
 
-.words .glance-lit.glance-start,
-.words .w.glance-lit.glance-start:hover,
-.words .sel .w.glance-lit.glance-start:hover {
+.words .glance-lit.glance-start {
   padding-left: 2px;
   margin-left: -2px;
   border-top-left-radius: 3px;
   border-bottom-left-radius: 3px;
 }
+@media (hover: hover) {
+  .words .w.glance-lit.glance-start:hover,
+  .words .sel .w.glance-lit.glance-start:hover {
+    padding-left: 2px;
+    margin-left: -2px;
+    border-top-left-radius: 3px;
+    border-bottom-left-radius: 3px;
+  }
+}
 
-.words .glance-lit.glance-end,
-.words .w.glance-lit.glance-end:hover,
-.words .sel .w.glance-lit.glance-end:hover {
+.words .glance-lit.glance-end {
   padding-right: 2px;
   margin-right: -2px;
   border-top-right-radius: 3px;
   border-bottom-right-radius: 3px;
+}
+@media (hover: hover) {
+  .words .w.glance-lit.glance-end:hover,
+  .words .sel .w.glance-lit.glance-end:hover {
+    padding-right: 2px;
+    margin-right: -2px;
+    border-top-right-radius: 3px;
+    border-bottom-right-radius: 3px;
+  }
 }
 
 /* What it became, over the word. The same dark chip a button's label is,
@@ -950,8 +1046,10 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
    past them juts out on both sides — so the hovered row drops its own line
    and the one belonging to the entry below it. The border keeps its place
    while it is invisible, so nothing moves. */
-.row:hover,
-.row:hover + .row { border-top-color: transparent; }
+@media (hover: hover) {
+  .row:hover,
+  .row:hover + .row { border-top-color: transparent; }
+}
 
 .row::before {
   content: "";
@@ -974,14 +1072,18 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 /* The picked word carries no hue anywhere else either. */
 .row[data-hl="sel"] { --c: var(--frame); }
 
-.row:hover { background: var(--lift-row); border-radius: 8px; }
+@media (hover: hover) {
+  .row:hover { background: var(--lift-row); border-radius: 8px; }
+}
 
 /* A rail of grey squares on every entry reads as a toolbar rather than as a
    reading. They belong to the row under the pointer, so they arrive with it —
    and with the keyboard, which reaches them by tabbing. */
 .row .row-actions { opacity: 0; transition: opacity 90ms ease; }
-.row:hover .row-actions,
 .row:focus-within .row-actions { opacity: 1; }
+@media (hover: hover) {
+  .row:hover .row-actions { opacity: 1; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .row .row-actions, .actions { transition: none; }
@@ -1087,7 +1189,9 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
   color: var(--ink-faint);
 }
 .neighbour span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button.neighbour:hover:not(:disabled) { background: var(--lift); color: var(--ink-soft); }
+@media (hover: hover) {
+  button.neighbour:hover:not(:disabled) { background: var(--lift); color: var(--ink-soft); }
+}
 button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
 .here { border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; }
 
@@ -1139,7 +1243,9 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
   line-height: 1.35;
 }
 
-.synonym:hover { background: var(--lift-strong); color: var(--ink); }
+@media (hover: hover) {
+  .synonym:hover { background: var(--lift-strong); color: var(--ink); }
+}
 
 /* The longer explanation reads on from the note, so it keeps half the gap the
    other blocks keep: enough to tell two answers apart, too little to read as
@@ -1188,22 +1294,69 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
 /* The settings have a window of their own, so they bring their own room
    rather than borrowing the reading sheet's. That window has an ordinary
    title bar of its own, so unlike the other one it needs no space kept free
-   at the top. */
+   at the top. The list of pages stands still at the left; the page beside
+   it scrolls on its own. */
 .settings-window {
   display: block;
   height: 100%;
-  overflow-y: auto;
-  padding: 16px;
+  overflow: hidden;
+  padding: 0;
 }
 
-.settings { display: flex; flex-direction: column; gap: 14px; }
+.settings-layout { display: flex; height: 100%; }
+
+.settings-nav {
+  flex: none;
+  width: 196px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 8px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+}
+
+/* One page's entry: its symbol and its name, a name too long for the line
+   going on under itself rather than under the symbol. Not the settings'
+   button: an entry in a list, with no frame of its own. */
+.settings-nav .settings-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  box-shadow: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: left;
+  cursor: default;
+}
+.settings-nav .settings-entry svg { flex: none; width: 16px; height: 16px; margin-top: 0.5px; color: var(--ink-soft); }
+@media (hover: hover) {
+  .settings-nav .settings-entry:hover { background: var(--lift); }
+}
+.settings-nav .settings-entry:active,
+.settings-nav .settings-entry[aria-current="page"] { background: var(--lift-strong); }
+.settings-nav .settings-entry[aria-current="page"] { font-weight: 600; }
+.settings-nav .settings-entry[aria-current="page"] svg { color: var(--brand); }
+
+.settings { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 20px; }
+.settings-page { display: flex; flex-direction: column; gap: 14px; }
+.settings-page[hidden] { display: none; }
 
 .field { display: flex; flex-direction: column; gap: 4px; }
 /* What a switch opens inside its own field, spaced like the field. */
 .field-more { display: flex; flex-direction: column; gap: 4px; }
 
 /* The same line as `.label` in a reading and `.card-field-head .name` on a
-   card. Changing one of the three means changing all three. */
+   card. Changing one means changing the others; the settings write their
+   own names in ordinary type (below). */
 .field > label {
   font-size: 11px;
   font-weight: 600;
@@ -1213,6 +1366,17 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
 }
 
 .field .hint { margin: 0; color: var(--ink-soft); font-size: 11.5px; }
+
+/* In the settings a setting's name is its own line in the window's ink, as
+   both systems write it — not the small capitals a reading's sections and a
+   card's fields share. */
+.settings .field > label {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+}
 
 /* What stands for itself — about a whole group, or about no control at
    all — is in the window's own ink. Grey is for the line saying what the
@@ -1230,6 +1394,71 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
 }
 
 .field > button { align-self: flex-start; }
+
+/* Every setting in a box of its own, a shade off the page, the way both
+   systems' own settings set them apart. What is about a whole page or a
+   run of settings — a group's line, the languages' paragraphs — stands
+   outside the boxes, on the page. */
+.settings-page { gap: 8px; }
+.settings-page .field:not(.field .field) {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--box);
+}
+.settings-page > .group-hint { margin: 6px 0 2px; }
+/* A line about the settings after it, under one before it: further from
+   the box above than from the ones it is about. */
+.settings-page > .field + .group-hint { margin-top: 18px; }
+/* Room between the sections of a page's boxes, as the menu has lines. */
+.settings-page > .section-gap { height: 10px; }
+
+/* A switch or a single list at the box's right end, the name and the lines
+   under it to its left. */
+.field.beside {
+  display: grid;
+  /* The name keeps the width of its longest word; a list too long for the
+     rest of the line is cut short rather than laid over the name. */
+  grid-template-columns: minmax(min-content, 1fr) minmax(0, auto);
+  column-gap: 20px;
+  row-gap: 0;
+  align-items: center;
+}
+/* The switch or list on the name's line, and the lines under the name
+   free to run under it as well. */
+.field.beside > * { grid-column: 1 / -1; }
+.field.beside > label { grid-column: 1; align-self: start; }
+.field.beside > .hint { margin-top: 4px; }
+.field.beside > label { grid-row: 1; }
+.field.beside > :is(select, .toggle) { grid-column: 2; grid-row: 1; justify-self: end; }
+.settings .field.beside > select { width: auto; min-width: 0; max-width: min(300px, 100%); }
+
+.settings .toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 10px;
+  background: var(--control-line);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.settings .toggle::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s;
+}
+.settings .toggle:checked { background: var(--brand); }
+.settings .toggle:checked::before { transform: translateX(14px); }
 
 .settings select,
 .settings input[type="text"],
@@ -1270,18 +1499,24 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
   font-weight: 650;
   color: var(--ink);
 }
-.settings .group:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+/* The page's own title, at its top: the list beside it already parts the
+   pages, so no line above it. */
+.settings .group:first-child { margin-top: 0; padding-top: 0; border-top: none; font-size: 17px; }
 
 /* The one line under a group heading that is about the whole group. */
 .settings .group-hint { margin: -4px 0 0; color: var(--ink); font-size: 12.5px; line-height: 1.45; }
+/* The same kind of line, under the rows it is about rather than over them. */
+.settings .languages-after { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.settings .languages-after .group-hint { margin: 0; }
 /* A link inside a sentence: the sentence's own type, the accent colour, a
    line under it only under the pointer. */
 .text-link { color: var(--brand); text-decoration: none; cursor: pointer; }
-.text-link:hover { text-decoration: underline; }
+@media (hover: hover) {
+  .text-link:hover { text-decoration: underline; }
+}
 /* A link that does something in the app is a button, and wears none of a
    button's dress. */
 button.text-link,
-button.text-link:hover:not(:disabled),
 button.text-link:active:not(:disabled) {
   padding: 0;
   border: 0;
@@ -1289,6 +1524,16 @@ button.text-link:active:not(:disabled) {
   box-shadow: none;
   font: inherit;
   color: var(--brand);
+}
+@media (hover: hover) {
+  button.text-link:hover:not(:disabled) {
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+    font: inherit;
+    color: var(--brand);
+  }
 }
 
 /* A language and how far along the reader is in it: one line, the level
@@ -1307,11 +1552,81 @@ button.text-link:active:not(:disabled) {
 
 .with-presets { display: flex; gap: 6px; align-items: center; }
 .with-presets input { flex: 1; }
+.endpoint-rows { display: flex; flex-direction: column; gap: 6px; }
 /* One button in the settings: the same height, type and ink wherever it
    stands, beside a field or alone on a line. */
 .settings button { padding: 6px 12px; font-size: 12px; color: var(--ink); }
 /* Air between the sentence and the button under it. */
 .settings .diagnostics { margin-top: 6px; }
+
+/* The three ways to an AI model (model-setup.js): a row of buttons drawn
+   as the Anki decks' languages are (see .anki-targets), outside the boxes
+   since it fills in every field under it; the chosen one's steps under it. */
+.model-setup { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; }
+.setup-choices { display: flex; width: 100%; }
+.settings .setup-choice {
+  flex: 1 1 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1px;
+  margin-left: -1px;
+  padding: 7px 8px;
+  border-radius: 0;
+  color: var(--ink-soft);
+  line-height: 1.3;
+}
+.settings .setup-choice:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
+.settings .setup-choice:last-child { border-radius: 0 8px 8px 0; }
+.settings .setup-choice[aria-pressed="true"] { color: var(--ink); background: var(--control-hover); }
+.settings .setup-choice[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(to top, var(--brand) 2px, transparent 2px);
+  pointer-events: none;
+}
+.setup-choice b { font-size: 13px; font-weight: 600; }
+.setup-choice .via { font-size: 11px; color: var(--ink-faint); }
+.setup-line { margin: 0; color: var(--ink-soft); }
+/* The steps, laid on the boxes' ground and folded under their name. A
+   fold's content is no flex item, so the air between its parts is margins. */
+.setup-steps {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--box);
+  font-size: 13px;
+}
+.setup-steps > :not(summary) { margin-top: 8px; }
+.setup-steps summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  cursor: default;
+  list-style: none;
+}
+.setup-steps summary::-webkit-details-marker { display: none; }
+.setup-steps summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin: 0 3px 0 1px;
+  border-right: 1.5px solid var(--ink-soft);
+  border-bottom: 1.5px solid var(--ink-soft);
+  transform: rotate(-45deg);
+  transition: transform 0.15s;
+}
+.setup-steps[open] summary::before { transform: rotate(45deg) translate(-2px, -1px); }
+.setup-steps p { margin-bottom: 0; }
+.setup-steps ol { margin-bottom: 0; padding-left: 18px; line-height: 1.6; }
+.setup-free { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.setup-free p { margin: 0; }
+.setup-below { display: flex; flex-direction: column; gap: 8px; }
+.setup-below:empty { display: none; }
 
 /* ---- the flashcard, in the window it has to itself ---- */
 
@@ -1436,27 +1751,73 @@ button.text-link:active:not(:disabled) {
 
 /* The way out, and the two ways the card leaves. Close last and at the right:
    it is the one that does nothing. */
-.card-actions {
+/* The ways a card leaves: a row of buttons (below), ordinary ones and not
+   the tiny upper-case pills a row of a reading carries — those are one of
+   several on a line of text and keep out of the way, these are what the
+   card is for. */
+.card-actions { margin-top: 2px; }
+
+/* A row of buttons side by side (buttonRow in elements.js): the card's ways
+   out, a new phone translation's sources, and any such row to come. Each
+   takes an equal share of the row's width, a symbol and its word, in the
+   window's one look for a button (`button` above). On a phone the symbol
+   stands over its word: beside it, three words across a phone were cut
+   short in six languages of seven. A long word there takes a second line,
+   at a space, a hyphen or the soft hyphen a label carries
+   ("Zwischen-ablage"), the symbols at one height whatever stands under
+   them, drawn a little larger and thinner for it — the same stroke as a
+   16 px symbol (1.4). */
+.button-row { display: flex; gap: 8px; }
+.row-button {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
-  gap: 8px;
   align-items: center;
-  margin-top: 2px;
-}
-/* Ordinary buttons, not the tiny upper-case pills a row carries. A row's
-   buttons are one of several on a line of text and have to keep out of the
-   way; these three are what the card is for. */
-.card-actions button {
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 12px;
   font-size: 12.5px;
   font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-  padding: 7px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--control-line);
-  background: var(--control);
-  box-shadow: 0 1px 1px var(--lift);
+  line-height: 1.3;
 }
-.card-actions button:hover:not(:disabled) { background: var(--control-hover); }
+/* A symbol beside a word shares its middle with the word's capitals: the
+   word's line is trimmed to them (`text-box`), and the two are centred.
+   Centred on the whole line instead, the symbol sat 1–2 px low, the line
+   keeping room for descenders and accents. */
+.row-button svg { width: 16px; height: 16px; flex: none; }
+/* Cut short at its end where it must be, which clips it at its box: the
+   room above and below the capitals is given back as padding, so accents
+   and descenders stay whole and the middle stays where it is. */
+.row-button-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-box: trim-both cap alphabetic;
+  padding: 0.35em 0;
+  margin: -0.35em 0;
+}
+:root[data-system="ios"] .row-button {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  min-height: 54px;
+  padding: 9px 6px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+:root[data-system="ios"] .row-button-label {
+  text-box: normal;
+  padding: 0;
+  margin: 0;
+  max-width: 100%;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: break-word;
+  text-align: center;
+}
+:root[data-system="ios"] .row-button svg { width: 18px; height: 18px; stroke-width: 1.25; }
 /* The wand, or the way back from it, where no title line holds it: at the
    far end of the row, as tall as the written buttons beside it. */
 .card-actions .card-improve { margin-left: auto; display: flex; }
@@ -1486,13 +1847,73 @@ button.text-link:active:not(:disabled) {
    Named rather than `.anki > div`, which is what it was: a `.field` is a div
    too, so that rule reached inside one and pushed its label, its control and
    its explanation 14 px apart instead of 4. What it looked like was one row
-   with a gap in the middle of it.
+   with a gap in the middle of it. Each setting in it a box of its own, the
+   same gap apart as on the rest of the page. */
+.anki, .anki-body { display: flex; flex-direction: column; gap: 8px; }
+.settings .anki-per-language { margin: 18px 0 2px; }
 
-   The switch's own row keeps a smaller gap under it, because the rows below
-   belong to it — a full one read as a second group rather than as what the
-   switch had just opened. */
-.anki, .anki-body { display: flex; flex-direction: column; gap: 14px; }
-.anki > .field { margin-bottom: -6px; }
+/* Which language's deck the questions under it are about: one segmented
+   row, the language shown marked by the app's colour underneath. A language
+   the reader added carries a cross while shown; the plus at the end is a
+   pop-up of the languages left, the system's own list lying over it. */
+/* Across the whole page, the languages sharing it alike and the plus at the
+   end only as wide as itself. */
+.anki-targets { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; width: 100%; }
+.anki-targets button, .anki-add {
+  border-radius: 0;
+  margin-left: -1px;
+  color: var(--ink-soft);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.anki-targets button { flex: 1 1 0; min-width: 96px; min-height: 30px; }
+.anki-add { flex: none; }
+.anki-targets > :first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
+.anki-targets > :last-child { border-radius: 0 8px 8px 0; }
+.anki-targets > :only-child { border-radius: 8px; }
+.anki-targets button { position: relative; }
+.anki-targets button[aria-pressed="true"] {
+  color: var(--ink);
+  background: var(--control-hover);
+}
+/* A bar along the chosen button's whole bottom edge, cut off by the
+   rounded corners of the first and last rather than running past them or
+   bending up with them: the bar is the bottom of a layer as large as the
+   button and shaped like it. */
+.anki-targets button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(to top, var(--brand) 2px, transparent 2px);
+  pointer-events: none;
+}
+.anki-targets .remove { display: inline-flex; color: var(--ink-soft); }
+@media (hover: hover) {
+  .anki-targets .remove:hover { color: var(--ink); }
+}
+.anki-targets .remove svg, .anki-add svg { width: 12px; height: 12px; }
+.anki-add {
+  position: relative;
+  padding: 0 10px;
+  min-height: 28px;
+  border: 1px solid var(--control-line);
+  background: var(--control);
+  box-shadow: 0 1px 1px var(--lift);
+}
+@media (hover: hover) {
+  .anki-add:hover { background: var(--control-hover); color: var(--ink); }
+}
+.anki-add select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
 
 /* Three lists, one per field of a card, in the settings. Each is one line so
    the three read as a table of what goes where. */
@@ -1517,15 +1938,17 @@ button.text-link:active:not(:disabled) {
   border-radius: 5px;
   background-clip: padding-box;
 }
-:root[data-system="windows"] ::-webkit-scrollbar-thumb:hover { background-color: var(--frame); }
+@media (hover: hover) {
+  :root[data-system="windows"] ::-webkit-scrollbar-thumb:hover { background-color: var(--frame); }
+}
 /* And a Windows scroll bar takes room where a Mac's lies over the page: while
    the window was still growing to its content one appeared for a moment and
    the fields stood narrower until it went. Its room is kept whether it is
    there or not, and taken from the right padding, so the fields end where
    they always do. */
 :root[data-system="windows"] .sheet { scrollbar-gutter: stable; padding-right: 2px; }
-:root[data-system="windows"] .settings-window,
 :root[data-system="windows"] .card-window { scrollbar-gutter: stable; padding-right: 6px; }
+:root[data-system="windows"] .settings { scrollbar-gutter: stable; padding-right: 10px; }
 
 /* ---- the first steps ---- */
 
@@ -1537,7 +1960,7 @@ button.text-link:active:not(:disabled) {
 }
 
 .welcome-sheet { display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.5; }
-.welcome-icon { width: 72px; height: 72px; align-self: center; }
+.welcome-icon { width: 48px; height: 48px; align-self: center; }
 .welcome-sheet h1 { margin: 0; font-size: 18px; font-weight: 600; text-align: center; }
 .welcome-sheet .label { margin: 6px 0 0; }
 .welcome-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
@@ -1545,7 +1968,369 @@ button.text-link:active:not(:disabled) {
 
 /* The box at the left, the two buttons at the right: closing last, as on a
    card. */
-.welcome-foot { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
-.welcome-hide { display: flex; gap: 6px; align-items: center; margin-right: auto; color: var(--ink-soft); cursor: pointer; }
+.welcome-foot { display: flex; flex-direction: column; gap: 10px; margin-top: 4px; }
+.welcome-hide { display: flex; gap: 6px; align-items: center; align-self: flex-start; color: var(--ink-soft); cursor: pointer; }
 .welcome-hide input { margin: 0; accent-color: var(--brand); }
-.welcome-foot button { height: 28px; }
+
+/* The example: a reading as the reading window draws it, in a frame of its
+   own, set off from the page around it, with the line above it saying what
+   to do with it. */
+.welcome-example {
+  padding: 10px 14px 14px;
+  background: var(--box);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.welcome-example .sheet { overflow: visible; padding: 0; flex: 0 0 auto; }
+.welcome-example-hint { margin: 0 0 -6px; color: var(--ink-soft); }
+
+/* The anonymous count: a box to tick, with what it sends under its name. */
+.welcome-consent {
+  padding: 8px 12px;
+  background: var(--box);
+  border-radius: 8px;
+}
+.welcome-consent-line { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.welcome-consent-line input { margin: 0; accent-color: var(--brand); }
+.welcome-consent-name { font-weight: 500; }
+.welcome-consent-body { margin: 2px 0 0 19px; color: var(--ink-soft); font-size: 11.5px; line-height: 1.45; }
+
+/* A picture dragged over the window: a frame in the accent where it lands. */
+body.drop-target::after {
+  content: attr(data-drop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  text-align: center;
+  color: var(--brand);
+  font-weight: 600;
+  position: fixed;
+  inset: 6px;
+  border: 2px dashed var(--brand);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  pointer-events: none;
+  z-index: 1000;
+}
+
+/* ---- a phone ----
+
+   One page under a finger: nothing arrives with a pointer, so every button
+   stands where it is, and none of them names itself in a label that would
+   only appear after the press. The window's own two buttons have nothing to
+   pin or to close. */
+:root[data-system="ios"] { -webkit-text-size-adjust: 100%; }
+/* Everything a little larger than on a computer's screen, where the sizes
+   in this file were set: the main text comes to 15 px, the lower end of
+   what a phone's own apps use. One factor, so nothing is sized twice. */
+:root[data-system="ios"] body { overflow: hidden; }
+:root[data-system="ios"] { --zoom: 1.15; --keyboard: 0px; }
+:root[data-system="ios"] #app,
+:root[data-system="ios"] .settings-sheet { zoom: var(--zoom); }
+/* Above the keyboard while it is up (app.js), the bar along the bottom
+   gone: a length inside the enlarged page counts by the same factor. */
+:root[data-system="ios"].keyboard #app {
+  height: calc(100% - var(--keyboard) / var(--zoom));
+  padding-bottom: 0;
+}
+:root[data-system="ios"].keyboard .window-actions { display: none; }
+:root[data-system="ios"].keyboard .settings-sheet { bottom: calc(var(--keyboard) / var(--zoom)); }
+/* Held, the button makes a card; the system's own menu for a held thing
+   stays away. */
+#new-card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+:root[data-system="ios"] .window-actions #new-card svg { width: 23px; height: 23px; }
+.card-layer .card-wand + .card-wand { margin-left: 2px; }
+:root:not([data-system="ios"]) #paste,
+:root:not([data-system="ios"]) #new-card { display: none; }
+:root[data-system="ios"] #pin,
+:root[data-system="ios"] #close { display: none; }
+/* The window's buttons as a phone has them: a bar along the bottom edge,
+   under the thumb, the same five across its width. The first line keeps
+   only what the sheet under it is. */
+:root[data-system="ios"] #app {
+  box-sizing: border-box;
+  padding-bottom: 39px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* Its end is the end: a drag past it does not move the page behind. */
+  overscroll-behavior: none;
+}
+/* With nothing left in it to press, the first line is a heading like the
+   others and goes up with the page. */
+:root[data-system="ios"] .sheet { flex: 0 0 auto; overflow: visible; }
+:root[data-system="ios"] .window-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  margin: 0;
+  gap: 0;
+  justify-content: space-around;
+  padding: 1px 8px 0;
+  background: var(--ground);
+  border-top: 1px solid transparent;
+}
+:root[data-system="ios"] #app.more-below .window-actions { border-top-color: var(--line); }
+:root[data-system="ios"] #app.more-above::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  height: 1px;
+  background: var(--line);
+}
+:root[data-system="ios"] .icon { width: 28px; height: 28px; }
+:root[data-system="ios"] .window-actions .icon { width: 48px; height: 37px; }
+:root[data-system="ios"] .window-actions .icon svg { width: 20px; height: 20px; }
+/* A circle reads smaller than the open strokes beside it. */
+:root[data-system="ios"] .window-actions #paste svg { width: 23px; height: 23px; }
+/* One stroke across the bar: the two drawn larger draw it thinner, so that
+   it comes out as the others' (1.9 of 16 at 20 px), and the gear's ring,
+   drawn heavier on a computer, is drawn as the rest here. */
+:root[data-system="ios"] .window-actions #paste svg,
+:root[data-system="ios"] .window-actions #new-card svg { stroke-width: 1.65; }
+:root[data-system="ios"] .window-actions #open-settings circle { stroke-width: 1.9; }
+:root[data-system="ios"] .icon svg { width: 16px; height: 16px; }
+:root[data-system="ios"] .actions,
+:root[data-system="ios"] .row .row-actions { opacity: 1; }
+:root[data-system="ios"] .icon:not(.reporting):not(.failed) .pill-label { display: none; }
+/* Every field of one line is as tall as a dictionary entry's line, 42 px
+   before the factor, and its words and buttons stand in the middle of it. */
+:root[data-system="ios"] .box:not(.rows) { padding-top: 10.6px; padding-bottom: 10.6px; }
+/* The room beside the buttons is the field's own, not the box's as well. */
+:root[data-system="ios"] .box.writing { padding-top: 0; padding-bottom: 0; }
+:root[data-system="ios"] .frame:has(> .actions) > .box.writing,
+:root[data-system="ios"] .frame:has(> .actions):not(:has(> .actions > :nth-child(2))) > .box.writing { padding-right: 0; }
+/* A text being written stands exactly where it stands once it is read:
+   the box's own type, its padding, and the room its two buttons will take. */
+:root[data-system="ios"] .box.writing textarea { min-height: calc(1.45em + 21.2px); padding-top: 10.6px; padding-bottom: 10.6px; }
+:root[data-system="ios"] .actions { top: 7px; right: 6px; }
+:root[data-system="ios"] .frame:has(> .actions) > .box:not(.writing) { padding-right: 76px; }
+:root[data-system="ios"] .frame:has(> .actions):not(:has(> .actions > :nth-child(2))) > .box:not(.writing) { padding-right: 42px; }
+:root[data-system="ios"] .frame:has(> .actions) > .box.writing > textarea,
+:root[data-system="ios"] .frame:has(> .actions):not(:has(> .actions > :nth-child(2))) > .box.writing > textarea { padding-right: 76px; }
+/* A row's buttons on a line of their own under what it says: beside it they
+   would take a third of the width from the words. */
+:root[data-system="ios"] .row-head { padding-right: 0; }
+:root[data-system="ios"] .row-actions {
+  position: static;
+  height: auto;
+  margin-top: 4px;
+  justify-content: flex-end;
+  gap: 12px;
+}
+/* A dictionary entry's line has one or two buttons, and those fit beside
+   its word. */
+:root[data-system="ios"] .box.rows.entries .row-head {
+  min-height: 28px;
+  padding-right: calc(var(--actions, 0px) * 1.25 + 12px);
+}
+:root[data-system="ios"] .box.rows.entries .row-actions {
+  position: absolute;
+  top: 7px;
+  right: 6px;
+  height: 28px;
+  margin-top: 0;
+  gap: 6px;
+}
+/* The fields of the settings a little larger than their labels; the
+   system does not zoom into a field (index.html), whatever its size. */
+:root[data-system="ios"] .settings input,
+:root[data-system="ios"] .settings textarea,
+:root[data-system="ios"] .settings select { font-size: 14px; }
+
+.settings-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--ground);
+}
+/* A phone has no room for the list of pages beside them: the list is a
+   screen of its own and each page another, as in the system's own settings —
+   the entries one rounded group with hairlines between them and a chevron at
+   the end, the page's name as a large title over it. */
+:root[data-system="ios"] .settings-layout { display: block; height: auto; }
+:root[data-system="ios"] .settings-layout.on-list .settings,
+:root[data-system="ios"] .settings-layout:not(.on-list) .settings-nav { display: none; }
+:root[data-system="ios"] .settings { overflow: visible; padding: 16px; }
+:root[data-system="ios"] .settings-nav {
+  width: auto;
+  gap: 0;
+  margin: 16px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--field);
+  border: none;
+  border-radius: 10px;
+}
+:root[data-system="ios"] .settings-nav .settings-entry {
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 0 12px 0 14px;
+  border-radius: 0;
+  font-size: 15px;
+  font-weight: 400;
+  background: none;
+}
+:root[data-system="ios"] .settings-nav .settings-entry { position: relative; }
+:root[data-system="ios"] .settings-nav .settings-entry > span { flex: 1; padding: 12px 0; }
+/* The hairline from under the name to the group's right edge. */
+:root[data-system="ios"] .settings-nav .settings-entry + .settings-entry::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 44px;
+  right: 0;
+  border-top: 1px solid var(--line);
+}
+:root[data-system="ios"] .settings-nav .settings-entry svg { width: 18px; height: 18px; margin: 0; color: var(--brand); }
+:root[data-system="ios"] .settings-nav .settings-entry svg:last-child { width: 13px; height: 13px; color: var(--ink-faint); }
+/* The system's own dark flash on a tap is not the list's: the row lights
+   up as the system's settings do instead. */
+:root[data-system="ios"] .settings-nav .settings-entry,
+.settings-sheet-bar button { -webkit-tap-highlight-color: transparent; }
+:root[data-system="ios"] .settings-nav .settings-entry:active { background: var(--lift-strong); }
+:root[data-system="ios"] .settings .group { font-size: 26px; margin: 0 0 6px; }
+/* A list under its name on a phone, the width of the box: beside it there
+   is room only for a few words of what it says. A switch stays beside. */
+:root[data-system="ios"] .field.beside:has(> select) { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+:root[data-system="ios"] .settings .field.beside > select { width: 100%; max-width: none; }
+:root[data-system="ios"] .field.beside:has(> select) > .hint { margin-top: 0; }
+.settings-sheet-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+}
+.settings-sheet-bar button { color: var(--brand); border: 0; background: transparent; box-shadow: none; font-weight: 600; padding: 6px 0 6px 14px; }
+.settings-sheet-bar button.closes { color: var(--vmark2); }
+.settings-sheet-bar .settings-back { display: inline-flex; align-items: center; gap: 2px; padding-left: 0; font-weight: 400; }
+.settings-sheet-bar .settings-back[hidden], .settings-sheet-bar span[hidden] { display: none; }
+.settings-sheet-bar .settings-back svg { width: 18px; height: 18px; margin-left: -4px; }
+.settings-sheet .settings-window { flex: 1; height: auto; }
+
+/* A card lies under the settings it opens: both are sheets over the
+   reading, the later one on top. Its wand stands before the way out. */
+.card-layer { z-index: 19; }
+.card-layer .card-window { flex: 1; height: auto; padding-top: 14px; overflow-x: hidden; overscroll-behavior: none; }
+.card-layer .card-wand { margin-left: auto; display: flex; }
+.card-layer .card-wand .icon { width: 34px; height: 30px; padding: 0; color: var(--ink-soft); }
+.card-layer .card-wand .icon svg { width: 18px; height: 18px; }
+.card-layer .card-box { font-size: 14px; }
+
+/* Nothing in the settings is wider than the phone. */
+.settings-sheet .settings-window { overflow-x: hidden; overflow-y: auto; overscroll-behavior: none; }
+
+/* The button for a finger's selection of several words (selection.js):
+   over the bar along the bottom edge, where the system's own menu for the
+   selection does not reach. */
+.touch-pick {
+  position: fixed;
+  right: 16px;
+  bottom: 70px;
+  z-index: 15;
+  height: 44px;
+  padding: 0 18px 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 22px;
+  background: var(--brand);
+  color: var(--ground);
+  font-size: 16px;
+  font-weight: 600;
+  box-shadow: 0 2px 10px var(--lift-strong);
+}
+.touch-pick[hidden] { display: none; }
+.touch-pick svg { width: 18px; height: 18px; }
+.touch-pick:active:not(:disabled) { background: var(--brand); border: 0; }
+/* A field grows with what is written in it; a finger has no corner to drag. */
+.card-layer .card-box { resize: none; }
+/* What came of a card that has left its sheet: over the bar, in the
+   middle, in the app's one colour so it is not read past. */
+.phone-note {
+  position: fixed;
+  left: 50%;
+  bottom: 78px;
+  transform: translateX(-50%);
+  z-index: 25;
+  max-width: calc(100% - 48px);
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 22px 13px 18px;
+  border-radius: 26px;
+  background: var(--brand);
+  color: var(--ground);
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 3px 14px var(--lift-strong);
+  animation: phone-note 4.5s ease both;
+}
+.phone-note svg { width: 20px; height: 20px; flex: 0 0 auto; }
+@keyframes phone-note {
+  0% { opacity: 0; transform: translate(-50%, 8px); }
+  5%, 90% { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, 0); }
+}
+/* Takes the caret for the moment between a press and the field it is for. */
+#keyboard-hold { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; border: 0; padding: 0; font-size: 16px; }
+
+/* ---- a note without the reading window ---- */
+
+.note-body { overflow: hidden; }
+#app.note-window {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  height: auto;
+  padding: 12px 14px;
+}
+.note-icon { width: 28px; height: 28px; flex: 0 0 auto; }
+.note-text { margin: 0; font-size: 13px; line-height: 1.4; }
+
+/* ---- a phone's own sheets: the first steps, and the question about the
+   model ---- */
+
+.phone-sheet-body { flex: 1; overflow-y: auto; padding: 4px 16px 24px; }
+.phone-welcome { display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.5; }
+.phone-welcome h1, .phone-consent h1 { margin: 8px 0 0; font-size: 20px; font-weight: 600; }
+.phone-welcome .label { margin: 6px 0 0; }
+.inline-icon { display: inline-flex; vertical-align: -3px; color: var(--brand); }
+.inline-icon svg { width: 17px; height: 17px; }
+.phone-consent { display: flex; flex-direction: column; gap: 12px; font-size: 14px; line-height: 1.5; }
+.phone-consent p { margin: 0; }
+.phone-consent-buttons { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.phone-consent-buttons button { height: 42px; font-size: 15px; }
+.phone-consent-allow { background: var(--brand); color: #fff; border-color: transparent; }
+
+/* On a phone, under a new translation's field: the camera, the photo
+   library and the clipboard, a row of buttons (below). On a computer, in
+   their place, the line saying a picture can be dropped on the window. */
+.text-sources { margin-top: 8px; }
+.drop-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 2px 0;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+/* The symbol on the middle of the words' capitals, as a row button's
+   (below). */
+.drop-hint svg { width: 15px; height: 15px; flex: none; }
+.drop-hint span { text-box: trim-both cap alphabetic; }
+.drop-hint span svg { width: 13px; height: 13px; vertical-align: -2px; }

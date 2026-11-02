@@ -1,0 +1,16 @@
+Text recognition models for Triglosa on Windows
+
+The files *.onnx in this folder are PaddleOCR's PP-OCRv5 mobile models
+(https://github.com/PaddlePaddle/PaddleOCR) by the PaddlePaddle Authors,
+distributed under the Apache License, Version 2.0; a copy of it is in
+LICENSE.txt. They are used as RapidOCR (https://github.com/RapidAI/RapidOCR)
+converts them to ONNX, unchanged:
+
+  detector.onnx    ch_PP-OCRv5_det_mobile.onnx    where the lines of text are
+  latin.onnx       latin_PP-OCRv5_rec_mobile.onnx    Latin script
+  cyrillic.onnx    cyrillic_PP-OCRv5_rec_mobile.onnx Cyrillic script
+  arabic.onnx      arabic_PP-OCRv5_rec_mobile.onnx   Arabic script
+  chinese.onnx     ch_PP-OCRv5_rec_mobile.onnx       Chinese and Japanese
+
+scripts/ocr-fetch.mjs in the Triglosa repository fetches them and checks
+each against the checksum it was measured with.

@@ -29,7 +29,7 @@ import {
   spellingFor,
   wordLanguageFor,
 } from "./ask.js";
-import { checkerOffer, languageByDictionaries, mayBeMisspelled, spellingLanguages, spellingWords, wordLanguage } from "./spelling.js";
+import { checkerOffer, inAnotherLanguage, languageByDictionaries, mayBeMisspelled, spellingLanguages, spellingWords, translationWords, wordLanguage } from "./spelling.js";
 import { glancePairs, placeUnits } from "./glance.js";
 import { unitsFromLinks } from "./parse/glance.js";
 import { fragmentsAcross, rangesAcross } from "./match/links.js";
@@ -183,7 +183,7 @@ function untangle(state) {
   }
 }
 
-export async function runText(text, { settings, translation, llm, aligner = null, identifier = null, speller = null, onChange, waitTurn, language = "", languageBy = "", guesses = [], sentence = null, asTyped = false }) {
+export async function runText(text, { settings, translation, llm, aligner = null, identifier = null, speller = null, onChange, waitTurn, language = "", languageBy = "", guesses = [], sentence = null, asTyped = false, choice = null, kept = null }) {
   const state = emptyState();
   const blame = (error) => {
     const found = faultOf(error);
@@ -203,12 +203,26 @@ export async function runText(text, { settings, translation, llm, aligner = null
   const reader = settings.languages[0];
   tell();
 
+  /* Another translation chosen for a reading already made (`choice`,
+     panels.js): the original, its language, the terms and the verbs are
+     about the original alone and stay as they were (`kept`); only a panel
+     in a language it did not have is asked, and where the words went is
+     worked out again. A section the kept reading failed on is asked anew. */
+  const keptWords = Array.isArray(kept?.words) ? kept.words : null;
+  const keptVerbs = Array.isArray(kept?.verbs) ? kept.verbs : null;
+  const keptPanel = (code, index) => {
+    const panel = kept?.panels?.find((entry, at) => at > 0 && entry.code === code);
+    return index > 0 && panel && (panel.status === "ready" || panel.status === "alternatives") ? { ...panel, kept: true } : null;
+  };
+
   /* A language the reader named is not detected again: they corrected what
      detection found, and asking it once more would find the same.
 
      A model that cannot be reached must not take the device's panels down
      with it: the language stays unnamed and the reason is recorded. */
-  let found = language
+  let found = kept?.source
+    ? kept.source
+    : language
     ? asConfigured({ ...chosenLanguage(language, reader), guesses, by: languageBy || "reader" }, settings.languages)
     : await detectLanguage(text, {
       languages: settings.languages,
@@ -223,7 +237,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
   /* A short text named as a language the app does not offer, by the
      reader's dictionaries instead where they say one of the reader's
      languages (see spelling.js). Not where the reader named it. */
-  if (!language && speller && state.short && !found.code && !found.iso) {
+  if (!kept && !language && speller && state.short && !found.code && !found.iso) {
     const own = settings.languages.filter(isSupported);
     const verdicts = await speller.check(spellingWords(text), own, { full: true }).catch(() => ({}));
     const code = languageByDictionaries(text, verdicts, own);
@@ -248,8 +262,8 @@ export async function runText(text, { settings, translation, llm, aligner = null
      configured language, the panels of a text in a language nobody could name
      would be one more than the window has room for whenever three are
      configured. */
-  const codes = panelLanguages(detected.code, settings.languages);
-  state.panels = codes.map((code, index) => ({
+  const codes = panelLanguages(detected.code, settings.languages, choice);
+  state.panels = codes.map((code, index) => keptPanel(code, index) || ({
     code,
     ...(index === 0 && detected.iso && !code ? { iso: detected.iso } : {}),
     name: index === 0
@@ -258,6 +272,12 @@ export async function runText(text, { settings, translation, llm, aligner = null
     text: index === 0 ? text : "",
     status: index === 0 ? "ready" : "waiting",
   }));
+  /* The word meant, where the kept reading went on with one. */
+  if (kept?.spelling) {
+    state.spelling = kept.spelling;
+    state.text = kept.text;
+    state.panels[0].text = kept.panels[0].text;
+  }
   tell();
 
   /* The device will not translate without a code: it needs a language it
@@ -342,7 +362,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
        Without a model the checker's word is only offered. Not where the
        reader asked for the word as typed. */
     const about = { source: detected.code, languages: settings.languages };
-    const checking = speller && named && !asTyped;
+    const checking = speller && named && !asTyped && !kept;
     const suspicion = checking
       ? speller.check(spellingWords(text), spellingLanguages(detected.code, settings.languages), { full: !llm })
         .then((verdicts) => (mayBeMisspelled(text, verdicts, about) ? verdicts : null), () => null)
@@ -372,17 +392,45 @@ export async function runText(text, { settings, translation, llm, aligner = null
     };
     const looked = () => state.spelling?.meant || text;
 
+    /* A line in another language than the panel's is left out (run
+       sixty-five), where the dictionaries the typo check asks can tell
+       within its wait; where they cannot, every line stays. The looked-up
+       word itself, a first line the panel's language shares, is no
+       stranger. The panel's own dictionaries first, and the others only
+       about what those do not know: a word unknown in English is asked of
+       every English dictionary there is, which cost the Mac half a second
+       for one entry asked about everything at once. */
+    const inPanelLanguage = async (entries, code, words) => {
+      if (!speller || !entries?.length) return entries;
+      const until = Date.now() + CHECK_WAIT_MS;
+      const ask = (checked, languages) => within(speller.check(checked, languages), Math.max(0, until - Date.now()));
+      const itself = (entry) => entry.text.trim().toLowerCase() === words.trim().toLowerCase();
+      const lines = entries.filter((entry) => !itself(entry));
+      const checked = [...new Set(lines.flatMap((entry) => spellingWords(entry.text)))];
+      if (!checked.length) return entries;
+      const own = await ask(checked, [code]);
+      if (!own) return entries;
+      const strangers = checked.filter((word) => own[word]?.[code]?.there && !own[word][code].known);
+      if (!strangers.length) return entries;
+      const languages = [...new Set([code, ...spellingLanguages(asked, settings.languages)])];
+      const others = await ask([...new Set(strangers.flatMap((word) => translationWords(word, code)))], languages);
+      if (!others) return entries;
+      const verdicts = { ...others, ...Object.fromEntries(checked.filter((word) => !others[word]).map((word) => [word, own[word]])) };
+      return entries.filter((entry) => itself(entry) || !inAnotherLanguage(entry.text, verdicts, { target: code, languages }));
+    };
+
     const fillPanel = async (offset, code, words) => {
       const panel = state.panels[offset + 1];
+      if (panel.kept) return;
       if (llm) {
         try {
-          panel.alternatives = await alternativesFor(llm, {
+          panel.alternatives = await inPanelLanguage(await alternativesFor(llm, {
             text: words,
             source: asked,
             target: code,
             reader,
             sentence: askedSentence()?.text || "",
-          });
+          }), code, words);
         } catch (error) {
           panel.fault = blame(error);
         }
@@ -402,7 +450,8 @@ export async function runText(text, { settings, translation, llm, aligner = null
       tell();
     };
 
-    const wantTerm = !!llm && showsSection(settings, "terms", detected.code);
+    const wantTerm = !!llm && showsSection(settings, "terms", detected.code) && !keptWords;
+    if (keptWords) state.words = keptWords;
     state.status.words = wantTerm ? "working" : "";
     /* The sentence as the questions get it: with the word meant where the
        typo stood, so that nothing is asked about the typo — asked in the
@@ -482,6 +531,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
 
   const translatePanel = async (offset, code) => {
     const panel = state.panels[offset + 1];
+    if (panel.kept) return;
     let translated = "";
     for (const engine of order) {
       translated = await engines[engine](code, panel);
@@ -534,8 +584,12 @@ export async function runText(text, { settings, translation, llm, aligner = null
   /* The two verb stages separately rather than through one wrapper: only that
      way can the forms be taken off in between, and the word assignment needs
      nothing more than those. */
-  state.status.verbs = wantVerbs ? "working" : "";
-  const formsDone = !wantVerbs
+  if (wantVerbs && keptVerbs) {
+    state.verbs = keptVerbs;
+    state.forms = kept.forms || [];
+  }
+  state.status.verbs = wantVerbs && !keptVerbs ? "working" : "";
+  const formsDone = !wantVerbs || keptVerbs
     ? Promise.resolve([])
     : findVerbForms(llm, { text, source: detected.code })
     .then((forms) => {
@@ -553,7 +607,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
       return null;
     });
 
-  const verbsDone = !wantVerbs
+  const verbsDone = !wantVerbs || keptVerbs
     ? Promise.resolve()
     : formsDone
     .then(async (forms) => {
@@ -589,8 +643,9 @@ export async function runText(text, { settings, translation, llm, aligner = null
       tell();
     });
 
-  state.status.words = wantWords ? "working" : "";
-  const wordsDone = !wantWords
+  if (wantWords && keptWords) state.words = keptWords;
+  state.status.words = wantWords && !keptWords ? "working" : "";
+  const wordsDone = !wantWords || keptWords
     ? Promise.resolve()
     : wordsFor(llm, {
     text,

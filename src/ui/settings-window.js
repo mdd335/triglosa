@@ -12,25 +12,28 @@
 
 import { loadSettings, saveSettings } from "../platform/store.js";
 import { loadApiKey, saveApiKey } from "../platform/keychain.js";
-import { closeSettings, onAboutAsked, settingsChanged } from "../platform/windows.js";
+import { closeSettings, onPageAsked, onSettingsChanged, settingsChanged } from "../platform/windows.js";
 import { labels, windowTitle } from "./labels.js";
-import { settingsView } from "./settings-view.js";
+import { openPage, settingsView } from "./settings-view.js";
+import { closeOnKeys, quietContextMenu, replaceKeepingScroll } from "./elements.js";
 
 let settings = await loadSettings();
-let apiKey = await loadApiKey();
+let apiKey = await loadApiKey(settings);
 
 const root = document.getElementById("app");
 root.className = "settings-window";
 
 function draw() {
   document.title = windowTitle(labels(settings.languages[0]).settings);
-  root.replaceChildren(settingsView({ settings, apiKey }, {
+  replaceKeepingScroll(root, settingsView({ settings, apiKey }, {
     onChange: async (next) => {
-      /* The pin is set in the reading window and the first steps are put
-         away in their own, either of which may have happened since this one
-         read the file. */
-      const { pinned, welcome } = await loadSettings();
-      settings = await saveSettings({ ...next, pinned, welcome });
+      /* The pin is set in the reading window, the first steps are put away
+         in their own and a card remembers its language, any of which may
+         have happened since this one read the file. */
+      const { pinned, welcome, cards } = await loadSettings();
+      settings = await saveSettings({ ...next, pinned, welcome, cards: { ...next.cards, language: cards.language } });
+      /* Another way to the model has a key of its own. */
+      apiKey = await loadApiKey(settings);
       draw();
       /* After the redraw, not before: the other window re-registers the
          shortcut when this arrives, and it has to be the one now standing in
@@ -38,47 +41,36 @@ function draw() {
       settingsChanged();
     },
     onKeyChange: async (next) => {
-      apiKey = await saveApiKey(next);
+      apiKey = await saveApiKey(next, settings);
       draw();
     },
-  }));
+  }), ".settings");
 }
 
 draw();
 
-/* The menu bar's entry for updates opens this window at its last group and
-   checks straight away — that is what the entry says it does. Read from the
-   address when the window is new, heard as an event when it stood open. */
-function showAbout() {
-  const about = document.getElementById("about");
-  if (!about) return;
-  about.scrollIntoView({ block: "start" });
-  document.querySelector(".update-check")?.click();
-}
-if (location.hash === "#about") showAbout();
-await onAboutAsked(showAbout);
-
-/* The two keys every window on this system closes with. This app has no menu
-   bar of its own, so neither of them exists until it is written down here.
-
-   A press the page has already answered is not one of them: the shortcut
-   recorder takes every key while its field has focus — Escape included, which
-   is a combination somebody may well be trying to record — and says so by
-   preventing the default. */
-document.addEventListener("keydown", (event) => {
-  if (event.defaultPrevented) return;
-  const closing = event.key === "Escape"
-    || (event.key.toLowerCase() === "w" && (event.metaKey || event.ctrlKey));
-  if (!closing) return;
-  event.preventDefault();
-  /* Escape out of a field being written in leaves the field, it does not
-     leave the window: what was typed is saved when the field loses the
-     focus, and a window that closed on it would throw away the address
-     somebody had just finished typing. The second press then closes. */
-  const writing = document.activeElement;
-  if (event.key === "Escape" && writing && writing.matches("input:not([readonly]), textarea")) {
-    writing.blur();
-    return;
-  }
-  closeSettings();
+/* A card's "choose a deck" adds its language to the settings and then opens
+   this window, which may already stand open. Its own saves come back here
+   too, and change nothing. */
+await onSettingsChanged(async () => {
+  const stored = await loadSettings();
+  if (JSON.stringify(stored) === JSON.stringify(settings)) return;
+  settings = stored;
+  apiKey = await loadApiKey(settings);
+  draw();
 });
+
+/* A page asked for by whoever opened this window: read from the address when
+   the window is new, heard as an event when it stood open. The menu bar's
+   entry for updates opens the last page and checks straight away — that is
+   what the entry says it does. */
+function showPage(key) {
+  if (!key) return;
+  openPage(key);
+  if (key === "about") document.querySelector(".update-check")?.click();
+}
+showPage(location.hash.slice(1));
+await onPageAsked(showPage);
+
+quietContextMenu(document);
+closeOnKeys(document, closeSettings);

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { runText, sentenceFor } from "../../src/run.js";
+import { CHECK_WAIT_MS, runText, sentenceFor } from "../../src/run.js";
 
 /* A German reader learning English and Spanish. */
 const SETTINGS = {
@@ -969,7 +969,7 @@ test("a word spelled as it should be, or looked up as typed, stays as it is", as
   const check = speller(UNKNOWN_EVERYWHERE);
   const typed = await runText("Kollegge", { settings: KEEP_QUIET, translation: noDevice, llm: spellingModel(), speller: check, asTyped: true, onChange: () => {} });
   assert.strictEqual(typed.spelling, null);
-  assert.strictEqual(check.asked.length, 0);
+  assert.ok(!check.asked.some((q) => q.words.includes("Kollegge")), "the typed word is not checked");
 });
 
 test("without a model the checker's word is only offered", async () => {
@@ -1042,4 +1042,68 @@ test("in its sentence, the term and the entries are asked with the word meant in
   const questions = asked.filter((q) => !q.system.startsWith("You check the spelling") && q.maxTokens > 12).map((q) => q.user);
   assert.ok(questions.length >= 3, "two entries and the term");
   for (const question of questions) assert.ok(!question.includes("uncertian"), `asked about the typo: ${question.slice(0, 120)}`);
+});
+
+test("another translation for a reading made asks for that panel alone", async () => {
+  /* The original, its language and its terms are about the original: a
+     panel in another language changes none of them. */
+  const first = await run({ settings: SETTINGS, translation: noDevice, llm: model() });
+  const llm = model();
+  const state = await runText(UNNAMED, { settings: SETTINGS, translation: noDevice, llm, onChange: () => {},
+                                         choice: { swaps: { en: "fr" } }, kept: first.state });
+  assert.deepStrictEqual(state.panels.map((panel) => panel.code), ["", "de", "fr"]);
+  assert.deepStrictEqual(state.source, first.state.source, "not named again");
+  assert.strictEqual(state.panels[1].text, first.state.panels[1].text, "the German kept");
+  assert.strictEqual(llm.asked.length, 1, "one question");
+  assert.match(llm.asked[0].system, /French/);
+  assert.match(state.panels[2].text, /^übersetzt: /);
+  assert.deepStrictEqual(state.words, first.state.words);
+});
+
+/* A dictionary entry with a line in another language than its panel's (run
+   sixty-five): "lauter" into Spanish answered "puro, ehrlich, nur". */
+function lauterModel(lines = "puro | ohne Beimischung\nehrlich | veraltend\nnur | nichts als") {
+  return {
+    async chat({ maxTokens, user }) {
+      if (maxTokens <= 12) return "de";
+      return user.includes("Target: Spanish") ? lines : "loud | Geräusch\nmere | nichts als";
+    },
+  };
+}
+const LAUTER_VERDICTS = {
+  puro: { de: { there: true, known: false }, en: { there: true, known: false }, es: { there: true, known: true } },
+  ehrlich: { de: { there: true, known: true }, en: { there: true, known: false }, es: { there: true, known: false } },
+  nur: { de: { there: true, known: true }, en: { there: true, known: false }, es: { there: true, known: false } },
+  loud: { de: { there: true, known: false }, en: { there: true, known: true }, es: { there: true, known: false } },
+  mere: { de: { there: true, known: false }, en: { there: true, known: true }, es: { there: true, known: false } },
+};
+
+test("a line of a dictionary entry in another language than its panel's is left out", async () => {
+  const check = speller(LAUTER_VERDICTS);
+  const state = await runText("lauter", { settings: KEEP_QUIET, translation: noDevice, llm: lauterModel(), speller: check, onChange: () => {} });
+  const es = state.panels.find((panel) => panel.code === "es");
+  const en = state.panels.find((panel) => panel.code === "en");
+  assert.deepStrictEqual(es.alternatives.map((entry) => entry.text), ["puro"]);
+  assert.deepStrictEqual(en.alternatives.map((entry) => entry.text), ["loud", "mere"]);
+  assert.ok(check.asked.some((q) => q.words.includes("ehrlich") && q.languages.includes("es") && q.languages.includes("de")));
+});
+
+test("where every line is in another language, the device steps in", async () => {
+  const device = { ...noDevice, detect: async () => "de", translate: async (from, to, text) => `${to}:${text}` };
+  const state = await runText("lauter", { settings: KEEP_QUIET, translation: device, llm: lauterModel("ehrlich | veraltend\nnur | nichts als"), speller: speller(LAUTER_VERDICTS), onChange: () => {} });
+  const es = state.panels.find((panel) => panel.code === "es");
+  assert.strictEqual(es.alternatives, undefined);
+  assert.strictEqual(es.text, "es:lauter");
+  assert.strictEqual(es.fallback, true);
+});
+
+test("where the checker cannot tell in time, or not at all, every line stays", async () => {
+  const slow = { check: async () => { await new Promise((resolve) => setTimeout(resolve, CHECK_WAIT_MS + 200)); return LAUTER_VERDICTS; } };
+  const late = await runText("lauter", { settings: KEEP_QUIET, translation: noDevice, llm: lauterModel(), speller: slow, onChange: () => {} });
+  assert.deepStrictEqual(late.panels.find((panel) => panel.code === "es").alternatives.map((entry) => entry.text), ["puro", "ehrlich", "nur"]);
+  const failing = { check: async () => { throw new Error("no checker"); } };
+  const none = await runText("lauter", { settings: KEEP_QUIET, translation: noDevice, llm: lauterModel(), speller: failing, onChange: () => {} });
+  assert.strictEqual(none.panels.find((panel) => panel.code === "es").alternatives.length, 3);
+  const without = await runText("lauter", { settings: KEEP_QUIET, translation: noDevice, llm: lauterModel(), onChange: () => {} });
+  assert.strictEqual(without.panels.find((panel) => panel.code === "es").alternatives.length, 3);
 });

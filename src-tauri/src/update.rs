@@ -39,6 +39,27 @@ fn said(error: tauri_plugin_updater::Error) -> String {
     }
 }
 
+/* Whether this copy came from the Microsoft Store, which keeps it up to date
+by itself: only a Store package runs with a package identity. The same
+program runs from the installer, so this is asked and not built in. */
+#[cfg(windows)]
+pub fn in_store_package() -> bool {
+    use windows::Win32::Foundation::APPMODEL_ERROR_NO_PACKAGE;
+    use windows::Win32::Storage::Packaging::Appx::GetCurrentPackageFullName;
+    let mut length = 0;
+    unsafe { GetCurrentPackageFullName(&mut length, None) != APPMODEL_ERROR_NO_PACKAGE }
+}
+
+#[cfg(not(windows))]
+pub fn in_store_package() -> bool {
+    false
+}
+
+#[tauri::command]
+pub fn from_store() -> bool {
+    in_store_package()
+}
+
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     let updater = app.updater().map_err(|e| format!("failed: {e}"))?;

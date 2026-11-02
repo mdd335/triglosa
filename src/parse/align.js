@@ -65,7 +65,7 @@ export function parseAlign(raw, expected, label, codes, columns = 2) {
   }
 
   const keys = (expected || []).map(alignKey);
-  /* Without an expectation list only position remains — the old way. */
+  /* Without an expectation list only position remains. */
   if (!keys.length) {
     return { a: rows.map((r) => r.a), b: rows.map((r) => r.b), notes: [] };
   }

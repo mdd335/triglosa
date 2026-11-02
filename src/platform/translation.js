@@ -18,7 +18,7 @@ export const HELPER_URL = "http://127.0.0.1:51737";
 /* Which shape of answers this code expects. The helper outlives the app and
    keeps the port, so a new window can meet an old helper; when the two do
    not match, the window retires it and starts its own. */
-export const PROTOCOL = 4;
+export const PROTOCOL = 6;
 
 export function readProtocol(answer) {
   const match = String(answer || "").trim().match(/^ok(?:\s+(\d+))?$/);
@@ -160,6 +160,24 @@ export function readLeader(answer) {
 
 const trimSlash = (s) => String(s || "").replace(/\/+$/, "");
 
+/* The helper's answer to /recognize, as lines: "left top right bottom", a
+   tab, the text, and after another tab each character's "left right",
+   comma-separated — one a line. */
+export function readRecognized(answer) {
+  const lines = [];
+  for (const row of String(answer || "").split("\n")) {
+    const match = row.match(/^(-?\d+) (-?\d+) (-?\d+) (-?\d+)\t([^\t]*)(?:\t(.*))?$/);
+    if (!match || !match[5].trim()) continue;
+    const c = (match[6] || "").split(",").filter(Boolean).map((pair) => pair.split(" ").map(Number));
+    lines.push({ t: match[5], b: match.slice(1, 5).map(Number), c });
+  }
+  return lines;
+}
+
+/* Reading a piece of the screen takes longer than a probe: the first one
+   after the helper started loads Apple's recognition. */
+const RECOGNIZE_TIMEOUT_MS = 30000;
+
 /* Windows has no translation on the device. What stands in for it answers
    every question the way a helper that is not running does, which is a state
    the run already handles: the model translates, and without one the panels
@@ -167,13 +185,47 @@ const trimSlash = (s) => String(s || "").replace(/\/+$/, "");
 const ABSENT = {
   running: async () => false,
   current: () => false,
+  forget: () => {},
   retire: async () => {},
   pairStatus: async () => "",
   canTranslate: async () => false,
   warm: async () => 0,
   translate: async () => "",
   detect: async () => "",
+  recognize: async () => null,
 };
+
+/* A phone's app cannot start a helper, so Apple's translation answers the
+   helper's routes inside the app (src-tauri/ios/Translation.swift), and this
+   is the fetch that asks them there: the address's path and query go to the
+   shell, and what comes back reads like a web server's answer. Everything
+   below is then the same code for both. */
+export function inProcessFetch(invoke) {
+  return async (url, { body, signal } = {}) => {
+    const route = String(url).replace(/^[a-z]+:\/\/[^/]+/, "");
+    const asked = invoke("apple_translation", { route, body: body == null ? "" : String(body) });
+    const answer = await (signal
+      ? Promise.race([asked, new Promise((_, refuse) => {
+          const out = () => refuse(signal.reason || new Error("timed out"));
+          if (signal.aborted) out();
+          else signal.addEventListener("abort", out, { once: true });
+        })])
+      : asked);
+    return { ok: answer.status === 200, status: answer.status, text: async () => answer.text };
+  };
+}
+
+/* A helper just started: whether it came up. Its port is there after some
+   fifty milliseconds on a Mac already busy with it, and after seconds where
+   the program itself has to be read and checked first, as after a while
+   without it or after an update. */
+export async function whenRunning(translation, { tries = 80, pause = 50 } = {}) {
+  for (let attempt = 0; attempt < tries; attempt++) {
+    await new Promise((done) => setTimeout(done, pause));
+    if (await translation.running()) return true;
+  }
+  return false;
+}
 
 export function createTranslationBackend({ helperUrl, system = currentSystem() }, fetchImpl = fetch) {
   if (system === "windows") return ABSENT;
@@ -234,6 +286,12 @@ export function createTranslationBackend({ helperUrl, system = currentSystem() }
     /* Whether the helper that answered speaks this version's protocol. Only
        meaningful once running() has been asked. */
     current: () => spoken === PROTOCOL,
+
+    /* The helper quits by itself after five minutes without a question, so
+       what was known about it is asked again before each use. */
+    forget: () => {
+      available = null;
+    },
 
     /* Retire a helper of an older build so a current one can take the port.
        A helper that does not know the route simply stays, and the window is
@@ -308,6 +366,20 @@ export function createTranslationBackend({ helperUrl, system = currentSystem() }
         return cleaned ? keepParagraphShape(text, cleaned) : "";
       } catch {
         return "";
+      }
+    },
+
+    /* The text in a piece of a photograph of the screen, by Apple's
+       recognition: the file the shell wrote, the piece in its pixels
+       (left, top, width, height), and the reader's languages to try first.
+       The lines and their boxes, or null where the helper did not answer. */
+    async recognize(path, rect, languages = []) {
+      if (!(await running())) return null;
+      try {
+        const query = `path=${encodeURIComponent(path)}&rect=${rect.map(Math.round).join(",")}&langs=${languages.join(",")}`;
+        return readRecognized(await ask(`/recognize?${query}`, { timeout: RECOGNIZE_TIMEOUT_MS }));
+      } catch {
+        return null;
       }
     },
 

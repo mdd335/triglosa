@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Capture test page</title>
+<!-- What scripts/mac-vm/series.sh points at: ordinary text, a link, words in
+     spans of their own, a heading, another language, a paragraph that cannot
+     be selected, and text no program hands over, which Triglosa has to read
+     off the screen: a picture, and two lines of small type drawn on a canvas. -->
+<body style="font: 26px Georgia; margin: 40px 60px; max-width: 880px">
+<p>The quick brown fox jumps over the lazy dog. It was a bright cold day in April, and the clocks were striking thirteen.</p>
+<p><a href="#">Un système hallucinant</a> and a <span>sentence</span> <span>split</span> into spans.</p>
+<h2>A heading of four words</h2>
+<p lang="de">Der Hund schläft unter dem Tisch. Die Katze spielt im Garten.</p>
+<img alt="" width="520" height="70" data-text="Words drawn into a picture"
+  src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='520' height='70'%3E%3Crect width='520' height='70' fill='%23eef'/%3E%3Ctext x='16' y='46' font-family='Georgia' font-size='30'%3EWords drawn into a picture%3C/text%3E%3C/svg%3E">
+<p style="user-select: none">This line cannot be selected by anyone.</p>
+<canvas width="760" height="62" data-font="19px Georgia" data-top="4" data-line="28" data-left="4"
+  data-text="Drawn letters have no text behind them at all, and only the screen|still shows what they say. Another sentence follows on that second line."></canvas>
+<script>
+  const sheet = document.querySelector("canvas");
+  const pen = sheet.getContext("2d");
+  pen.font = sheet.dataset.font;
+  sheet.dataset.text.split("|").forEach((line, i) => pen.fillText(line, 4, 22 + i * 28));
+</script>
+</body>

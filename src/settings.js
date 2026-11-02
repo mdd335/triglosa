@@ -12,6 +12,8 @@ import { MAX_PANELS } from "./panels.js";
 import { SUPPORTED, WITHOUT_PACK, isChoosable, isSupported } from "./languages/index.js";
 import { defaultHotkey, isHotkey } from "./hotkey.js";
 import { SEARCH_URLS, SYSTEM_SEARCH } from "./platform/search.js";
+import { languageNamedIn } from "./card.js";
+import { WAYS, setupOf } from "./setup.js";
 
 /* The languages explanations can be written in, and so the interface: each
    needs a table of its own in src/ui/labels/ and words for the parsers in
@@ -29,16 +31,6 @@ export function firstStartLanguages(systemLanguages) {
     .find((code) => FIRST_LANGUAGES.includes(code));
   return !first || first === "en" ? ["en", "es"] : [first, "en"];
 }
-
-/* Click-to-fill addresses for the settings window: the two local servers and
-   the one cloud service the README recommends. Local servers and cloud
-   providers speak the same interface, so this is a convenience, not a
-   choice between two modes. */
-export const ENDPOINT_PRESETS = [
-  { label: "LM Studio", endpoint: "http://127.0.0.1:1234/v1" },
-  { label: "Ollama", endpoint: "http://127.0.0.1:11434/v1" },
-  { label: "OpenRouter", endpoint: "https://openrouter.ai/api/v1" },
-];
 
 /* The Council of Europe's scale, the one printed on every language course.
    Six steps is already more than most people want to think about, so the
@@ -59,15 +51,17 @@ const showMode = (value, fallback) =>
 /* Which of the reader's languages a flashcard is offered for. Named by their
    place in the list rather than by "foreign", because that is the difference
    that matters here: the second language is usually the one being worked at,
-   and the third one read rather than learned. */
-export const CARD_MODES = ["never", "second", "third", "foreign"];
+   and the third one read rather than learned. `learned` is both of them,
+   `foreign` any language but the reader's own, a text in one they never set
+   included. */
+export const CARD_MODES = ["never", "second", "third", "learned", "foreign"];
 
 /* Where the running app shows itself: in the menu bar, in the Dock, or both. */
 export const APP_ICONS = ["menubar", "dock", "both"];
 
 /* How many readings stay behind the title bar's chevrons: five, ten, or none
    but the one on screen. */
-export const KEPT_READINGS = [5, 10, 0];
+export const KEPT_READINGS = [5, 10, 20, 0];
 
 /* Who translates the panels first. The other one steps in where the first
    cannot — so both answers still translate without a model, where the
@@ -91,6 +85,11 @@ export const DEFAULTS = {
      translations still work and everything else is visibly locked. */
   endpoint: "",
   model: "",
+  /* Which of the settings' three ways to a model is in use, and what each
+     one holds (setup.js): endpoint and model above are always the chosen
+     way's, so nothing that asks the model needs to know there are ways. */
+  way: "",
+  ways: {},
   /* The device by default, because it is the one engine every reader has.
      Measured, it is also wrong in sense about one translation in four, where
      a cloud model is wrong in one of three hundred — so the settings say so,
@@ -118,17 +117,21 @@ export const DEFAULTS = {
      Most readers have no Anki, switched on it would ask three questions they
      have no answer to, and a card can be copied out without it. */
   cards: {
-    mode: "foreign",
+    /* The languages being learned, not every foreign one: a card in a
+       language the reader never set would need a deck of its own in Anki. */
+    mode: "learned",
     /* The card rewritten by the model as soon as it is shown: the word as a
        dictionary lists it, one meaning, an explanation with examples. On,
        because that is the card worth keeping and a reader who wanted the
        raw one has the way back on the same place. Off, the wand stays and
        the card is only improved when it is pressed. */
     improve: true,
-    /* `sync` asks Anki to synchronise after every card it took. Off: it is
-       Anki's own sync button, and a reader not logged in to AnkiWeb gets
-       Anki's login window with every card. */
-    anki: { enabled: false, deck: "", noteType: "", fields: { term: "", meaning: "", note: "" }, sync: false },
+    /* `decks` holds a deck, a note type and their fields per language,
+       keyed by its code and not by its place, so a reordered list keeps its
+       decks — see ankiTargets. `sync` asks Anki to synchronise after every
+       card it took. Off: it is Anki's own sync button, and a reader not
+       logged in to AnkiWeb gets Anki's login window with every card. */
+    anki: { enabled: false, decks: {}, sync: false },
   },
   /* Preset, because a shortcut nobody has set is a feature nobody uses. What
      is stored is the physical key together with the label the reader saw —
@@ -148,6 +151,11 @@ export const DEFAULTS = {
      permission: empty until the reader sets them. */
   wordHotkey: null,
   sentenceHotkey: null,
+  /* Text read off a piece of the screen the reader frames: empty until set,
+     reached from the menu bar symbol's menu in any case. */
+  screenHotkey: null,
+  screenCopyHotkey: null,
+  screenCardHotkey: null,
   /* Whether the Accessibility permission is used for the selection: read
      without copying, and a translation inserted. Null is a file that never
      said — read as "yes, where macOS allows it". What is under the pointer
@@ -191,6 +199,20 @@ export const DEFAULTS = {
   appIcon: "menubar",
   /* The first steps open at every start until the reader says not to. */
   welcome: true,
+  /* Whether the reader folded the steps of the way to a model away: open
+     until they do. */
+  guideFolded: false,
+  /* How often iOS was seen asking before a paste, up to the second, after
+     which the app says once how to stop it. */
+  pasteAsked: 0,
+  /* Whether the app may count anonymously (stats.js): asked once, in the
+     first steps, and null until the reader has answered. Nothing is counted
+     before a yes. */
+  stats: null,
+  /* On a phone, whether texts may go to the AI model at the address in use:
+     asked before the first one goes (App Review 5.1.2(i)), and asked again
+     for another address. { host, allowed }, or null while nobody asked. */
+  modelConsent: null,
 };
 
 /* Whether the permission is to be used for the selection, where macOS
@@ -203,6 +225,24 @@ const isPlainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
    Unknown keys are dropped, bad values fall back to the default. A settings
    file from a newer version, or one edited by hand, must not be able to
    break the app. */
+/* The address and model in use, the way they belong to, and what the other
+   ways hold. The address and model in use are what the file says at the
+   top; the way that holds them is told them again, so the two never part. */
+function normalizeWays(raw) {
+  const text = (value) => (typeof value === "string" ? value.trim() : "");
+  const endpoint = text(raw.endpoint);
+  const model = text(raw.model);
+  const way = WAYS.includes(raw.way) ? raw.way : setupOf({ endpoint });
+  const stored = isPlainObject(raw.ways) ? raw.ways : {};
+  const ways = {};
+  for (const name of WAYS) {
+    const entry = isPlainObject(stored[name]) ? stored[name] : null;
+    if (entry) ways[name] = { endpoint: text(entry.endpoint), model: text(entry.model) };
+  }
+  if (way) ways[way] = { endpoint, model };
+  return { endpoint, model, way, ways };
+}
+
 export function normalizeSettings(stored, { systemLanguages } = {}) {
   const raw = isPlainObject(stored) ? stored : {};
 
@@ -226,10 +266,9 @@ export function normalizeSettings(stored, { systemLanguages } = {}) {
     },
     underline: raw.underline !== false,
     glance: raw.glance !== false,
-    endpoint: typeof raw.endpoint === "string" ? raw.endpoint.trim() : "",
-    model: typeof raw.model === "string" ? raw.model.trim() : "",
+    ...normalizeWays(raw),
     translator: TRANSLATORS.includes(raw.translator) ? raw.translator : DEFAULTS.translator,
-    cards: normalizeCards(raw),
+    cards: normalizeCards(raw, valid ? languages : firstStartLanguages(systemLanguages)),
     /* Three states, not two. A combination is kept; an explicit null is the
        reader having cleared the field and stays cleared; a file that never
        mentioned a shortcut at all is a first start and gets the default.
@@ -242,6 +281,9 @@ export function normalizeSettings(stored, { systemLanguages } = {}) {
     cardHotkey: normalizeHotkey(raw, "cardHotkey"),
     wordHotkey: normalizeHotkey(raw, "wordHotkey"),
     sentenceHotkey: normalizeHotkey(raw, "sentenceHotkey"),
+    screenHotkey: normalizeHotkey(raw, "screenHotkey"),
+    screenCopyHotkey: normalizeHotkey(raw, "screenCopyHotkey"),
+    screenCardHotkey: normalizeHotkey(raw, "screenCardHotkey"),
     directSelection: typeof raw.directSelection === "boolean" ? raw.directSelection : null,
     forceClick: normalizeForceClick(raw),
     withSentence: raw.withSentence !== false,
@@ -250,6 +292,13 @@ export function normalizeSettings(stored, { systemLanguages } = {}) {
        stay: that is a pinned window now. */
     pinned: typeof raw.pinned === "boolean" ? raw.pinned : raw.closeOnBlur === false,
     welcome: raw.welcome !== false,
+    guideFolded: raw.guideFolded === true,
+    pasteAsked: Number.isInteger(raw.pasteAsked) && raw.pasteAsked > 0 ? Math.min(raw.pasteAsked, 2) : 0,
+    stats: typeof raw.stats === "boolean" ? raw.stats : null,
+    modelConsent: isPlainObject(raw.modelConsent) && typeof raw.modelConsent.host === "string"
+      && typeof raw.modelConsent.allowed === "boolean"
+      ? { host: raw.modelConsent.host, allowed: raw.modelConsent.allowed }
+      : null,
     search: SEARCH_URLS[raw.search] ? raw.search : SYSTEM_SEARCH,
     fitWindow: raw.fitWindow !== false,
     kept: KEPT_READINGS.includes(raw.kept) ? raw.kept : DEFAULTS.kept,
@@ -261,32 +310,61 @@ export function normalizeSettings(stored, { systemLanguages } = {}) {
 
    Two switches rather than one: the card itself has no outside at all, so it
    is on, and the export to another program is a separate decision. An older
-   settings file named Anki alone — that deck is kept, and the note type and
-   the mapping are guessed the first time the settings are opened. */
-function normalizeCards(raw) {
+   settings file named one deck for every language — that one becomes the
+   deck of the language its word field, its name or its note type's name
+   names, else of the first language learned, and the others are asked
+   anew: a deck holds one language almost wherever Anki is used for
+   languages. */
+function normalizeCards(raw, languages) {
   const cards = isPlainObject(raw.cards) ? raw.cards : {};
   /* Where an older file said `anki`, the deck it names is still the deck. */
   const stored = isPlainObject(cards.anki) ? cards.anki
     : isPlainObject(raw.anki) ? raw.anki : {};
-  const fields = isPlainObject(stored.fields) ? stored.fields : {};
-  const word = (value) => (typeof value === "string" ? value.trim() : "");
+  const decks = {};
+  if (isPlainObject(stored.decks)) {
+    for (const [key, target] of Object.entries(stored.decks)) {
+      if (isChoosable(key) && isPlainObject(target)) {
+        decks[key] = normalizeTarget(target);
+      }
+    }
+  } else if (stored.deck || stored.noteType) {
+    const target = normalizeTarget(stored);
+    const learned = languages.slice(1);
+    const named = [target.fields.term, target.deck, target.noteType]
+      .map((name) => languageNamedIn(name, learned, languages[0])).find(Boolean);
+    decks[named || languages[1]] = target;
+  }
   return {
     /* An older file said "both", which always meant every foreign language
        a card can be made in; older still, yes or no. */
     mode: CARD_MODES.includes(cards.mode) ? cards.mode
       : cards.mode === "both" ? "foreign"
+      : cards.enabled === true ? "foreign"
       : cards.enabled === false ? "never" : DEFAULTS.cards.mode,
     improve: cards.improve !== false,
+    /* The language the reader last chose on a card's word side, where a
+       card offers several: a blank card starts there next time. */
+    language: isChoosable(String(cards.language || "")) ? String(cards.language) : "",
     anki: {
       enabled: stored.enabled === true,
-      deck: word(stored.deck),
-      noteType: word(stored.noteType),
-      fields: {
-        term: word(fields.term),
-        meaning: word(fields.meaning),
-        note: word(fields.note),
-      },
+      decks,
       sync: stored.sync === true,
+    },
+  };
+}
+
+const EMPTY_TARGET = { deck: "", noteType: "", fields: { term: "", meaning: "", note: "" } };
+
+function normalizeTarget(raw) {
+  const fields = isPlainObject(raw.fields) ? raw.fields : {};
+  const word = (value) => (typeof value === "string" ? value.trim() : "");
+  return {
+    deck: word(raw.deck),
+    noteType: word(raw.noteType),
+    fields: {
+      term: word(fields.term),
+      meaning: word(fields.meaning),
+      note: word(fields.note),
     },
   };
 }
@@ -315,7 +393,7 @@ function normalizeForceClick(raw) {
 
 /* The combinations by what they do, in the order the settings show them
    and the shell registers them. */
-export const HOTKEYS = ["hotkey", "freshHotkey", "cardHotkey", "wordHotkey", "sentenceHotkey"];
+export const HOTKEYS = ["hotkey", "screenHotkey", "freshHotkey", "cardHotkey", "screenCardHotkey", "screenCopyHotkey", "wordHotkey", "sentenceHotkey"];
 
 /* Levels for languages nobody has selected are kept, not dropped: the point
    of remembering one is that it survives a detour through another language.
@@ -435,6 +513,23 @@ export function collapsePairs(languages, missing) {
 /* Without an endpoint the translation panels still work and everything the
    model would add is visibly locked. This is the one question the interface
    asks about that state. */
+/* The host of the AI model's address: what a phone's reader is asked about. */
+export function modelHostOf(endpoint) {
+  try {
+    return new URL(String(endpoint || "")).host;
+  } catch {
+    return "";
+  }
+}
+
+/* A phone's reader's answer about the address in use: true, false, or null
+   where they have not been asked about it. */
+export function modelConsentFor(settings) {
+  const host = modelHostOf(settings?.endpoint);
+  if (!host) return null;
+  return settings.modelConsent?.host === host ? settings.modelConsent.allowed : null;
+}
+
 export function explanationsAvailable(settings) {
   return !!normalizeSettings(settings).endpoint;
 }
@@ -455,8 +550,8 @@ export function offersCard(settings, code) {
   const clean = normalizeSettings(settings);
   const mode = clean.cards.mode;
   if (mode === "never" || !code || code === clean.languages[0]) return false;
-  if (code === clean.languages[1]) return mode === "second" || mode === "foreign";
-  if (code === clean.languages[2]) return mode === "third" || mode === "foreign";
+  if (code === clean.languages[1]) return mode !== "third";
+  if (code === clean.languages[2]) return mode !== "second";
   return mode === "foreign";
 }
 
@@ -464,25 +559,59 @@ export function offersCard(settings, code) {
    starts at. The reader's learned languages are the choices, and a detected
    language outside them joins them, since that is what the text is in.
 
-   The preset is the detected language where there is one. A text in the
-   reader's own language, or one nothing could name, starts at the language
-   the card setting narrows to — the third under "only the third" — and at
-   the first learned language otherwise. */
+   The preset is the detected language where there is one. A blank card, a
+   text in the reader's own language, or one nothing could name starts at
+   the language the reader last chose on a card (author 2026-10-31), and at
+   the first learned language before any was chosen. */
 export function cardLanguages(settings, detected = "") {
   const clean = normalizeSettings(settings);
   const learned = clean.languages.slice(1);
   const foreign = isSupported(detected) && detected !== clean.languages[0] ? detected : "";
   const choices = foreign && !learned.includes(foreign) ? learned.concat(foreign) : learned;
-  const narrowed = clean.cards.mode === "third" && clean.languages[2] ? clean.languages[2] : learned[0];
-  return { choices, preset: foreign || narrowed };
+  const last = learned.includes(clean.cards.language) ? clean.cards.language : learned[0];
+  return { choices, preset: foreign || last };
+}
+
+/* The languages a card can go to Anki from, in the order the settings show
+   them: each of the reader's a card is offered for, then, where "foreign"
+   makes cards in every language, those the reader added a deck for. */
+export function ankiTargets(settings) {
+  const clean = normalizeSettings(settings);
+  const own = clean.languages.slice(1);
+  const learned = own.filter((code) => offersCard(clean, code));
+  if (clean.cards.mode !== "foreign") return learned;
+  const added = Object.keys(clean.cards.anki.decks)
+    .filter((code) => code !== clean.languages[0] && !own.includes(code));
+  return learned.concat(added);
+}
+
+/* Where a card in this language goes: its own deck, note type and fields,
+   or nothing. Never another language's — a deck holds one language almost
+   wherever Anki is used for languages, and a deck taken over would file a
+   card where the reader never said. */
+export function ankiTarget(settings, code) {
+  return normalizeSettings(settings).cards.anki.decks[code] || EMPTY_TARGET;
+}
+
+/* The settings with a deck to be chosen for this language: a language with
+   no place in the reader's list gets an empty one, which puts it among
+   ankiTargets until a deck is chosen. What the card's "choose a deck" does
+   before it opens the settings. */
+export function withAnkiTarget(settings, code) {
+  const clean = normalizeSettings(settings);
+  const { decks } = clean.cards.anki;
+  if (!code || decks[code] || !isChoosable(code) || code === clean.languages[0]) return clean;
+  const anki = { ...clean.cards.anki, decks: { ...decks, [code]: EMPTY_TARGET } };
+  return { ...clean, cards: { ...clean.cards, anki } };
 }
 
 /* Configured, not merely switched on. A deck and a note type without a field
    for the word itself has nowhere to put the word, and Anki would take an
    empty note. */
-export function ankiConfigured(settings) {
-  const { enabled, deck, noteType, fields } = normalizeSettings(settings).cards.anki;
-  return !!(enabled && deck && noteType && fields.term);
+export function ankiConfigured(settings, code) {
+  const clean = normalizeSettings(settings);
+  const { deck, noteType, fields } = ankiTarget(clean, code);
+  return !!(clean.cards.anki.enabled && deck && noteType && fields.term);
 }
 
 export function readerLanguage(settings) {

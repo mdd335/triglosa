@@ -11,12 +11,17 @@
    about which one it is, while the README links straight to the newest
    release's file by its name, which must therefore stay the same from one
    release to the next. A target triple as the argument packs that
-   target's build; without one, this machine's own. */
+   target's build; without one, this machine's own.
+
+   An app signed with the Developer ID gets an image signed with it too,
+   which then goes through Apple's check and carries its own ticket
+   (notarize.mjs) — the image is what a reader downloads and opens first. */
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { signedWithDeveloperId, signingIdentity } from "./signing.mjs";
 
 const target = process.argv[2];
 const RELEASE = `src-tauri/target/${target ? `${target}/` : ""}release`;
@@ -60,5 +65,10 @@ run("hdiutil", [
   image,
 ]);
 rmSync(stage, { recursive: true, force: true });
+
+if (signedWithDeveloperId(APP)) {
+  run("codesign", ["--force", "--timestamp", "--sign", signingIdentity(), image]);
+  execFileSync("node", ["scripts/notarize.mjs", `--file=${image}`], { stdio: "inherit" });
+}
 
 console.log(image);

@@ -52,19 +52,6 @@ pub fn collection_behavior(current: u64, spaces: Spaces) -> u64 {
         | FULL_SCREEN_AUXILIARY
 }
 
-/* A window on every Space can come to stand on the full screen Spaces alone,
-its flags unchanged — the desktop the reader is on no longer among them.
-Brought forward from there, it took the reader into the full screen and was
-put away at once, the focus lost on the way. Leaving every Space for the
-active one and joining them all again from there puts a window back on
-each, the one the reader is on included. */
-pub fn rejoined(current: u64) -> [u64; 2] {
-    [
-        collection_behavior(current, Spaces::Active),
-        collection_behavior(current, Spaces::All),
-    ]
-}
-
 #[cfg(target_os = "macos")]
 mod platform {
     use std::ffi::{c_void, CString};
@@ -110,36 +97,176 @@ mod platform {
         );
     }
 
-    /* Every Space joined again, from the one the reader is on. */
-    pub fn rejoin_all_spaces(ns_window: *mut c_void) {
+    /* Off the screen where it is shown but not on the active Space. */
+    pub fn order_out_where_unseen(ns_window: *mut c_void) {
         if ns_window.is_null() {
             return;
         }
         let send = objc_msgSend as *const ();
-        let read: extern "C" fn(*mut c_void, *const c_void) -> u64 =
+        let ask: extern "C" fn(*mut c_void, *const c_void) -> bool =
             unsafe { std::mem::transmute(send) };
-        let write: extern "C" fn(*mut c_void, *const c_void, u64) =
+        let order: extern "C" fn(*mut c_void, *const c_void, *mut c_void) =
             unsafe { std::mem::transmute(send) };
-
-        let current = read(ns_window, selector("collectionBehavior"));
-        for step in super::rejoined(current) {
-            write(ns_window, selector("setCollectionBehavior:"), step);
+        if ask(ns_window, selector("isVisible")) && !ask(ns_window, selector("isOnActiveSpace")) {
+            order(ns_window, selector("orderOut:"), std::ptr::null_mut());
         }
     }
 
-    /* The first entry of a status item's menu drawn as a section heading —
-    the small grey bold line macOS writes over a group of entries. muda
-    has no such item, so the one it built is swapped for AppKit's own,
-    with the same title. */
-    pub fn first_entry_as_heading(ns_status_item: *mut c_void) {
-        if ns_status_item.is_null() {
+    /* What the menu bar symbol's menu is given once it opens: the title of
+    one of its entries that tells it from every other menu, and the key
+    equivalents with the titles of the entries they go beside. */
+    pub struct Finish {
+        pub mark: String,
+        pub shortcuts: Vec<(String, String, u64)>,
+    }
+
+    static FINISH: std::sync::Mutex<Option<Finish>> = std::sync::Mutex::new(None);
+
+    /* The menu is finished as it opens, not when it is built: tray-icon
+    hands it to the status item only for as long as it is open, so before
+    that there is no way to it. AppKit tells every observer when a menu
+    begins tracking, before it is drawn, with the menu itself. */
+    pub fn finish_menu_on_open(finish: Finish) {
+        *FINISH
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(finish);
+        static WATCH: std::sync::Once = std::sync::Once::new();
+        WATCH.call_once(watch_menus);
+    }
+
+    fn watch_menus() {
+        extern "C" {
+            fn objc_getClass(name: *const c_char) -> *mut c_void;
+            fn objc_allocateClassPair(
+                superclass: *mut c_void,
+                name: *const c_char,
+                extra: usize,
+            ) -> *mut c_void;
+            fn objc_registerClassPair(class: *mut c_void);
+            fn class_addMethod(
+                class: *mut c_void,
+                name: *const c_void,
+                imp: *const c_void,
+                types: *const c_char,
+            ) -> bool;
+        }
+        #[link(name = "AppKit", kind = "framework")]
+        extern "C" {
+            static NSMenuDidBeginTrackingNotification: *mut c_void;
+        }
+        let send = objc_msgSend as *const ();
+        let object: extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+            unsafe { std::mem::transmute(send) };
+        let observe: extern "C" fn(
+            *mut c_void,
+            *const c_void,
+            *mut c_void,
+            *const c_void,
+            *mut c_void,
+            *mut c_void,
+        ) = unsafe { std::mem::transmute(send) };
+
+        let name = CString::new("TriglosaMenuWatch").expect("a class name");
+        let base = CString::new("NSObject").expect("a class name");
+        let types = CString::new("v@:@").expect("a method type");
+        let began = selector("menuBegan:");
+        let class = unsafe {
+            let class = objc_allocateClassPair(objc_getClass(base.as_ptr()), name.as_ptr(), 0);
+            if class.is_null() {
+                return;
+            }
+            class_addMethod(class, began, menu_began as *const c_void, types.as_ptr());
+            objc_registerClassPair(class);
+            class
+        };
+        /* Never released: it watches for as long as the app runs. */
+        let watcher = object(class, selector("new"));
+        let center_class = CString::new("NSNotificationCenter").expect("a class name");
+        let center = object(
+            unsafe { objc_getClass(center_class.as_ptr()) },
+            selector("defaultCenter"),
+        );
+        if watcher.is_null() || center.is_null() {
             return;
         }
+        observe(
+            center,
+            selector("addObserver:selector:name:object:"),
+            watcher,
+            began,
+            unsafe { NSMenuDidBeginTrackingNotification },
+            std::ptr::null_mut(),
+        );
+    }
+
+    extern "C" fn menu_began(_this: *mut c_void, _cmd: *const c_void, notification: *mut c_void) {
+        let send = objc_msgSend as *const ();
+        let object: extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+            unsafe { std::mem::transmute(send) };
+        let menu = object(notification, selector("object"));
+        let finish = FINISH
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(finish) = finish.as_ref() else {
+            return;
+        };
+        if menu.is_null() || entry_titled(menu, &finish.mark).is_null() {
+            return;
+        }
+        greyed_entries_as_headings(menu);
+        for (title, key, mask) in &finish.shortcuts {
+            key_equivalent(menu, title, key, *mask);
+        }
+    }
+
+    fn ns_string(text: &str) -> *mut c_void {
+        extern "C" {
+            fn objc_getClass(name: *const c_char) -> *mut c_void;
+        }
+        let send = objc_msgSend as *const ();
+        let from_utf8: extern "C" fn(*mut c_void, *const c_void, *const c_char) -> *mut c_void =
+            unsafe { std::mem::transmute(send) };
+        let class = CString::new("NSString").expect("a class name");
+        let (string_class, Ok(text)) =
+            (unsafe { objc_getClass(class.as_ptr()) }, CString::new(text))
+        else {
+            return std::ptr::null_mut();
+        };
+        if string_class.is_null() {
+            return std::ptr::null_mut();
+        }
+        from_utf8(
+            string_class,
+            selector("stringWithUTF8String:"),
+            text.as_ptr(),
+        )
+    }
+
+    fn entry_titled(menu: *mut c_void, title: &str) -> *mut c_void {
+        let send = objc_msgSend as *const ();
+        let with: extern "C" fn(*mut c_void, *const c_void, *mut c_void) -> *mut c_void =
+            unsafe { std::mem::transmute(send) };
+        let title = ns_string(title);
+        if title.is_null() {
+            return std::ptr::null_mut();
+        }
+        with(menu, selector("itemWithTitle:"), title)
+    }
+
+    /* Every greyed entry drawn as a section heading — the small grey bold
+    line macOS writes over a group of entries. muda has no such item, so a
+    greyed one is built and swapped for AppKit's own, with the same title.
+    The menu has no other greyed entry. */
+    fn greyed_entries_as_headings(menu: *mut c_void) {
         extern "C" {
             fn objc_getClass(name: *const c_char) -> *mut c_void;
         }
         let send = objc_msgSend as *const ();
         let object: extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+            unsafe { std::mem::transmute(send) };
+        let count: extern "C" fn(*mut c_void, *const c_void) -> i64 =
+            unsafe { std::mem::transmute(send) };
+        let ask: extern "C" fn(*mut c_void, *const c_void) -> bool =
             unsafe { std::mem::transmute(send) };
         let at: extern "C" fn(*mut c_void, *const c_void, i64) -> *mut c_void =
             unsafe { std::mem::transmute(send) };
@@ -150,72 +277,43 @@ mod platform {
         let insert: extern "C" fn(*mut c_void, *const c_void, *mut c_void, i64) =
             unsafe { std::mem::transmute(send) };
 
-        let menu = object(ns_status_item, selector("menu"));
-        if menu.is_null() {
-            return;
-        }
-        let first = at(menu, selector("itemAtIndex:"), 0);
-        if first.is_null() {
-            return;
-        }
-        let title = object(first, selector("title"));
         let class = CString::new("NSMenuItem").expect("a class name");
         let item_class = unsafe { objc_getClass(class.as_ptr()) };
-        if title.is_null() || item_class.is_null() {
+        if item_class.is_null() {
             return;
         }
-        let heading = with(item_class, selector("sectionHeaderWithTitle:"), title);
-        if heading.is_null() {
-            return;
+        for index in 0..count(menu, selector("numberOfItems")) {
+            let entry = at(menu, selector("itemAtIndex:"), index);
+            if entry.is_null()
+                || ask(entry, selector("isEnabled"))
+                || ask(entry, selector("isSeparatorItem"))
+                || ask(entry, selector("isSectionHeader"))
+            {
+                continue;
+            }
+            let title = object(entry, selector("title"));
+            if title.is_null() {
+                continue;
+            }
+            let heading = with(item_class, selector("sectionHeaderWithTitle:"), title);
+            if heading.is_null() {
+                continue;
+            }
+            remove(menu, selector("removeItemAtIndex:"), index);
+            insert(menu, selector("insertItem:atIndex:"), heading, index);
         }
-        remove(menu, selector("removeItemAtIndex:"), 0);
-        insert(menu, selector("insertItem:atIndex:"), heading, 0);
     }
 
     /* A key equivalent written beside the entry with this title. */
-    pub fn key_equivalent(ns_status_item: *mut c_void, title: &str, key: &str, mask: u64) {
-        if ns_status_item.is_null() {
-            return;
-        }
-        extern "C" {
-            fn objc_getClass(name: *const c_char) -> *mut c_void;
-        }
+    fn key_equivalent(menu: *mut c_void, title: &str, key: &str, mask: u64) {
         let send = objc_msgSend as *const ();
-        let object: extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
-            unsafe { std::mem::transmute(send) };
-        let with: extern "C" fn(*mut c_void, *const c_void, *mut c_void) -> *mut c_void =
-            unsafe { std::mem::transmute(send) };
-        let from_utf8: extern "C" fn(*mut c_void, *const c_void, *const c_char) -> *mut c_void =
-            unsafe { std::mem::transmute(send) };
         let set_object: extern "C" fn(*mut c_void, *const c_void, *mut c_void) =
             unsafe { std::mem::transmute(send) };
         let set_mask: extern "C" fn(*mut c_void, *const c_void, u64) =
             unsafe { std::mem::transmute(send) };
-
-        let menu = object(ns_status_item, selector("menu"));
-        let class = CString::new("NSString").expect("a class name");
-        let string_class = unsafe { objc_getClass(class.as_ptr()) };
-        let (Ok(title), Ok(key)) = (CString::new(title), CString::new(key)) else {
-            return;
-        };
-        if menu.is_null() || string_class.is_null() {
-            return;
-        }
-        let title = from_utf8(
-            string_class,
-            selector("stringWithUTF8String:"),
-            title.as_ptr(),
-        );
-        let key = from_utf8(
-            string_class,
-            selector("stringWithUTF8String:"),
-            key.as_ptr(),
-        );
-        if title.is_null() || key.is_null() {
-            return;
-        }
-        let entry = with(menu, selector("itemWithTitle:"), title);
-        if entry.is_null() {
+        let entry = entry_titled(menu, title);
+        let key = ns_string(key);
+        if entry.is_null() || key.is_null() {
             return;
         }
         set_object(entry, selector("setKeyEquivalent:"), key);
@@ -246,49 +344,218 @@ mod platform {
         }
     }
 
-    /* Whether this app is still the active one. */
-    pub fn app_is_active() -> bool {
+    /* The program macOS counts as the one in front. A panel that comes
+    forward without bringing this app along leaves it where it was. */
+    pub fn front_program() -> i32 {
         extern "C" {
             fn objc_getClass(name: *const c_char) -> *mut c_void;
         }
         let send = objc_msgSend as *const ();
         let object: extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
             unsafe { std::mem::transmute(send) };
+        let number: extern "C" fn(*mut c_void, *const c_void) -> i32 =
+            unsafe { std::mem::transmute(send) };
+        let class = CString::new("NSWorkspace").expect("a class name");
+        let workspace = object(
+            unsafe { objc_getClass(class.as_ptr()) },
+            selector("sharedWorkspace"),
+        );
+        if workspace.is_null() {
+            return 0;
+        }
+        let front = object(workspace, selector("frontmostApplication"));
+        if front.is_null() {
+            return 0;
+        }
+        number(front, selector("processIdentifier"))
+    }
+
+    /* Seconds since a mouse button last went down anywhere. The system's own
+    idle counter, which asks no permission. */
+    pub fn seconds_since_click() -> f64 {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGEventSourceSecondsSinceLastEventType(state: i32, kind: u32) -> f64;
+        }
+        const COMBINED_SESSION: i32 = 0;
+        const LEFT_DOWN: u32 = 1;
+        const RIGHT_DOWN: u32 = 3;
+        const OTHER_DOWN: u32 = 25;
+        [LEFT_DOWN, RIGHT_DOWN, OTHER_DOWN]
+            .into_iter()
+            .map(|kind| unsafe { CGEventSourceSecondsSinceLastEventType(COMBINED_SESSION, kind) })
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    /* The program owning the topmost window under the pointer, this app's
+    own left out: 0 where there is none. The window server's list runs from
+    front to back, in the same top-left points as the pointer. */
+    pub fn owner_under_pointer() -> i32 {
+        type CFTypeRef = *const c_void;
+        #[repr(C)]
+        #[derive(Default)]
+        struct Point {
+            x: f64,
+            y: f64,
+        }
+        #[repr(C)]
+        #[derive(Default)]
+        struct Rect {
+            origin: Point,
+            width: f64,
+            height: f64,
+        }
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGEventCreate(source: CFTypeRef) -> CFTypeRef;
+            fn CGEventGetLocation(event: CFTypeRef) -> Point;
+            fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFTypeRef;
+            fn CGRectMakeWithDictionaryRepresentation(
+                dictionary: CFTypeRef,
+                rect: *mut Rect,
+            ) -> bool;
+            static kCGWindowOwnerPID: CFTypeRef;
+            static kCGWindowAlpha: CFTypeRef;
+            static kCGWindowBounds: CFTypeRef;
+        }
+        #[link(name = "CoreFoundation", kind = "framework")]
+        extern "C" {
+            fn CFArrayGetCount(array: CFTypeRef) -> isize;
+            fn CFArrayGetValueAtIndex(array: CFTypeRef, index: isize) -> CFTypeRef;
+            fn CFDictionaryGetValue(dictionary: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
+            fn CFNumberGetValue(number: CFTypeRef, kind: i32, value: *mut c_void) -> u8;
+            fn CFRelease(object: CFTypeRef);
+        }
+        const ON_SCREEN_ONLY: u32 = 1 << 0;
+        const SINT32: i32 = 3;
+        const DOUBLE: i32 = 13;
+
+        let event = unsafe { CGEventCreate(std::ptr::null()) };
+        if event.is_null() {
+            return 0;
+        }
+        let pointer = unsafe { CGEventGetLocation(event) };
+        unsafe { CFRelease(event) };
+        let list = unsafe { CGWindowListCopyWindowInfo(ON_SCREEN_ONLY, 0) };
+        if list.is_null() {
+            return 0;
+        }
+        let own = std::process::id() as i32;
+        let mut found = 0;
+        for index in 0..unsafe { CFArrayGetCount(list) } {
+            let window = unsafe { CFArrayGetValueAtIndex(list, index) };
+            let mut pid: i32 = 0;
+            let mut alpha: f64 = 1.0;
+            let mut bounds = Rect::default();
+            unsafe {
+                let value = CFDictionaryGetValue(window, kCGWindowOwnerPID);
+                if !value.is_null() {
+                    CFNumberGetValue(value, SINT32, &mut pid as *mut i32 as *mut c_void);
+                }
+                let value = CFDictionaryGetValue(window, kCGWindowAlpha);
+                if !value.is_null() {
+                    CFNumberGetValue(value, DOUBLE, &mut alpha as *mut f64 as *mut c_void);
+                }
+                let value = CFDictionaryGetValue(window, kCGWindowBounds);
+                if value.is_null() || !CGRectMakeWithDictionaryRepresentation(value, &mut bounds) {
+                    continue;
+                }
+            }
+            let holds = pointer.x >= bounds.origin.x
+                && pointer.x < bounds.origin.x + bounds.width
+                && pointer.y >= bounds.origin.y
+                && pointer.y < bounds.origin.y + bounds.height;
+            if holds && alpha > 0.0 && pid > 0 && pid != own {
+                found = pid;
+                break;
+            }
+        }
+        unsafe { CFRelease(list) };
+        found
+    }
+
+    /* Keys given back to whatever had them before the panel took them, the
+    panel left standing where it is: out and in again, in one turn of the
+    main thread, without being made key on the way in. */
+    pub fn give_up_keys(ns_window: *mut c_void) {
+        if ns_window.is_null() {
+            return;
+        }
+        let send = objc_msgSend as *const ();
         let ask: extern "C" fn(*mut c_void, *const c_void) -> bool =
             unsafe { std::mem::transmute(send) };
-        let class = CString::new("NSApplication").expect("a class name");
-        let app = object(
-            unsafe { objc_getClass(class.as_ptr()) },
-            selector("sharedApplication"),
-        );
-        !app.is_null() && ask(app, selector("isActive"))
+        let plain: extern "C" fn(*mut c_void, *const c_void) = unsafe { std::mem::transmute(send) };
+        let order: extern "C" fn(*mut c_void, *const c_void, *mut c_void) =
+            unsafe { std::mem::transmute(send) };
+        if ask(ns_window, selector("isKeyWindow")) && ask(ns_window, selector("isVisible")) {
+            order(ns_window, selector("orderOut:"), std::ptr::null_mut());
+            plain(ns_window, selector("orderFrontRegardless"));
+        }
     }
 }
 
-/* Whether the focus went to a panel that does not take the app's activation
-with it — Spotlight, with the clipboard history the reader pastes from, or
-the character viewer — rather than to another program. The window then
-stays: it is still what the reader is working in. Must be called on the
-main thread. */
-pub fn app_is_active() -> bool {
+/* Where things stood when the reading window lost the focus. */
+pub struct FocusLeft {
+    at: std::time::Instant,
+    front: i32,
+}
+
+/* Must be called on the main thread, which is where the loss is reported. */
+pub fn focus_left() -> FocusLeft {
+    FocusLeft {
+        at: std::time::Instant::now(),
+        #[cfg(target_os = "macos")]
+        front: platform::front_program(),
+        #[cfg(not(target_os = "macos"))]
+        front: 0,
+    }
+}
+
+/* Whether the reader has gone to another program since the reading window
+lost the focus, rather than to a panel that floats over the one they are
+in — Spotlight, with the clipboard history they paste from, or the
+character viewer. The window stays for those: it is still what the reader
+is working in.
+
+On the Mac the reading window is a panel that never makes this app the
+active one, so being active says nothing. Another program has been reached
+when the one in front is no longer the one that was, or when a mouse button
+went down since a moment before the focus left over a window of the
+program in front — a click into the program under the window keeps it in
+front and takes the focus all the same, while a click into Spotlight's
+list lands on a window of Spotlight's own, which is never in front. This
+app coming forward with a card or the settings is not another program, and
+a click into one of its windows has given that window the focus by the
+time this is asked. A panel opened from the keyboard does neither. Must be called on the main
+thread. */
+pub fn reached_elsewhere(left: &FocusLeft) -> bool {
     #[cfg(target_os = "macos")]
     {
-        platform::app_is_active()
+        const CLICK_BEFORE_LOSS: f64 = 0.3;
+        let front = platform::front_program();
+        let own = std::process::id() as i32;
+        let clicked =
+            platform::seconds_since_click() < left.at.elapsed().as_secs_f64() + CLICK_BEFORE_LOSS;
+        (front != left.front && front != own)
+            || (clicked && front > 0 && platform::owner_under_pointer() == front)
     }
-    /* On Windows: whether the window in front is one of ours. A window just
-    built — a card — can be in front before it reports the focus. */
+    /* On Windows: whether the window in front is anything but one of ours. A
+    window just built — a card — can be in front before it reports the
+    focus. */
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::UI::WindowsAndMessaging::{
             GetForegroundWindow, GetWindowThreadProcessId,
         };
+        let _ = left;
         let mut process = 0u32;
         unsafe { GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut process)) };
-        process == std::process::id()
+        process != std::process::id()
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        false
+        let _ = left;
+        true
     }
 }
 
@@ -479,16 +746,94 @@ pub fn over_full_screen(window: &tauri::WebviewWindow, spaces: Spaces) {
     let _ = (window, spaces);
 }
 
-/* The reading window, every time before it is shown: see `rejoined`. */
-pub fn rejoin_all_spaces(window: &tauri::WebviewWindow) {
+/* The reading window shown on the Space the reader is on, and on every
+Space from there.
+
+Hidden, a window on every Space does not stay on every Space: a program
+going into full screen or coming out of it leaves it on one of them alone,
+its flags unchanged, and shown from another it took the reader there and
+was put away at once, the focus lost on the way. Its flags changed while it
+is hidden change nothing. So it is shown following the active Space, which
+puts it on the one the reader is on, and joins every Space again once it
+stands there.
+
+A window can also be shown and stand on no Space at all: macOS then counts
+it as shown, showing it again does nothing, and the app came forward with
+nothing to see. Shown anywhere but on the Space the reader is on, it is
+taken off the screen first. Must be called on the main thread. */
+pub fn show_on_active_space(window: &tauri::WebviewWindow, show: impl FnOnce()) {
     #[cfg(target_os = "macos")]
     {
+        let handle = window.ns_window().ok();
+        if let Some(handle) = handle {
+            platform::over_full_screen(handle, Spaces::Active);
+            platform::order_out_where_unseen(handle);
+        }
+        show();
+        if let Some(handle) = handle {
+            platform::over_full_screen(handle, Spaces::All);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        show();
+    }
+}
+
+/* The reading window as a panel that takes the keys without making this app
+the active one — the kind of window Spotlight and the launchers float over
+the program the reader is in.
+
+An ordinary window comes forward by making its app active, and macOS
+answers an app becoming active by going to the Space its window stands on.
+A hidden window's Space drifts — a program going into full screen or
+coming out of it leaves it on one Space alone, or on none — and the reader
+was taken there, or shown nothing. A panel that does not activate is
+ordered in where the reader is and takes the keys; the program in front
+stays in front, and no Space is left for it.
+
+Its class swapped for an NSPanel subclass and the non-activating flag set
+by tauri-nspanel, which also tells the window server: the flag alone, set
+on a window built as an ordinary one, is not heard there. The settings,
+the first steps and a card stay ordinary windows: each is built anew on the
+Space the reader is on and never hidden to drift, and they are windows to
+stay in, not to glance at. Must be called before the window is first
+shown. */
+#[cfg(target_os = "macos")]
+mod panel {
+    tauri_nspanel::tauri_panel! {
+        panel!(ReadingPanel {
+            config: {
+                can_become_key_window: true,
+                hides_on_deactivate: false
+            }
+        })
+    }
+}
+
+pub fn as_panel(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri_nspanel::{panel::NSWindowStyleMask, WebviewWindowExt};
         let target = window.clone();
         let _ = window.run_on_main_thread(move || {
-            if let Ok(handle) = target.ns_window() {
-                platform::rejoin_all_spaces(handle);
+            if let Ok(panel) = target.to_panel::<panel::ReadingPanel>() {
+                let _ = panel.add_style_mask(NSWindowStyleMask::NonactivatingPanel);
             }
         });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
+}
+
+/* The reading window's keys handed back to the program under it, the window
+left standing: a pinned panel keeps them otherwise, and what is pasted
+there lands in the panel. Must be called on the main thread. */
+pub fn give_up_keys(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    if let Ok(handle) = window.ns_window() {
+        platform::give_up_keys(handle);
     }
     #[cfg(not(target_os = "macos"))]
     let _ = window;
@@ -524,7 +869,8 @@ notification area is not: it opened behind whatever was in front, and the
 focus stayed there. The one sanctioned way round it is to share the input
 state of the thread that holds the foreground for the moment of asking —
 the program in front then counts as having handed the focus over. Must be
-called on the main thread. Elsewhere Tauri's own focus is enough. */
+called on the main thread. Elsewhere Tauri's own focus is enough, but for
+the reading window's panel. */
 pub fn bring_to_front(window: &tauri::WebviewWindow) {
     #[cfg(target_os = "windows")]
     {
@@ -550,6 +896,22 @@ pub fn bring_to_front(window: &tauri::WebviewWindow) {
         this the keys went to the frame, and Escape did nothing. */
         let _ = AsRef::<tauri::Webview>::as_ref(window).set_focus();
         return;
+    }
+    /* A panel is made key and its page given the keys, and the app is not
+    made active: Tauri's own focus would, and that is the one thing the
+    panel is there to avoid. Ordered in front regardless: a window of an app
+    that is not active comes forward only among its own app's windows, and
+    stood behind the program the reader was in. */
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        use tauri_nspanel::ManagerExt;
+        if let Ok(panel) = window.app_handle().get_webview_panel(window.label()) {
+            panel.order_front_regardless();
+            panel.make_key_window();
+            let _ = AsRef::<tauri::Webview>::as_ref(window).set_focus();
+            return;
+        }
     }
     #[allow(unreachable_code)]
     let _ = window.set_focus();
@@ -630,24 +992,24 @@ fn key_and_mask(accelerator: &str) -> Option<(String, u64)> {
     Some((key.to_string(), mask))
 }
 
-/* The menu bar symbol's menu finished where muda cannot: the first entry
-drawn as a section heading, and the shortcut beside the entry it belongs
-to. Both are left as muda built them where AppKit does not answer. */
-pub fn finish_tray_menu(tray: &tauri::tray::TrayIcon, shortcuts: Vec<(String, String)>) {
+/* The menu bar symbol's menu finished where muda cannot, each time it opens:
+its greyed entries drawn as section headings, and each shortcut beside the
+entry it belongs to. `mark` is the title of one of its entries, which tells
+it from every other menu. Left as muda built it where AppKit does not
+answer. */
+pub fn finish_tray_menu(mark: &str, shortcuts: Vec<(String, String)>) {
     #[cfg(target_os = "macos")]
-    let _ = tray.with_inner_tray_icon(move |inner| {
-        if let Some(item) = inner.ns_status_item() {
-            let item = &*item as *const _ as *mut std::ffi::c_void;
-            platform::first_entry_as_heading(item);
-            for (title, accelerator) in &shortcuts {
-                if let Some((key, mask)) = key_and_mask(accelerator) {
-                    platform::key_equivalent(item, title, &key, mask);
-                }
-            }
-        }
+    platform::finish_menu_on_open(platform::Finish {
+        mark: mark.to_string(),
+        shortcuts: shortcuts
+            .into_iter()
+            .filter_map(|(title, accelerator)| {
+                key_and_mask(&accelerator).map(|(key, mask)| (title, key, mask))
+            })
+            .collect(),
     });
     #[cfg(not(target_os = "macos"))]
-    let _ = (tray, shortcuts);
+    let _ = (mark, shortcuts);
 }
 
 #[cfg(test)]
@@ -660,15 +1022,6 @@ mod tests {
         assert_eq!(all, CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY);
         let active = collection_behavior(primary, Spaces::Active);
         assert_eq!(active, MOVE_TO_ACTIVE_SPACE | FULL_SCREEN_AUXILIARY);
-    }
-
-    #[test]
-    fn a_window_rejoins_every_space_by_way_of_the_active_one() {
-        let all = CAN_JOIN_ALL_SPACES | FULL_SCREEN_AUXILIARY;
-        assert_eq!(
-            rejoined(all),
-            [MOVE_TO_ACTIVE_SPACE | FULL_SCREEN_AUXILIARY, all]
-        );
     }
 
     #[test]

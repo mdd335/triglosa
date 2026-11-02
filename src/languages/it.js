@@ -63,6 +63,8 @@ export default {
   /* The definite articles, which put a noun on a flashcard the way a
      dictionary names it — with the gender a learner has to learn with it. */
   definiteArticles: "il lo la i gli le l'",
+  /* The letters before which l' stands. */
+  elidesBefore: "aeiouh",
   masculineArticles: "il lo",
   feminineArticles: "la",
   articles: "il lo la i gli le l' un uno una un'",

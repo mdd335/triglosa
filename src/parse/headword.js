@@ -40,7 +40,23 @@ const sameStem = (a, b) => {
   return shared >= PAIR_SHARES;
 };
 
+/* An elided article only before a letter the language elides it in front
+   of: "l'/la malade" read as one word for both would be "l'malade". */
+function elidedRightly(headword, code) {
+  const letters = languagePack(code).elidesBefore;
+  if (!letters) return true;
+  return headword.split(/\s*\/\s*/).every((form) => {
+    const elided = form.replace(/’/g, "'").match(/^\S*'(.)/);
+    return !elided || letters.includes(fold(elided[1]));
+  });
+}
+
 export function parseHeadword(raw, word, code) {
+  const headword = headwordOf(raw, word, code);
+  return elidedRightly(headword, code) ? headword : String(word || "").trim();
+}
+
+function headwordOf(raw, word, code) {
   const asked = String(word || "").trim();
   const line = stripQuotes(cleanLine(String(raw || "").split(/\r?\n/).find((l) => l.trim()) || ""))
     .replace(/[.。]$/, "").trim();

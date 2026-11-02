@@ -16,6 +16,11 @@ export const RELEASES_URL = `${PROJECT_URL}/releases`;
 /* The file that does everything the Accessibility permission allows, named
    beside the permission so a reader can check what it is used for. */
 export const CAPTURE_CODE_URL = `${PROJECT_URL}/blob/main/src-tauri/src/capture.rs`;
+/* Where the anonymous count goes, where the reader allowed it: the counter
+   in counter/, on Cloudflare's workers. */
+export const COUNTER_URL = "https://counter.triglosa.workers.dev/v1";
+/* What is counted, said for whoever wants to check. */
+export const PRIVACY_URL = `${PROJECT_URL}/blob/main/PRIVACY.md`;
 const LATEST_URL = "https://api.github.com/repos/mdd335/triglosa/releases/latest";
 
 /* "v0.2.0" and "0.2.0" are the same version; anything after a hyphen is a

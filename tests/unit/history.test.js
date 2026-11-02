@@ -37,6 +37,15 @@ test("a reading translated by the other engine is not the same reading", () => {
   );
 });
 
+test("a reading made with other panels chosen in the window is not the same reading", () => {
+  const choice = { swaps: { es: "fr" }, added: "" };
+  const plain = entry("Hola.");
+  assert.strictEqual(keptReading([plain], "Hola.", settings, "", choice), null);
+  const chosen = { draft: "Hola.", key: readingKey(settings, choice), state: { panels: [] } };
+  assert.strictEqual(keptReading([plain, chosen], "Hola.", settings, "", choice), chosen);
+  assert.strictEqual(keptReading([plain, chosen], "Hola.", settings), plain);
+});
+
 test("the oldest readings go beyond what the settings keep, never the one on screen", () => {
   const made = (count) => Array.from({ length: count }, (_, index) => entry(`text ${index}`));
   let list = made(7);
@@ -46,6 +55,10 @@ test("the oldest readings go beyond what the settings keep, never the one on scr
   list = made(7);
   dropOldest(list, { kept: 10 });
   assert.strictEqual(list.length, 7);
+
+  list = made(25);
+  dropOldest(list, { kept: 20 });
+  assert.deepStrictEqual([list.length, list[0].draft], [20, "text 5"]);
 
   /* Stepped back to the oldest, and fewer are kept from now on. */
   list = made(7);

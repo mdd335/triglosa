@@ -7,25 +7,23 @@
    between them takes nothing with it. */
 
 import { onWindows } from "../system.js";
-import { loadSettings } from "../platform/store.js";
-import { copyText, modelFetch } from "../platform/env.js";
-import { loadApiKey } from "../platform/keychain.js";
-import { createLlmBackend } from "../platform/llm.js";
-import { completeCard, improveCard } from "../ask.js";
-import { faultOf } from "../faults.js";
-import { isChoosable } from "../languages/index.js";
+import { loadSettings, saveSettings } from "../platform/store.js";
+import { copyText } from "../platform/env.js";
 import { createAnkiBackend } from "../platform/anki.js";
-import { ankiConfigured, levelFor } from "../settings.js";
+import { ankiConfigured, ankiTarget, withAnkiTarget } from "../settings.js";
 import {
   closeCard,
   fitCardWindow,
   onCardChanged,
   onSettingsChanged,
   openSettings,
+  settingsChanged,
   takeCard,
 } from "../platform/windows.js";
-import { faultText, labels, windowTitle } from "./labels.js";
+import { labels, windowTitle } from "./labels.js";
+import { improverFor } from "./card-improver.js";
 import { renderCard } from "./card-view.js";
+import { closeOnKeys, quietContextMenu } from "./elements.js";
 import { createSpeech } from "../platform/speech.js";
 
 let settings = await loadSettings();
@@ -80,30 +78,14 @@ const watch = new ResizeObserver(() => fit(true));
 let shown = null;
 let drawn = null;
 
-/* The wand, where there is a model to ask and a language to ask it about. The
-   window reads the endpoint and the key for itself, the way it reads the
-   settings: the reading window shares nothing with it. A fault is worded here,
-   in the reader's language, so the card only has to show the sentence. */
-async function improverFor(card) {
-  if (!settings.endpoint || !isChoosable(card.termLanguage) || !isChoosable(card.meaningLanguage)) {
-    return null;
-  }
-  const llm = createLlmBackend(
-    { endpoint: settings.endpoint, apiKey: await loadApiKey(), model: settings.model },
-    await modelFetch(),
-  );
-  /* A card with one side written — from the shortcut, or typed into a blank
-     one — gets the other side first, and is then improved like any card. */
-  return async (current) => {
-    try {
-      const whole = await completeCard(llm, current);
-      const better = await improveCard(llm, whole, { level: levelFor(settings, whole.termLanguage) });
-      /* The side just found is kept even where the improving came to nothing. */
-      return better || (whole !== current ? whole : null);
-    } catch (error) {
-      throw new Error(faultText(settings.languages[0], faultOf(error)), { cause: error });
-    }
-  };
+/* The language the reader chose on the card's word side, kept for the next
+   blank card (cardLanguages). Written without telling the other windows: the
+   language is read where a card is made, and a card redrawn for it would
+   lose what is being typed. */
+async function rememberLanguage(code) {
+  const now = await loadSettings();
+  if (now.cards.language === code) return;
+  settings = await saveSettings({ ...now, cards: { ...now.cards, language: code } });
 }
 
 async function draw() {
@@ -124,17 +106,33 @@ async function draw() {
     copy: copyText,
     speak: speech.speak,
     canSpeak: speech.canSpeak,
-    improve: await improverFor(card),
+    onLanguage: rememberLanguage,
+    improve: await improverFor(settings, card),
     improveNow: settings.cards.improve,
+    /* Every language has a deck of its own, so where the card goes is asked
+       of the language its word side shows — which the reader may change. */
     anki: {
       enabled: settings.cards.anki.enabled,
-      configured: ankiConfigured(settings),
-      fields: settings.cards.anki.fields,
-      openSettings: () => openSettings(windowTitle(text.settings)),
+      configured: ankiConfigured(settings, card.termLanguage),
+      fields: ankiTarget(settings, card.termLanguage).fields,
+      /* The card's language joins the row of decks, so the settings show
+         the one question left: which deck. After the window opens, so that
+         it hears the language join and turns to it. */
+      openSettings: async () => {
+        await openSettings(windowTitle(text.settings), "cards");
+        const now = await loadSettings();
+        const code = card.termLanguage;
+        const next = withAnkiTarget(now, code);
+        if (!now.cards.anki.decks[code] && next.cards.anki.decks[code]) {
+          await saveSettings(next);
+          await settingsChanged();
+        }
+      },
       add: async (edited) => {
-        const answer = await anki.add(edited, settings.cards.anki);
+        const target = ankiTarget(settings, edited.termLanguage);
+        const answer = await anki.add(edited, target);
         if (answer.kind === "saved" && settings.cards.anki.sync) anki.sync();
-        return answer;
+        return { ...answer, deck: target.deck };
       },
       start: () => anki.start(),
       /* A card that reached the deck has nothing left to say, and this
@@ -165,29 +163,13 @@ await onSettingsChanged(async () => {
   await draw();
 });
 
-/* The two keys every window on this system closes with. This app has no menu
-   bar of its own — an Accessory app gets none — so neither of them exists
-   until it is written down here.
+/* ⌘/Ctrl+Enter is the wand. Escape out of a field leaves the field: these
+   three fields are the whole point of this page. */
+quietContextMenu(document);
 
-   Escape out of a field being written in leaves the field, it does not leave
-   the window: these three fields are the whole point of this page, and a
-   window that closed on the first Escape would throw away a correction
-   somebody had just finished typing. The second press then closes. */
 document.addEventListener("keydown", (event) => {
-  if (event.defaultPrevented) return;
-  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-    event.preventDefault();
-    drawn?.improve?.();
-    return;
-  }
-  const closing = event.key === "Escape"
-    || (event.key.toLowerCase() === "w" && (event.metaKey || event.ctrlKey));
-  if (!closing) return;
+  if (event.defaultPrevented || event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
   event.preventDefault();
-  const writing = document.activeElement;
-  if (event.key === "Escape" && writing && writing.matches("input, textarea")) {
-    writing.blur();
-    return;
-  }
-  closeCard();
+  drawn?.improve?.();
 });
+closeOnKeys(document, closeCard);

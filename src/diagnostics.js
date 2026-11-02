@@ -42,5 +42,12 @@ export function diagnosticsText({ version, report, settings, keySet, permission,
   const faults = report?.faults || [];
   lines.push(`Recent failures: ${faults.length ? "" : "none"}`);
   for (const fault of faults) lines.push(`  ${fault}`);
+  /* The app's last steps, as the shell noted them (journal.rs): started,
+     the window asked for and shown, a shortcut — no text. */
+  const journal = report?.journal || [];
+  if (journal.length) {
+    lines.push("Recent steps:");
+    for (const step of journal) lines.push(`  ${step}`);
+  }
   return lines.join("\n");
 }

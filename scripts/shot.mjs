@@ -21,6 +21,9 @@
    not in. TRIGLOSA_PAGE is "settings", "card" or "welcome" — each is a window of its own
    in the app and a page of its own here. A card page outside the app finds no
    card to draw, so pass one in the third argument with renderCard.
+   TRIGLOSA_SYSTEM is "windows" or "ios", for the page as another system
+   draws it; "ios" also makes the browser a phone: its width, touch and no
+   pointer to hover with.
 
    TRIGLOSA_HOVER puts the pointer on the first element matching a CSS selector
    before the photograph is taken. It has to come from out here: a script in
@@ -50,7 +53,9 @@ const browser = spawn(CHROME, [
   "--disable-web-security",
   `--user-data-dir=${profile}`,
   "--remote-debugging-port=9222",
-  "--window-size=748,770",
+  /* The settings window opens wider than the others: its pages stand
+     beside their list. */
+  `--window-size=${process.env.TRIGLOSA_SYSTEM === "ios" ? "393,852" : process.env.TRIGLOSA_PAGE === "settings" ? "840,640" : "748,770"}`,
   "about:blank",
 ], { stdio: "ignore" });
 
@@ -110,6 +115,15 @@ if (process.env.TRIGLOSA_SCHEME) {
   await send("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-color-scheme", value: process.env.TRIGLOSA_SCHEME }],
   });
+}
+if (process.env.TRIGLOSA_SYSTEM) {
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `globalThis.TRIGLOSA_SYSTEM = ${JSON.stringify(process.env.TRIGLOSA_SYSTEM)};`,
+  });
+}
+if (process.env.TRIGLOSA_SYSTEM === "ios") {
+  await send("Emulation.setDeviceMetricsOverride", { width: 393, height: 852, deviceScaleFactor: 3, mobile: true });
+  await send("Emulation.setTouchEmulationEnabled", { enabled: true });
 }
 /* Settings live in the browser's storage outside the app, and this browser
    is thrown away after every run — so they are seeded before the page loads.

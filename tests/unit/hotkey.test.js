@@ -66,7 +66,7 @@ test("a combination somebody else holds is recognised as taken", () => {
     ["CommandOrControl+Space"]), "system");
   assert.strictEqual(shortcutTaken({ accelerator: "CommandOrControl+KeyC" }, []), "everywhere",
     "taking copy globally would break copying in every program");
-  assert.strictEqual(shortcutTaken({ accelerator: "Control+Alt+KeyE" }, []), "",
+  assert.strictEqual(shortcutTaken({ accelerator: "Control+Alt+KeyT" }, []), "",
     "the preset one is free, or it would be refused on a first start");
   assert.strictEqual(shortcutTaken(null, []), "");
 });
@@ -147,13 +147,15 @@ test("a combination carried over from a Mac is named for Windows", () => {
   assert.strictEqual(hotkeyLabel({ accelerator: "CommandOrControl+Shift+Digit4", label: "⇧⌘4" }, {}, "windows"), "Ctrl+Shift+4");
 });
 
-test("on Windows the preset leaves AltGr alone and Ctrl+C is still refused", () => {
+test("on Windows the preset is the Mac's, on a key AltGr types nothing with, and Ctrl+C is still refused", () => {
   const preset = defaultHotkey("windows");
-  assert.ok(!preset.accelerator.includes("Control+Alt"), "Ctrl+Alt is AltGr on most European keyboards");
+  assert.strictEqual(preset.accelerator, defaultHotkey("mac").accelerator, "the same keys on both systems");
+  assert.ok(!preset.accelerator.includes("Super"), "no Windows key: many readers do not know it by name");
+  assert.ok(!preset.accelerator.endsWith("KeyE"), "Ctrl+Alt is AltGr on most European keyboards, and AltGr+E is €");
   assert.ok(isHotkey(preset));
-  assert.strictEqual(defaultHotkey("mac").accelerator, "Control+Alt+KeyE");
+  assert.strictEqual(hotkeyLabel(preset, { KeyT: "T" }, "windows"), "Ctrl+Alt+T");
   assert.strictEqual(shortcutTaken({ accelerator: "Control+KeyC" }, [], "windows"), "everywhere");
   assert.strictEqual(shortcutTaken({ accelerator: "Control+KeyC" }, [], "mac"), "");
   assert.strictEqual(shortcutTaken({ accelerator: "Alt+F4" }, [], "windows"), "everywhere");
-  assert.strictEqual(menuAccelerator(preset, { KeyE: "e" }, "windows"), "Super+Shift+KeyE");
+  assert.strictEqual(menuAccelerator(preset, { KeyT: "t" }, "windows"), "Control+Alt+KeyT");
 });

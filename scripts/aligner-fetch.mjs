@@ -6,7 +6,8 @@
    build fetches them once: `npm run app`, `npm run bundle` and the Windows
    workflow all start here. A file already there with the right checksum is
    left alone, so this costs nothing the second time. scripts/aligner-pack.py
-   is how the files were made.
+   is how the files were made. The text recognition models for Windows come
+   along from here too (scripts/ocr-fetch.mjs).
 
      node scripts/aligner-fetch.mjs */
 
@@ -16,6 +17,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
+import { fetchOcrModels } from "./ocr-fetch.mjs";
 
 export const RELEASE = "https://github.com/mdd335/triglosa/releases/download/aligner-1";
 
@@ -58,4 +60,5 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   for (const [name, wanted] of Object.entries(FILES)) {
     if (await fetchOne(name, wanted)) console.log(`fetched ${name}`);
   }
+  await fetchOcrModels();
 }

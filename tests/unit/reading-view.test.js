@@ -27,7 +27,8 @@ globalThis.MouseEvent = dom.window.MouseEvent;
 globalThis.Node = dom.window.Node;
 
 const { MARKED, renderHeading, renderReading } = await import("../../src/ui/reading-view.js");
-const { languageFromName, languageGroups } = await import("../../src/ui/language-choice.js");
+const { languageGroups } = await import("../../src/ui/language-choice.js");
+const { WITHOUT_PACK } = await import("../../src/languages/index.js");
 const { creditLine, labels } = await import("../../src/ui/labels.js");
 
 const de = labels("de");
@@ -38,7 +39,7 @@ const SETTINGS = {
   show: { verbs: "foreign", terms: "foreign" },
   endpoint: "http://model.invalid/v1",
   model: "a-model",
-  cards: { mode: "foreign", anki: { enabled: false, deck: "", noteType: "", fields: {} } },
+  cards: { mode: "foreign", anki: { enabled: false, decks: {} } },
 };
 
 const TOOLS = {
@@ -97,6 +98,9 @@ function draw(state, settings = SETTINGS, handlers = {}) {
     sentences: handlers.sentences,
     onSentence: handlers.onSentence,
     onSpelling: handlers.onSpelling,
+    onTarget: handlers.onTarget,
+    onRemoveTarget: handlers.onRemoveTarget,
+    recentTargets: handlers.recentTargets,
   });
   return { sheet, heading };
 }
@@ -753,7 +757,71 @@ test("while the original is being written in, no language is claimed for it", ()
   assert.strictEqual(heading, de.original);
   assert.ok(sheet.querySelector("#draft"), "the field is the original box");
   assert.strictEqual(sheet.querySelector("#translate").dataset.icon, "translate");
-  assert.strictEqual(sheet.querySelector("#translate").getAttribute("aria-label"), de.translateKeys);
+  assert.strictEqual(sheet.querySelector("#translate").getAttribute("aria-label"), `${de.translate} (${de.enterKey})`);
+  assert.strictEqual(sheet.querySelector("#translate .pill-key").textContent, de.enterKey, "the key in grey, not in brackets");
+});
+
+test("on a phone a new translation's field has the camera, the photo library and the clipboard under it", () => {
+  const draw = (tools, editing = true) => {
+    const sheet = document.createElement("div");
+    renderReading(sheet, editing ? null : reading(), {
+      settings: SETTINGS,
+      tools,
+      edit: { editing, draft: "", onDraft() {}, onEdit() {}, onTranslate() {} },
+      onPick() {},
+      onLookUp() {},
+      onBack() {},
+    });
+    return sheet;
+  };
+  const asked = [];
+  const phone = { ...TOOLS, picture: (source) => asked.push(source), paste: () => asked.push("paste"), copied: () => true };
+  const sheet = draw(phone);
+  const sources = [...sheet.querySelectorAll(".text-sources button")];
+  assert.deepStrictEqual(sources.map((node) => node.textContent), [de.pictureCamera, de.pictureLibrary, de.clipboard]);
+  assert.deepStrictEqual(sources.map((node) => node.querySelector("svg") && node.querySelector("svg").innerHTML.length > 0), [true, true, true],
+    "each with its symbol");
+  assert.ok(sheet.querySelector(".pane > .text-sources"), "under the field");
+  sources.forEach((node) => node.click());
+  assert.deepStrictEqual(asked, ["camera", "library", "paste"]);
+  /* Greyed as the bar's button while nothing was copied. */
+  assert.strictEqual(draw({ ...phone, copied: () => false }).querySelector('[data-source="clipboard"]').disabled, true);
+  assert.strictEqual(sources[2].disabled, false);
+  /* A computer has no such buttons, and a reading none either. */
+  assert.strictEqual(draw(TOOLS).querySelector(".text-sources"), null);
+  assert.strictEqual(draw(phone, false).querySelector(".text-sources"), null);
+});
+
+test("on a computer a new translation's field says that a picture can be dropped on the window", () => {
+  const draw = (tools, draft = "", editing = true) => {
+    const sheet = document.createElement("div");
+    renderReading(sheet, editing ? null : reading(), {
+      settings: SETTINGS,
+      tools,
+      edit: { editing, draft, onDraft() {}, onEdit() {}, onTranslate() {} },
+      onPick() {},
+      onLookUp() {},
+      onBack() {},
+    });
+    return sheet;
+  };
+  const computer = { ...TOOLS, dropsPicture: true };
+  const hint = draw(computer).querySelector(".pane > .drop-hint");
+  assert.ok(hint, "under the field");
+  assert.ok(hint.textContent.startsWith(de.dropHint));
+  assert.ok(hint.querySelector("svg"), "with the photos' symbol");
+  /* Dragging from another program puts a window that is not pinned away. */
+  const named = draw(computer).querySelector(".drop-hint");
+  assert.ok(named.textContent.includes(de.pinWindow));
+  assert.strictEqual(named.querySelectorAll("span svg").length, 1, "the pin drawn in its sentence");
+  const pinned = draw({ ...computer, pinned: () => true }).querySelector(".drop-hint");
+  assert.strictEqual(pinned.textContent, de.dropHint);
+  /* Not over a text being written, not over a reading, and not where no
+     picture can be dropped (a phone has its buttons instead). */
+  assert.strictEqual(draw(computer, "Hola").querySelector(".drop-hint"), null);
+  assert.strictEqual(draw(computer, "", false).querySelector(".drop-hint"), null);
+  assert.strictEqual(draw(TOOLS).querySelector(".drop-hint"), null);
+  assert.strictEqual(draw({ ...TOOLS, picture: () => {}, dropsPicture: false }).querySelector(".drop-hint"), null);
 });
 
 test("⌘ or Ctrl with Enter in the field translates, Enter alone does not", () => {
@@ -773,6 +841,31 @@ test("⌘ or Ctrl with Enter in the field translates, Enter alone does not", () 
   press({ metaKey: true });
   press({ ctrlKey: true });
   assert.strictEqual(sent, 2);
+});
+
+test("on a phone the keyboard's return key translates, and is labelled for it", () => {
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  try {
+    const sheet = document.createElement("div");
+    let sent = 0;
+    renderReading(sheet, reading(), {
+      settings: SETTINGS,
+      tools: TOOLS,
+      edit: { editing: true, draft: "Ayer", onDraft() {}, onEdit() {}, onTranslate() { sent += 1; } },
+      onPick() {},
+      onLookUp() {},
+      onBack() {},
+    });
+    const field = sheet.querySelector("#draft");
+    assert.strictEqual(field.getAttribute("enterkeyhint"), "go");
+    const press = (options) => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", cancelable: true, ...options }));
+    press({ isComposing: true });
+    assert.strictEqual(sent, 0, "not while a word is still being composed");
+    assert.strictEqual(press({}), false, "no new line");
+    assert.strictEqual(sent, 1);
+  } finally {
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
 });
 
 /* ---- the direction a panel is read in ---- */
@@ -931,7 +1024,7 @@ test("who did what is said together where it was the same one, in every language
     "explicado por gemma · associado pelo Triglosa e por gemma");
   assert.strictEqual(line("it", [["translated", [{ kind: "model", name: "" }]]]), "tradotto dal modello di IA");
   assert.strictEqual(line("ru", [["detected", [{ kind: "triglosa" }]], ["words", [{ kind: "triglosa" }]]]),
-    "Язык определён и слова сопоставлены: Triglosa");
+    "язык определён и слова сопоставлены: Triglosa");
   /* A part nobody did is left out. */
   assert.strictEqual(line("fr", [["explained", [model]], ["assigned", []]]), "expliqué par gemma");
   for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
@@ -973,6 +1066,22 @@ test("the heading above the sheet names who found the language", () => {
   assert.strictEqual(matched({ code: "es", by: "text" }, { pending: true }), "Sprache erkannt von Triglosa");
   assert.strictEqual(heading({ code: "es" }), undefined, "nobody named, nobody said");
 
+});
+
+test("text read off the screen says who recognised it, first", () => {
+  const heading = (source, glance, recognizedBy, text = de) => {
+    const node = document.createElement("div");
+    const state = { ...reading(), source, glance };
+    renderHeading(node, state, { text, settings: SETTINGS, editing: false, onLanguage: () => {}, recognizedBy });
+    return node.querySelector(".heading-note")?.textContent;
+  };
+  assert.strictEqual(heading({ code: "es", by: "text" }, { sentences: [], by: "aligner" }, "triglosa"),
+    "Text erkannt von Triglosa (auf dem Gerät) · Sprache erkannt und Wörter zugeordnet von Triglosa");
+  assert.strictEqual(heading({ code: "es", by: "device" }, null, "device"),
+    "Text erkannt und Sprache erkannt von Apple (auf dem Gerät)");
+  assert.strictEqual(heading({ code: "es", by: "text" }, null, "device", labels("en", "mac")),
+    "Text recognised by Apple (on device) · language detected by Triglosa");
+  assert.strictEqual(heading({ code: "es", by: "text" }, null, null), "Sprache erkannt von Triglosa");
 });
 
 /* ---- folding a translation away ---- */
@@ -1028,7 +1137,7 @@ test("folding the verbs away takes their markings out of the panels", () => {
   assert.ok(!original().querySelector(".wmark0"));
 });
 
-test("the picked word folds away and takes its spots in the other panels with it", () => {
+test("the picked word folds away and takes its frame and its spots with it", () => {
   const state = MARKED_READING();
   state.selection = { panel: 0, start: 28, end: 35, term: "acuerdo" };
   state.marked = { text: "acuerdo", meaning: "Abkommen", note: "Vertrag.", synonyms: [] };
@@ -1039,7 +1148,7 @@ test("the picked word folds away and takes its spots in the other panels with it
   assert.deepStrictEqual(framed(), [true, true, false], "the pick and its equivalent");
   sectionNamed(view.drawn, markedIn("Spanisch")).node.querySelector(".label .fold").click();
   assert.ok(sectionNamed(view.drawn, markedIn("Spanisch")).node.classList.contains("folded"));
-  assert.deepStrictEqual(framed(), [true, false, false], "the reader's own frame stays");
+  assert.deepStrictEqual(framed(), [false, false, false], "the frame where it was picked goes too");
 });
 
 test("underlines switched off keep the marked spans and lose only the line", () => {
@@ -1201,16 +1310,20 @@ function heading(state, { editing = false, onLanguage = () => {}, settings = SET
 }
 
 const optionsOf = (node) => [...node.querySelector("select").children]
-  .map((child) => (child.tagName === "HR" ? "—" : child.value));
+  .map((child) => (child.tagName === "HR" ? "—" : child.disabled ? child.textContent : child.value));
 
-test("the heading's language is a list: the recognizer's guesses, the reader's languages, the rest, another", () => {
+test("the heading's language is a list: the recognizer's guesses, the reader's languages, the rest, the ones not optimised", () => {
   const state = reading({ source: { code: "es", name: "Spanisch", guesses: ["pt", "es", "ca"] } });
   const node = heading(state);
   assert.strictEqual(node.querySelector(".language-name").textContent, "Spanisch");
   assert.strictEqual(node.querySelector("select").getAttribute("aria-label"), de.sourceLanguage);
   assert.strictEqual(node.querySelector("select").value, "es");
-  assert.deepStrictEqual(optionsOf(node),
-    ["pt", "es", "ca", "—", "de", "en", "—", "ar", "fr", "it", "ru", "—", "other"]);
+  assert.deepStrictEqual(optionsOf(node).slice(0, 13),
+    ["pt", "es", "ca", "—", "de", "en", "—", "ar", "fr", "it", "ru", "—", de.languagesOther]);
+  const others = optionsOf(node).slice(13);
+  assert.deepStrictEqual(others.slice().sort(), WITHOUT_PACK.filter((code) => code !== "ca").sort(), "every one the settings offer, once");
+  assert.ok(!node.querySelector("optgroup"), "not set in");
+  assert.strictEqual(node.querySelector(`option[value="${others[0]}"]`).textContent, "Albanisch", "alphabetical by the names shown");
 });
 
 test("without guesses the reader's languages come first", () => {
@@ -1230,32 +1343,10 @@ test("picking a language hands its code on, and the one standing there is no pic
   assert.strictEqual(list.value, "es", "the list shows what stands until the reading changes");
 });
 
-test("another language turns the name into a field, and a name typed there is taken", () => {
-  const picked = [];
-  const node = heading(reading(), { onLanguage: (code) => picked.push(code) });
-  const list = node.querySelector("select");
-  list.value = "other";
-  list.dispatchEvent(new window.Event("change"));
-  const field = node.querySelector(".language-search");
-  assert.ok(field, "the field is there");
-  assert.strictEqual(field.placeholder, de.findLanguage);
-  assert.ok(node.querySelectorAll("datalist option").length > 150, "every language with a name");
-  field.value = "persisch";
-  field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  assert.deepStrictEqual(picked, ["fa"]);
-});
-
-test("Escape in that field goes back to the list and not out of the window", () => {
+test("no field to type a language in: the list is all there is", () => {
   const node = heading(reading());
-  let escaped = false;
-  node.addEventListener("keydown", () => { escaped = true; });
-  const list = node.querySelector("select");
-  list.value = "other";
-  list.dispatchEvent(new window.Event("change"));
-  node.querySelector(".language-search")
-    .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  assert.ok(!escaped, "the window never hears it");
-  assert.ok(node.querySelector("select"), "the list is back");
+  assert.ok(!node.querySelector("input, datalist"));
+  assert.ok(!optionsOf(node).includes("other"));
 });
 
 test("a language the reader chose without a pack is named and chosen in the list", () => {
@@ -1268,7 +1359,7 @@ test("a language the reader chose without a pack is named and chosen in the list
   const node = heading(state);
   assert.strictEqual(node.querySelector(".language-name").textContent, "Persisch");
   assert.strictEqual(node.querySelector("select").value, "fa");
-  assert.strictEqual(optionsOf(node)[0], "fa");
+  assert.ok(optionsOf(node).indexOf("fa") > optionsOf(node).indexOf(de.languagesOther), "among the ones not optimised");
 });
 
 test("a language nobody could name is called unknown in the reader's words, and can be chosen", () => {
@@ -1299,15 +1390,8 @@ test("while the original is being written in, the heading is the word Original a
   assert.ok(!node.querySelector("select"));
 });
 
-test("a typed name is found in any case, and a code is taken as itself", () => {
-  assert.strictEqual(languageFromName("Katalanisch", "de"), "ca");
-  assert.strictEqual(languageFromName("  PERSISCH ", "de"), "fa");
-  assert.strictEqual(languageFromName("fa", "de"), "fa");
-  assert.strictEqual(languageFromName("Klingonisch", "de"), "");
-});
-
 test("the language standing there goes in front where no group holds it", () => {
-  assert.deepStrictEqual(languageGroups({ current: "fa", languages: ["de", "en"], reader: "de" })[0], ["fa"]);
+  assert.deepStrictEqual(languageGroups({ current: "gl", languages: ["de", "en"], reader: "de" }).flat().slice(0, 1), ["gl"]);
 });
 
 test("languages chosen by hand before stand at the top of the list", () => {
@@ -1326,6 +1410,72 @@ test("a list opened with the pointer shows no ground once its menu is closed; a 
   assert.ok(holder.classList.contains("by-pointer"));
   list.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   assert.ok(!holder.classList.contains("by-pointer"));
+});
+
+/* ---- another language for a translation, for one reading ---- */
+
+const panelChoices = ({ sheet }, count = 3) => [...sheet.querySelectorAll(".pane")].slice(1, count)
+  .map((pane) => !!pane.querySelector(".label .name select"));
+
+test("a translation's language can be changed, the reader's own cannot", () => {
+  const chosen = [];
+  const drawn = draw(reading(), SETTINGS, { onTarget: (index, code) => chosen.push([index, code]) });
+  assert.deepStrictEqual(panelChoices(drawn), [false, true], "the German stays, the English is a choice");
+  const list = drawn.sheet.querySelectorAll(".pane")[2].querySelector("select");
+  assert.strictEqual(list.value, "en");
+  const offered = [...list.querySelectorAll("option")].map((option) => option.value);
+  assert.ok(!offered.includes("es") && !offered.includes("de"), "not the languages already standing there");
+  assert.ok(offered.includes("fr") && offered.includes("cy"), "the others, the ones not optimised among them");
+  list.value = "fr";
+  list.dispatchEvent(new window.Event("change"));
+  assert.deepStrictEqual(chosen, [[2, "fr"]]);
+  assert.ok(!drawn.sheet.querySelector(".add-language"), "nothing to add to three panels");
+});
+
+test("two panels have a symbol that adds a third, also for a text in the reader's own language", () => {
+  const german = reading({ panels: [
+    { code: "de", name: "Deutsch", status: "ready", text: "Gestern focht die Regierung das Abkommen an." },
+    { code: "es", name: "Spanisch", status: "ready", text: "Ayer el gobierno impugnó el acuerdo." },
+  ] });
+  const drawn = draw(german, { ...SETTINGS, languages: ["de", "es"] }, { onTarget: () => {} });
+  assert.deepStrictEqual(panelChoices(drawn, 2), [false], "the Spanish is not changed");
+  assert.ok(drawn.sheet.querySelectorAll(".pane")[1].querySelector(".label .add-language"));
+});
+
+test("the symbol in the translation's heading adds a third panel, its word on hover", () => {
+  const chosen = [];
+  const two = reading({ panels: reading().panels.slice(0, 2) });
+  const drawn = draw(two, { ...SETTINGS, languages: ["de", "es"] }, { onTarget: (index, code) => chosen.push([index, code]), onFold: () => {} });
+  assert.deepStrictEqual(panelChoices(drawn, 2), [false]);
+  const label = drawn.sheet.querySelectorAll(".pane")[1].querySelector(".label");
+  const add = label.querySelector(".add-language");
+  assert.ok(label.querySelector(".fold"));
+  assert.strictEqual(add.nextElementSibling, label.querySelector(".fold"), "just before the fold");
+  assert.strictEqual(add.querySelector(".pill-label").textContent, de.addLanguage);
+  assert.ok(add.querySelector("svg"), "a symbol, no words standing");
+  const list = add.querySelector("select");
+  assert.strictEqual(list.getAttribute("aria-label"), de.addLanguage);
+  assert.strictEqual(list.selectedIndex, -1, "nothing chosen");
+  list.value = "fr";
+  list.dispatchEvent(new window.Event("change"));
+  assert.deepStrictEqual(chosen, [[2, "fr"]]);
+});
+
+test("a panel the reader added can be taken away, beside its fold", () => {
+  let removed = 0;
+  const drawn = draw(reading(), SETTINGS, { onTarget: () => {}, onRemoveTarget: () => removed++, onFold: () => {} });
+  const panes = drawn.sheet.querySelectorAll(".pane");
+  assert.ok(!panes[1].querySelector("[data-icon='close']"));
+  const away = panes[2].querySelector(".label [data-icon='close']");
+  assert.strictEqual(away.getAttribute("aria-label"), de.removeLanguage);
+  assert.strictEqual(away.nextElementSibling, panes[2].querySelector(".label").lastElementChild, "just before the fold");
+  assert.ok(away.nextElementSibling.matches("[data-icon='open']"));
+  away.click();
+  assert.strictEqual(removed, 1);
+});
+
+test("without a way to act on it, no translation is a choice", () => {
+  assert.deepStrictEqual(panelChoices(draw(reading())), [false, false]);
 });
 
 /* ---- saying a word aloud ---- */

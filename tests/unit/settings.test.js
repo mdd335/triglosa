@@ -5,6 +5,9 @@ import {
   DEFAULT_LEVEL,
   FIRST_LANGUAGES,
   ankiConfigured,
+  ankiTarget,
+  ankiTargets,
+  withAnkiTarget,
   choosableLanguages,
   firstStartLanguages,
   collapsePairs,
@@ -24,7 +27,7 @@ test("a fresh install starts on two languages and nothing else", () => {
   assert.strictEqual(s.endpoint, "");
   assert.deepStrictEqual(s.levels, {}, "no level until someone sets one");
   assert.strictEqual(s.show.verbs, "foreign", "not for the reader's own language");
-  assert.strictEqual(s.cards.mode, "foreign", "a card for every language being learned");
+  assert.strictEqual(s.cards.mode, "learned", "a card for every language being learned, and only for those");
   assert.strictEqual(s.cards.anki.enabled, false, "the export is a separate decision");
   assert.strictEqual(s.cards.anki.sync, false, "Anki's login window with every card for whoever has no AnkiWeb");
 });
@@ -33,7 +36,7 @@ test("a settings file that was edited by hand cannot break the app", () => {
   const s = normalizeSettings({ languages: "de", endpoint: 7, cards: "yes", unknown: 1 });
   assert.deepStrictEqual(s.languages, DEFAULTS.languages);
   assert.strictEqual(s.endpoint, "");
-  assert.strictEqual(s.cards.mode, "foreign");
+  assert.strictEqual(s.cards.mode, "learned");
   assert.strictEqual(s.cards.anki.enabled, false);
   assert.ok(!("unknown" in s), "unknown keys are dropped");
 });
@@ -91,12 +94,60 @@ test("switched on is not the same as set up", () => {
   /* Three answers to give, and a card has nowhere to go until all three are
      there — a note type without a field for the word itself would file an
      empty note. */
-  const on = { cards: { anki: { enabled: true, deck: "Vokabeln", noteType: "Basic" } } };
+  const on = { languages: ["de", "es"], cards: { anki: { enabled: true, decks: { es: { deck: "Vokabeln", noteType: "Basic" } } } } };
   assert.strictEqual(normalizeSettings(on).cards.anki.enabled, true);
-  assert.strictEqual(ankiConfigured(on), false, "no field for the word yet");
-  const set = { cards: { anki: { ...on.cards.anki, fields: { term: "Front", meaning: "Back" } } } };
-  assert.strictEqual(ankiConfigured(set), true);
-  assert.strictEqual(ankiConfigured({ ...set, cards: { ...set.cards, mode: "both" } }), true);
+  assert.strictEqual(ankiConfigured(on, "es"), false, "no field for the word yet");
+  const set = { ...on, cards: { anki: { enabled: true, decks: { es: { deck: "Vokabeln", noteType: "Basic", fields: { term: "Front", meaning: "Back" } } } } } };
+  assert.strictEqual(ankiConfigured(set, "es"), true);
+  assert.strictEqual(ankiConfigured({ ...set, cards: { ...set.cards, mode: "foreign" } }, "it"), false, "no other language takes the one deck");
+  assert.strictEqual(ankiConfigured({ ...set, cards: { anki: { ...set.cards.anki, enabled: false } } }, "es"), false);
+});
+
+/* One deck per language for whoever learns two, keyed by the language and
+   not by its place, so a reordered list keeps its decks. A language never
+   given one has none: a deck holds one language almost wherever Anki is
+   used for languages, and one taken over would file a card unasked. */
+test("each language a card is offered for has a deck of its own", () => {
+  const three = { languages: ["de", "es", "fr"] };
+  assert.deepStrictEqual(ankiTargets(three), ["es", "fr"], "the default: both languages being learned");
+  assert.deepStrictEqual(ankiTargets({ ...three, cards: { mode: "foreign" } }), ["es", "fr"]);
+  assert.deepStrictEqual(ankiTargets({ ...three, cards: { mode: "second" } }), ["es"]);
+  assert.deepStrictEqual(ankiTargets({ ...three, cards: { mode: "third" } }), ["fr"]);
+  assert.deepStrictEqual(ankiTargets({ ...three, cards: { mode: "never" } }), []);
+
+  const spanish = { deck: "Spanisch", noteType: "Basic", fields: { term: "Front", meaning: "Back", note: "" } };
+  const french = { deck: "Französisch", noteType: "Vokabel", fields: { term: "Französisch", meaning: "Deutsch", note: "" } };
+  const one = { ...three, cards: { mode: "foreign", anki: { enabled: true, decks: { es: spanish } } } };
+  assert.deepStrictEqual(ankiTarget(one, "es"), spanish);
+  assert.strictEqual(ankiTarget(one, "fr").deck, "", "French has none until it is given one");
+  assert.strictEqual(ankiTarget(one, "it").deck, "");
+  const two = { ...one, cards: { ...one.cards, anki: { enabled: true, decks: { es: spanish, fr: french } } } };
+  assert.deepStrictEqual(ankiTarget(two, "fr"), french);
+  assert.deepStrictEqual(ankiTarget({ ...two, languages: ["de", "fr", "es"] }, "fr"), french, "a reordered list keeps its decks");
+});
+
+/* Under "foreign" a card is made in any language, and the reader adds a deck
+   for the ones they want in Anki — in the settings, or from the card's
+   "choose a deck", which puts the language among them. */
+test("a language without a place in the list is added with a deck of its own", () => {
+  const italian = { deck: "Italienisch", noteType: "Basic", fields: { term: "Front", meaning: "Back", note: "" } };
+  const wide = { languages: ["de", "es", "fr"], cards: { mode: "foreign", anki: { enabled: true, decks: { it: italian } } } };
+  assert.deepStrictEqual(ankiTargets(wide), ["es", "fr", "it"]);
+  assert.deepStrictEqual(ankiTarget(wide, "it"), italian);
+  assert.deepStrictEqual(ankiTargets({ ...wide, cards: { ...wide.cards, mode: "learned" } }), ["es", "fr"],
+    "only where cards are made in it");
+
+  const added = withAnkiTarget(wide, "pt");
+  assert.deepStrictEqual(ankiTargets(added), ["es", "fr", "it", "pt"]);
+  assert.strictEqual(ankiConfigured(added, "pt"), false, "a deck still to be chosen");
+  assert.deepStrictEqual(withAnkiTarget(wide, "it").cards.anki.decks.it, italian, "a deck already there is kept");
+  assert.deepStrictEqual(ankiTargets(withAnkiTarget(wide, "de")), ["es", "fr", "it"], "never the reader's own");
+});
+
+test("the decks of a language taken off the list are kept for its return", () => {
+  const french = { deck: "Französisch", noteType: "Basic", fields: { term: "Front", meaning: "Back", note: "" } };
+  const s = normalizeSettings({ languages: ["de", "es"], cards: { anki: { decks: { fr: french, xx: french, other: french } } } });
+  assert.deepStrictEqual(Object.keys(s.cards.anki.decks), ["fr"], "a code that is no language is dropped");
 });
 
 test("syncing after a card is kept only where it was switched on", () => {
@@ -117,6 +168,9 @@ test("a card is offered for the languages the reader named", () => {
   assert.strictEqual(forMode("second", "en"), false);
   assert.strictEqual(forMode("third", "es"), false);
   assert.strictEqual(forMode("third", "en"), true);
+  assert.strictEqual(forMode("learned", "es"), true);
+  assert.strictEqual(forMode("learned", "en"), true);
+  assert.strictEqual(forMode("learned", "de"), false);
   for (const code of ["de", "es", "en"]) assert.strictEqual(forMode("never", code), false);
 });
 
@@ -128,6 +182,7 @@ test("a language with no place in the list follows the widest answer only", () =
   const three = { languages: ["de", "es", "en"] };
   assert.strictEqual(offersCard({ ...three, cards: { mode: "foreign" } }, "fr"), true);
   assert.strictEqual(offersCard({ ...three, cards: { mode: "second" } }, "fr"), false);
+  assert.strictEqual(offersCard({ ...three, cards: { mode: "learned" } }, "fr"), false);
 });
 
 test("an older file that said yes or no keeps its answer", () => {
@@ -145,10 +200,38 @@ test("a card is improved by the model unless that was switched off", () => {
 test("a settings file that only ever named Anki keeps its deck", () => {
   /* The note type and the mapping were not questions that file could answer;
      they are guessed the first time the settings are opened. */
-  const s = normalizeSettings({ anki: { enabled: true, deck: " Spanisch 5000 " } });
-  assert.strictEqual(s.cards.anki.deck, "Spanisch 5000");
+  const s = normalizeSettings({ languages: ["de", "es", "fr"], anki: { enabled: true, deck: " Spanisch 5000 " } });
+  assert.strictEqual(s.cards.anki.decks.es.deck, "Spanisch 5000");
   assert.strictEqual(s.cards.anki.enabled, true);
-  assert.strictEqual(s.cards.anki.noteType, "");
+  assert.strictEqual(s.cards.anki.decks.es.noteType, "");
+});
+
+/* Whatever its place in the list: a reader of English and Spanish whose
+   one deck was the Spanish one found it under English. */
+test("the one deck of an older file goes to the language it names", () => {
+  const older = (anki) => normalizeSettings({ languages: ["de", "en", "es"], cards: { anki: { enabled: true, ...anki } } });
+  const spanishField = older({ deck: "Vokabeln", noteType: "Wortschatz", fields: { term: "Spanisch", meaning: "Deutsch" } });
+  assert.deepStrictEqual(Object.keys(spanishField.cards.anki.decks), ["es"], "by the word's field");
+  const spanishDeck = older({ deck: "Spanisch", noteType: "Basic", fields: { term: "Front" } });
+  assert.deepStrictEqual(Object.keys(spanishDeck.cards.anki.decks), ["es"], "by the deck's name");
+  const spanishType = older({ deck: "Vokabeln", noteType: "Spanisch (beidseitig, mit Erklärung)", fields: { term: "Front" } });
+  assert.deepStrictEqual(Object.keys(spanishType.cards.anki.decks), ["es"], "by the note type's name");
+  const nothing = older({ deck: "Vokabeln", noteType: "Basic", fields: { term: "Front" } });
+  assert.deepStrictEqual(Object.keys(nothing.cards.anki.decks), ["en"], "else the first learned language");
+  const english = older({ deck: "English words", noteType: "Basic", fields: { term: "Front" } });
+  assert.deepStrictEqual(Object.keys(english.cards.anki.decks), ["en"], "a name in English counts");
+});
+
+test("the one deck of an older file is the first learned language's", () => {
+  const older = {
+    languages: ["de", "es", "fr"],
+    cards: { mode: "foreign", anki: { enabled: true, deck: "Vokabeln", noteType: "Basic", fields: { term: "Front", meaning: "Back", note: "" } } },
+  };
+  const s = normalizeSettings(older);
+  assert.deepStrictEqual(Object.keys(s.cards.anki.decks), ["es"]);
+  assert.strictEqual(ankiConfigured(s, "es"), true);
+  assert.strictEqual(ankiConfigured(s, "fr"), false, "the third is asked anew");
+  assert.deepStrictEqual(normalizeSettings(s), s, "read again, nothing moves");
 });
 
 test("without an endpoint the explanations are locked, not broken", () => {
@@ -205,9 +288,9 @@ test("the preset combination is one the recorder itself would produce", () => {
      registration cannot parse would be a shortcut nobody ever notices is
      missing. */
   assert.ok(isHotkey(DEFAULT_HOTKEY));
-  assert.strictEqual(hotkeyLabel(DEFAULT_HOTKEY, { KeyE: "E" }), "⌃⌥E");
+  assert.strictEqual(hotkeyLabel(DEFAULT_HOTKEY, { KeyT: "T" }), "⌃⌥T");
   assert.deepStrictEqual(
-    hotkeyFrom({ code: "KeyE", key: "e", ctrlKey: true, altKey: true }, { KeyE: "E" }),
+    hotkeyFrom({ code: "KeyT", key: "t", ctrlKey: true, altKey: true }, { KeyT: "T" }),
     DEFAULT_HOTKEY,
     "pressing it records exactly what is preset",
   );
@@ -334,6 +417,7 @@ test("the window is not pinned and the app sits in the menu bar unless told othe
   assert.strictEqual(normalizeSettings({ fitWindow: "no" }).fitWindow, true);
   assert.strictEqual(normalizeSettings({}).kept, 5);
   assert.strictEqual(normalizeSettings({ kept: 10 }).kept, 10);
+  assert.strictEqual(normalizeSettings({ kept: 20 }).kept, 20);
   assert.strictEqual(normalizeSettings({ kept: 0 }).kept, 0);
   assert.strictEqual(normalizeSettings({ kept: 7 }).kept, 5);
   assert.strictEqual(normalizeSettings({ kept: "10" }).kept, 5);
@@ -370,7 +454,7 @@ test("a first start reads English with Spanish and no third language", () => {
 
 test("the further shortcuts start empty, and are kept or cleared like the first", async () => {
   const { HOTKEYS } = await import("../../src/settings.js");
-  assert.deepStrictEqual(HOTKEYS, ["hotkey", "freshHotkey", "cardHotkey", "wordHotkey", "sentenceHotkey"]);
+  assert.deepStrictEqual(HOTKEYS, ["hotkey", "screenHotkey", "freshHotkey", "cardHotkey", "screenCardHotkey", "screenCopyHotkey", "wordHotkey", "sentenceHotkey"]);
   const first = normalizeSettings({});
   for (const key of HOTKEYS.slice(1)) assert.strictEqual(first[key], null, key);
   const kept = { accelerator: "Control+Alt+KeyK", label: "⌃⌥K" };
@@ -380,16 +464,18 @@ test("the further shortcuts start empty, and are kept or cleared like the first"
   assert.deepStrictEqual(normalizeSettings({ freshHotkey: null }).hotkey, DEFAULT_HOTKEY, "the first keeps its preset");
 });
 
-test("a card from the shortcut is offered in the learned languages, starting where the settings narrow it", async () => {
+test("a card from the shortcut is offered in the learned languages, starting at the one last chosen on a card", async () => {
   const { cardLanguages } = await import("../../src/settings.js");
   const three = { languages: ["de", "en", "es"] };
   assert.deepStrictEqual(cardLanguages(three, "de"), { choices: ["en", "es"], preset: "en" }, "own language: the first learned");
   assert.deepStrictEqual(cardLanguages(three, "es"), { choices: ["en", "es"], preset: "es" }, "a learned language: that one");
-  assert.deepStrictEqual(cardLanguages({ ...three, cards: { mode: "third" } }, "de").preset, "es");
-  assert.deepStrictEqual(cardLanguages({ ...three, cards: { mode: "second" } }, "").preset, "en");
+  assert.deepStrictEqual(cardLanguages({ ...three, cards: { mode: "third" } }, "").preset, "en", "the card setting no longer decides");
+  assert.deepStrictEqual(cardLanguages({ ...three, cards: { language: "es" } }, "").preset, "es", "a blank card: the language last chosen");
+  assert.deepStrictEqual(cardLanguages({ ...three, cards: { language: "es" } }, "de").preset, "es", "the reader's own text: likewise");
+  assert.deepStrictEqual(cardLanguages({ ...three, cards: { language: "es" } }, "en").preset, "en", "a text found in a language: that one");
+  assert.deepStrictEqual(cardLanguages({ ...three, cards: { language: "fr" } }, "").preset, "en", "one no longer learned is forgotten");
   assert.deepStrictEqual(cardLanguages(three, "fr"), { choices: ["en", "es", "fr"], preset: "fr" }, "what the text is in joins");
-  assert.deepStrictEqual(cardLanguages({ languages: ["en", "es"], cards: { mode: "third" } }, ""), { choices: ["es"], preset: "es" },
-    "no third language: the second");
+  assert.strictEqual(normalizeSettings({ cards: { language: "xx-nonsense" } }).cards.language, "");
 });
 
 test("a language without a pack can be set as a learned one, never as the reader's own", () => {

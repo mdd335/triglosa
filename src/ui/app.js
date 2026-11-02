@@ -5,28 +5,32 @@
    the model would add sits below and stays visibly empty until an endpoint is
    configured; that is the one thing this window says about a missing key.
 
-   There is no entry field of its own any more. The original field is the entry
+   There is no entry field of its own. The original field is the entry
    field: reading and writing are two states of one box, and which of the two
    it is in is the only piece of interface state this file keeps. The settings
    have a window of their own and are not part of this one. */
 
-import { onWindows } from "../system.js";
+import { onPhone, onWindows } from "../system.js";
 import { SHORT_MAX_WORDS, runText, sentenceFor } from "../run.js";
 import { wordAround, wordCount } from "../text.js";
 import { detectLanguage, keepsChosenLanguage } from "../detect.js";
 import { freeCard } from "../card.js";
 import { addExample, explainMarked, explainMore } from "../ask.js";
-import { otherPanels } from "../panels.js";
+import { chooseLanguage as choosePanel, configuredCount, otherPanels } from "../panels.js";
 import { fragmentsAcross } from "../match/links.js";
 import { HELPER_URL, createTranslationBackend } from "../platform/translation.js";
 import { createLlmBackend } from "../platform/llm.js";
-import { appFetch, copyText, ensureTranslationHelper, insideApp, languageIdentifier, modelFetch, noteFault, openUrl, searchUrl, spellingChecker, wordAligner } from "../platform/env.js";
+import { copyText, ensureTranslationHelper, insideApp, languageIdentifier, modelFetch, noteFault, noteJournal, onOpenedWith, openUrl, paintGround, pasteHeld, pastedText, searchUrl, spellingChecker, textHandedOver, trace, translationFetch, wordAligner } from "../platform/env.js";
 import { faultLine } from "../diagnostics.js";
 import { accessibilityGranted, insertText, keyLabels, useDirectSelection } from "../platform/capture.js";
 import { hotkeyLabel, menuAccelerator } from "../hotkey.js";
-import { applyPresence, applyTray, fitReadingWindow, hideWindow, onAppearAsked, onFreshAsked, unveilWindow, onSettingsChanged, onWindowShown, openCard, openSettings, openWelcome, updateCard, showWindow } from "../platform/windows.js";
+import { countFault, countRead, countSeen } from "../platform/stats.js";
+import { applyPresence, applyTray, fitReadingWindow, hideWindow, onAppearAsked, onFreshAsked, unveilWindow, onSettingsChanged, onWindowShown, openCard, openSettings, openWelcome, showNote, updateCard, showWindow } from "../platform/windows.js";
 import { lightUp, listenForForceClick, onCapture, onCardCapture, registerShortcuts } from "../platform/shortcut.js";
-import { selectionSpan, sentenceAfter, sentenceUnder } from "../sentence.js";
+import { runsTogether, selectionSpan, sentenceAfter, sentenceUnder } from "../sentence.js";
+import { rightToLeft, screenText } from "../screen-text.js";
+import { copyRecognized, frameImage, lightScreen, onImageDropped, onPointerScreen, onScreen, readPicture, readScreen, readUnderPointer, screenPermitted } from "../platform/screen.js";
+import { wordUnderPointer } from "../screen-pointer.js";
 import { searchLink } from "../platform/search.js";
 import { createSpeech } from "../platform/speech.js";
 import { loadSettings, saveSettings } from "../platform/store.js";
@@ -34,47 +38,70 @@ import { loadApiKey } from "../platform/keychain.js";
 import { faultOf } from "../faults.js";
 import { faultText, labels, windowTitle } from "./labels.js";
 import { MARKED, renderHeading, renderReading } from "./reading-view.js";
-import { labelsInside } from "./elements.js";
+import { readRecognized } from "../platform/translation.js";
+import { labelsInside, nameButton, quietContextMenu } from "./elements.js";
 import { watchGlance } from "./glance-view.js";
+import { iconPaths } from "./icons.js";
 import { roomForExample, withExamples, withExplanationExamples } from "../examples.js";
-import { cardLanguages, levelFor, neededPairs, offersCard, usesPermission } from "../settings.js";
+import { cardLanguages, levelFor, modelConsentFor, neededPairs, offersCard, usesPermission } from "../settings.js";
 import { dropOldest, keptReading, readingKey } from "../history.js";
 
-let settings = await loadSettings();
+/* A phone has no pointer to hover with and no other program to read the
+   next sentence from: what the settings say about those is not acted on
+   there. */
+/* Nor does a phone send a text to an AI model its reader has not allowed
+   (phone-sheets.js): without the yes the model is not there. */
+const forSystem = (read) => (onPhone()
+  ? { ...read, glance: false, nextSentence: false, forceClick: false, ...(modelConsentFor(read) === true ? {} : { endpoint: "" }) }
+  : read);
+
+let settings = forSystem(await loadSettings());
+/* The panels chosen in the window (chooseTarget), and the languages picked
+   there, latest first. */
+let panelChoice = null;
+let recentTargets = [];
+
+/* What a reading made now is an answer to: the settings and the panels
+   chosen in the window. */
+function keyNow() {
+  return readingKey(settings, panelChoice);
+}
+
 /* Kept apart from the settings on purpose: the key lives in the system's own
    store and never travels with the settings file. */
-let apiKey = await loadApiKey();
+let apiKey = await loadApiKey(settings);
 let text = labels(settings.languages[0]);
 
 /* The window has no bar of its own and no traffic lights: the shell hides
    them, and what would have stood in a strip of its own stands at the right
    end of the first heading line instead — the line that says what the box
-   under it is. The three buttons belong to the window rather than to the
+   under it is. Its buttons belong to the window rather than to the
    text, so that line is the one thing in the sheet that does not scroll away.
 
    Drawn rather than written: a gear character arrives as an emoji in some
    fonts and as a missing glyph in others. */
-const chevron = (path) =>
+const barIcon = (paths) =>
   `<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
         stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-     <path d="${path}"/>
+     ${paths}
    </svg>`;
-const BACK = chevron("M10 3.5 5.5 8l4.5 4.5");
-const FORWARD = chevron("M6 3.5 10.5 8 6 12.5");
+const BACK = barIcon(iconPaths("previous"));
+const FORWARD = barIcon(iconPaths("next"));
 /* A plus: a reading that is not there yet. It stands before the gear, on the
    side the reading itself is on, because it is about the text and not about
    the app; the cross stands after it, where a window's own close button
    stands on every other window. */
-const FRESH = chevron("M8 3v10M3 8h10");
-const CLOSE = chevron("M4 4l8 8M12 4l-8 8");
+const FRESH = barIcon(iconPaths("add"));
+/* On a phone: what was copied in another app, read at once. */
+const PASTE = barIcon(iconPaths("paste"));
+/* On a phone: a card that is not there yet — a row's card symbol, smaller,
+   with the plus of "one more" at its corner. */
+const CARD = barIcon('<path d="M3.3 3h6.4a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5H3.3a1.5 1.5 0 0 1-1.5-1.5v-4A1.5 1.5 0 0 1 3.3 3zM1.8 6.4h9.4M13.2 10.6v4M11.2 12.6h4"/>');
+const CLOSE = barIcon(iconPaths("close"));
 /* A pushpin, before the cross because it decides what the cross is for:
    pinned, the window stays above every other one until it is put away. Its
    body fills in while it is pinned. */
-const PIN = `<svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
-        stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-     <path class="pin-body" d="M5.5 2.5h5M6.6 2.5v3.8L4.5 9.5h7L9.4 6.3V2.5"/>
-     <path d="M8 9.5v4"/>
-   </svg>`;
+const PIN = barIcon(iconPaths("pin"));
 
 const GEAR = `<svg viewBox="0 0 16 16" width="15" height="15" fill="currentColor" aria-hidden="true">
   ${[0, 45, 90, 135, 180, 225, 270, 315]
@@ -90,7 +117,9 @@ root.innerHTML = `
     <div class="window-actions">
       <button id="back" class="icon">${BACK}<span class="pill-label"></span></button>
       <button id="forward" class="icon">${FORWARD}<span class="pill-label"></span></button>
+      <button id="paste" class="icon">${PASTE}<span class="pill-label"></span></button>
       <button id="fresh" class="icon">${FRESH}<span class="pill-label"></span></button>
+      <button id="new-card" class="icon">${CARD}<span class="pill-label"></span></button>
       <button id="open-settings" class="icon">${GEAR}<span class="pill-label"></span></button>
       <button id="pin" class="icon">${PIN}<span class="pill-label"></span></button>
       <button id="close" class="icon">${CLOSE}<span class="pill-label"></span></button>
@@ -102,6 +131,8 @@ root.innerHTML = `
 
 const settingsButton = root.querySelector("#open-settings");
 const freshButton = root.querySelector("#fresh");
+const pasteButton = root.querySelector("#paste");
+const cardButton = root.querySelector("#new-card");
 const closeButton = root.querySelector("#close");
 const pinButton = root.querySelector("#pin");
 const backButton = root.querySelector("#back");
@@ -306,7 +337,6 @@ function applyLanguage() {
 const WINDOW_KEYS = onWindows()
   ? { close: "Esc", settings: "Ctrl+,", pin: "Ctrl+." }
   : { close: "esc", settings: "⌘,", pin: "⌘." };
-const withKey = (name, key) => (key ? `${name} (${key})` : name);
 
 /* Named the way every other symbol button in the window is named: the word
    appears over the button while the pointer rests on it. The system's own
@@ -314,20 +344,18 @@ const withKey = (name, key) => (key ? `${name} (${key})` : name);
    a key also reaches names the key beside the word; a new translation only
    where the reader set a combination for it. */
 async function nameTitleBar() {
-  const name = (node, words) => {
-    node.querySelector(".pill-label").textContent = words;
-    node.setAttribute("aria-label", words);
-  };
-  name(backButton, text.historyBack);
-  name(forwardButton, text.historyForward);
-  name(settingsButton, withKey(text.settingsOpen, WINDOW_KEYS.settings));
-  name(closeButton, withKey(text.closeWindow, WINDOW_KEYS.close));
-  name(freshButton, text.newReading);
-  if (!settings.freshHotkey) return;
+  nameButton(backButton, text.historyBack);
+  nameButton(forwardButton, text.historyForward);
+  nameButton(settingsButton, text.settingsOpen, WINDOW_KEYS.settings);
+  nameButton(closeButton, text.closeWindow, WINDOW_KEYS.close);
+  nameButton(freshButton, text.newReading);
+  nameButton(pasteButton, onPhone() ? text.translateClipboard : text.paste);
+  nameButton(cardButton, text.trayCardBlank);
+  if (!settings.freshHotkey || onPhone()) return;
   keyLayout = keyLayout || keyLabels();
   const layout = await keyLayout;
   /* Read again after the wait: the settings may have changed meanwhile. */
-  name(freshButton, withKey(text.newReading, hotkeyLabel(settings.freshHotkey, layout)));
+  nameButton(freshButton, text.newReading, hotkeyLabel(settings.freshHotkey, layout));
 }
 
 /* The menu bar symbol's entries, and the shortcut written beside the one that
@@ -338,11 +366,16 @@ let keyLayout = null;
 async function applyMenu() {
   keyLayout = keyLayout || keyLabels();
   const words = {
+    translating: text.trayTranslating,
+    cards: text.trayCards,
     show: text.trayShow,
     capture: granted ? text.trayCapture : text.trayCaptureCopied,
     fresh: text.newReading,
     card: granted ? text.trayCard : text.trayCardCopied,
     blankCard: text.trayCardBlank,
+    screen: text.trayScreen,
+    screenCopy: text.trayScreenCopy,
+    screenCard: text.trayScreenCard,
     settings: text.settings,
     updates: text.trayUpdates,
     help: text.trayHelp,
@@ -355,7 +388,10 @@ async function applyMenu() {
      entry, which is where the shortcut goes, named the way the settings name
      it. Handed over as an accelerator instead, it was drawn from the key's
      American name: Ctrl+Ä came out as Ctrl+'. */
-  const entries = { capture: settings.hotkey, fresh: settings.freshHotkey, card: settings.cardHotkey };
+  const entries = {
+    capture: settings.hotkey, fresh: settings.freshHotkey, card: settings.cardHotkey,
+    screen: settings.screenHotkey, screenCopy: settings.screenCopyHotkey, screenCard: settings.screenCardHotkey,
+  };
   if (onWindows()) {
     for (const [entry, hotkey] of Object.entries(entries)) {
       const label = hotkeyLabel(hotkey, layout);
@@ -415,7 +451,7 @@ function makeTools() {
        copied as one line, or handed to Anki where the reader set that up. */
     card: async (card) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await openCard(windowTitle(text.cardCreate), { ...card, id });
+      await showCard(windowTitle(text.cardCreate), { ...card, id });
     },
     /* Which languages are worth a card is the reader's answer, by place in
        their own list. Asked per row, because the language is the word's and
@@ -423,6 +459,15 @@ function makeTools() {
     cardFor: (code) => offersCard(settings, code),
     speak: speech.speak,
     canSpeak: speech.canSpeak,
+    /* On a phone, the buttons under a new translation's field: a picture's
+       text ("camera" or "library"), and what was copied, greyed as the
+       bar's button is. */
+    picture: onPhone() ? recognisePicture : null,
+    paste: onPhone() ? pasteClipboard : null,
+    copied: () => !pasteButton.disabled,
+    /* On a computer a picture dropped on the window is read (onImageDropped). */
+    dropsPicture: !onPhone(),
+    pinned: () => settings.pinned,
   };
 }
 
@@ -435,7 +480,8 @@ const speech = createSpeech(globalThis.speechSynthesis, globalThis.SpeechSynthes
 let tools = { reader: settings.languages[0], copy: copyText, open: openUrl,
               search: async (term) => openUrl(searchLink(await searchUrl(settings.search), term)),
               card: null, cardFor: () => false, insert: null,
-              speak: speech.speak, canSpeak: speech.canSpeak };
+              speak: speech.speak, canSpeak: speech.canSpeak, picture: onPhone() ? recognisePicture : null,
+              paste: onPhone() ? pasteClipboard : null, copied: () => !pasteButton.disabled, dropsPicture: !onPhone() };
 
 /* What the line under the sheet says while a reading is on screen: the one
    reason nothing came of it, or what the run is doing, or nothing at all.
@@ -455,7 +501,47 @@ function sayFor(state) {
    down the next, at whatever happens to stand there. Never during a run: the
    sheet fills while it is being read, and a page that jumped to the top on
    every arriving piece would take the reading away from the reader. */
-const toTop = () => { sheet.scrollTop = 0; };
+/* On a phone the whole page scrolls, the first line with it (style.css). */
+const toTop = () => { sheet.scrollTop = 0; root.scrollTop = 0; };
+
+/* The bar along a phone's bottom edge is divided from the page only while
+   something of the page lies under it, and the top edge only while
+   something has gone up past it. */
+if (onPhone()) {
+  const edge = () => {
+    root.classList.toggle("more-above", root.scrollTop > 2);
+    root.classList.toggle("more-below", root.scrollHeight - root.scrollTop - root.clientHeight > 2);
+  };
+  root.addEventListener("scroll", edge, { passive: true });
+  new ResizeObserver(edge).observe(sheet);
+
+  /* The keyboard covers the lower part of the page without making the page
+     any shorter, so the system would let the whole of it be pushed up and
+     the bar along the bottom float in the middle. The page is told how much
+     is covered and ends above it (style.css); the bar has nothing to do
+     while something is being written and goes. */
+  const seen = window.visualViewport;
+  if (seen) {
+    const covered = () => {
+      const keyboard = Math.max(0, window.innerHeight - seen.height);
+      const up = keyboard > 80;
+      document.documentElement.classList.toggle("keyboard", up);
+      document.documentElement.style.setProperty("--keyboard", `${up ? keyboard : 0}px`);
+      edge();
+    };
+    seen.addEventListener("resize", covered);
+    /* What is left to push is the page as a whole, by a finger that drags
+       where nothing scrolls. That drag is not taken up; pulling the page
+       back afterwards would fight the system frame by frame. A field being
+       written in keeps its own gestures. */
+    document.addEventListener("touchmove", (event) => {
+      if (!document.documentElement.classList.contains("keyboard")) return;
+      if (event.target.closest?.("textarea, input")) return;
+      const scroller = event.target.closest?.("#app, .settings-window, .card-window");
+      if (!scroller || scroller.scrollHeight <= scroller.clientHeight + 1) event.preventDefault();
+    }, { passive: false });
+  }
+}
 
 function draw() {
   /* The drawing answers with what the line above the sheet says — the
@@ -464,6 +550,7 @@ function draw() {
   drawReading();
   renderHeading(heading, current, {
     text, settings, editing, recent: recentChoices, onLanguage: current?.panels?.length ? chooseLanguage : null,
+    recognizedBy: showing()?.recognized || null,
   });
   applyHistory();
   watchHeight();
@@ -564,6 +651,11 @@ function drawReading() {
     onFold: fold,
     onMore: more,
     onExample: example,
+    onTarget: current && !current.busy && !editing ? chooseTarget : null,
+    onRemoveTarget: current && !current.busy && !editing && current.panels.length > configuredCount(current.panels[0]?.code || "", settings.languages)
+      ? () => chooseTarget(current.panels.length - 1, "")
+      : null,
+    recentTargets,
   });
 }
 
@@ -602,6 +694,10 @@ function startEditing() {
 }
 
 async function openSettingsWindow() {
+  if (onPhone()) {
+    const { openSettingsSheet } = await import("./settings-sheet.js");
+    return openSettingsSheet();
+  }
   if (await openSettings(windowTitle(text.settings))) return;
   /* Outside the app there is no second window to open; the settings are a
      page of their own and can be looked at as one. */
@@ -617,7 +713,7 @@ async function openSettingsWindow() {
 let device = null;
 
 async function deviceBackend() {
-  if (!device) device = createTranslationBackend({ helperUrl: HELPER_URL }, await appFetch());
+  if (!device) device = createTranslationBackend({ helperUrl: HELPER_URL }, await translationFetch());
   return device;
 }
 
@@ -649,6 +745,18 @@ async function translate() {
     return;
   }
 
+  /* On a phone, before a text could first go to the AI model at this
+     address, the reader is asked whether it may (phone-sheets.js). */
+  if (onPhone()) {
+    const stored = await loadSettings();
+    if (stored.endpoint && modelConsentFor(stored) === null) {
+      const { askModelConsent } = await import("./phone-sheets.js");
+      await askModelConsent(stored);
+      settings = forSystem(await loadSettings());
+      apiKey = await loadApiKey(settings);
+    }
+  }
+
   /* Read already — edited and not changed, or selected again in a program.
      A kept reading is the answer to exactly this text, so there is nothing to
      ask: it is shown again. Asked again it would pay for every call of a run —
@@ -661,7 +769,7 @@ async function translate() {
   const lookedUp = lookup || (editing && editedIn?.word === body ? editedIn.sentence : null);
   lookup = null;
   editedIn = null;
-  const kept = keptReading(history, body, settings, lookedUp?.text || "");
+  const kept = keptReading(history, body, settings, lookedUp?.text || "", panelChoice);
   if (kept) {
     const moved = history.indexOf(kept) !== place;
     place = history.indexOf(kept);
@@ -690,7 +798,8 @@ async function translate() {
      while this is still being worked out has to be able to walk forward into
      it again — and it goes on filling itself in the meantime, so what they
      come back to is further along than what they left. */
-  const entry = { draft: body, source, state: null, key: readingKey(settings), sentence: lookedUp };
+  const entry = { draft: body, source, state: null, key: keyNow(), sentence: lookedUp,
+    recognized: recognized?.text === body ? recognized.by : null };
   remember(entry);
   draw();
   toTop();
@@ -701,6 +810,11 @@ async function translate() {
 /* The sentence a looked-up word came with, until its entry is asked for
    (onCapture). */
 let lookup = null;
+
+/* Text read off a piece of the screen, and by whom ("device" or
+   "triglosa"), until its reading starts: the reading says it under the
+   word "Original" for as long as the text is the one recognised. */
+let recognized = null;
 
 /* Stepping on through the text a sentence or a selection was read out of,
    a sentence at a time (author 2026-10-07): `around` is the text that came
@@ -743,8 +857,8 @@ async function stepSentence(delta) {
   /* The language the reader said the text is in goes on with it. */
   if (chosen.has(from.draft) && !chosen.has(span.text)) rememberChoice(span.text, chosen.get(from.draft));
   const kept = here.entries[here.at];
-  const again = kept && kept.key === readingKey(settings) && !kept.state?.fault;
-  const entry = again ? kept : { draft: span.text, source: here.source, state: null, key: readingKey(settings), sentence: null };
+  const again = kept && kept.key === keyNow() && !kept.state?.fault;
+  const entry = again ? kept : { draft: span.text, source: here.source, state: null, key: keyNow(), sentence: null };
   here.entries[here.at] = entry;
   history[history.indexOf(from)] = entry;
   edited = null;
@@ -789,13 +903,36 @@ async function chooseLanguage(code) {
   if (!old || editing) return;
   rememberChoice(old.draft, { code, guesses: old.state?.source?.guesses || [] });
   recentChoices = [code, ...recentChoices.filter((c) => c !== code)].slice(0, MOST_RECENT);
-  const entry = { draft: old.draft, source: old.source, state: null, key: readingKey(settings) };
+  const entry = { draft: old.draft, source: old.source, state: null, key: keyNow() };
   if (walked()) walk.entries[walk.at] = entry;
   history[history.indexOf(old)] = entry;
   draft = old.draft;
   current = null;
   draw();
   toTop();
+  say("");
+  await read(entry);
+}
+
+/* The reader adds a third panel, puts another language in place of a
+   translation, or takes the added panel away (panels.js). The choice holds
+   for every reading until the app quits or the settings' languages change,
+   as the folds do. The reading on screen is made again with it: the
+   original, its language, the terms and the verbs stay, and only a new
+   panel is asked for. Offered once the reading stands, so there is all of
+   it to keep. */
+async function chooseTarget(index, code) {
+  const old = showing();
+  if (!old?.state || old.state.busy || editing) return;
+  if (code) recentTargets = [code, ...recentTargets.filter((c) => c !== code)].slice(0, MOST_RECENT);
+  const codes = old.state.panels.map((entry) => entry.code);
+  panelChoice = choosePanel(panelChoice, { codes, configured: configuredCount(codes[0], settings.languages), index, code });
+  const entry = { draft: old.draft, source: old.source, state: null, key: keyNow(), sentence: old.sentence,
+                  kept: old.state, folded: old.state.folded };
+  if (walked()) walk.entries[walk.at] = entry;
+  history[history.indexOf(old)] = entry;
+  /* The sheet stays as it is until the new one has its panels: the same
+     reading with a panel changed, not a different sheet. */
   say("");
   await read(entry);
 }
@@ -818,7 +955,7 @@ async function spellingChoice({ typed, offer }) {
   const old = showing();
   if (!old || editing || !typed) return;
   asTyped.add(old.draft);
-  const entry = { draft: old.draft, source: old.source, state: null, key: readingKey(settings), sentence: old.sentence };
+  const entry = { draft: old.draft, source: old.source, state: null, key: keyNow(), sentence: old.sentence };
   if (walked()) walk.entries[walk.at] = entry;
   history[history.indexOf(old)] = entry;
   current = null;
@@ -837,6 +974,7 @@ async function read(entry) {
   await ensureTranslationHelper(translation);
 
   reading = true;
+  countRead(settings);
   try {
     await runText(entry.draft, {
       settings,
@@ -846,6 +984,8 @@ async function read(entry) {
       identifier,
       speller,
       asTyped: asTyped.has(entry.draft),
+      choice: panelChoice,
+      kept: entry.kept || null,
       waitTurn: quietTurn,
       language: choice?.code || entry.sentence?.detected.code || "",
       languageBy: choice?.code ? "reader" : entry.sentence?.detected.by || "",
@@ -859,6 +999,7 @@ async function read(entry) {
         if (state.fault && !entry.noted) {
           entry.noted = true;
           noteFault(faultLine(state.fault));
+          countFault(settings, state.fault.kind);
         }
         if (showing() === entry && !editing) sayFor(state);
         if (!state.panels.length) return;
@@ -868,7 +1009,7 @@ async function read(entry) {
            and redrawing must not take it away. */
         const before = entry.state;
         entry.state = { ...state, selection: before?.selection, marked: before?.marked,
-                        markedStatus: before?.markedStatus, folded: before?.folded ?? new Set(folds),
+                        markedStatus: before?.markedStatus, folded: before?.folded ?? entry.folded ?? new Set(folds),
                         more: before?.more };
         update(entry);
       },
@@ -880,9 +1021,12 @@ async function read(entry) {
        message would take it away with it. The message goes to the status
        line, where every other passing word goes. */
     noteFault(faultLine(faultOf(error)));
+    countFault(settings, faultOf(error).kind);
     if (settle(entry)) say(faultText(settings.languages[0], faultOf(error)));
   } finally {
     reading = false;
+    /* The reading a translation was changed in is not held past its run. */
+    delete entry.kept;
   }
 }
 
@@ -944,11 +1088,24 @@ function settle(entry) {
    attribute sits on the whole window rather than on the spans: the panels are
    rebuilt at any time, and classes set there would be lost. */
 sheet.addEventListener("mouseover", (event) => {
+  if (onPhone()) return;
   const row = event.target.closest?.(".row[data-hl]");
   if (row) root.dataset.hl = row.dataset.hl;
 });
 sheet.addEventListener("mouseout", (event) => {
+  if (onPhone()) return;
   if (event.target.closest?.(".row[data-hl]")) delete root.dataset.hl;
+});
+/* Under a finger there is no pointer to arrive and leave: a tap on a row
+   lights its spots, and a second tap on it puts them out again. One of the
+   row's buttons lights them and never puts them out. */
+sheet.addEventListener("click", (event) => {
+  if (!onPhone()) return;
+  const row = event.target.closest?.(".row[data-hl]");
+  if (!row) return;
+  const lit = root.dataset.hl === row.dataset.hl;
+  if (!lit) root.dataset.hl = row.dataset.hl;
+  else if (!event.target.closest("button, a")) delete root.dataset.hl;
 });
 
 /* A translation, the verbs, the terms or the picked word folded away or
@@ -1032,6 +1189,13 @@ function askingFor({ kind, index, item }, shown) {
         note: item.note };
   return { holder, ask };
 }
+
+/* The language and text of every panel but `panel`, which a question about
+   a word in it takes along. */
+const otherTexts = (panel) => otherPanels(panel, current.panels.map((entry) => entry.code), settings.languages[0])
+  .map((index) => current.panels[index])
+  .filter(Boolean)
+  .map((entry) => ({ code: entry.code, text: entry.text }));
 
 /* A row explained at more length, asked for on its own button: the picked
    word, a verb or a term. */
@@ -1148,10 +1312,7 @@ async function lookUp(word, previous) {
      result must not be below the fold. */
   revealMarked();
 
-  const others = otherPanels(current.selection.panel, current.panels[0].code, settings.languages)
-    .map((index) => current.panels[index])
-    .filter(Boolean)
-    .map((entry) => ({ code: entry.code, text: entry.text }));
+  const others = otherTexts(current.selection.panel);
 
   const identifier = await languageIdentifier();
   try {
@@ -1199,6 +1360,7 @@ async function revealMarked() {
   await settled();
   const area = sheet.querySelector(`[data-section="${MARKED}"]`);
   if (!area) return;
+  if (onPhone()) return revealOnPhone(area);
   const box = area.getBoundingClientRect();
   const frame = sheet.getBoundingClientRect();
   /* A pixel of slack. Scrolled to the very bottom the area sits exactly on
@@ -1211,6 +1373,24 @@ async function revealMarked() {
      The rest is a scroll away, which the end of a long answer is not. */
   const block = box.height > frame.height ? "start" : "end";
   area.scrollIntoView({ block, behavior: "smooth" });
+}
+
+/* On a phone the page itself scrolls, and its lower end is the bar along
+   the bottom edge, which lies over it — or the keyboard, where one is up. */
+function revealOnPhone(area) {
+  const box = area.getBoundingClientRect();
+  const frame = root.getBoundingClientRect();
+  const bar = root.querySelector(".window-actions")?.getBoundingClientRect();
+  const air = 10;
+  const top = frame.top + (heading.closest(".topline")?.getBoundingClientRect().height || 0);
+  const bottom = (bar && bar.height ? bar.top : frame.bottom) - air;
+  if (box.top >= top - 1 && box.bottom <= bottom + 1) return;
+  /* Lengths are measured as the screen shows them; the page counts its
+     scrolling before the enlargement, and its own height says by how much
+     the two differ. */
+  const zoom = root.clientHeight ? frame.height / root.clientHeight : 1;
+  const by = box.height > bottom - top ? box.top - top : box.bottom - bottom;
+  root.scrollBy({ top: by / zoom, behavior: "smooth" });
 }
 
 /* The text a word was picked out of: a panel's, a line of a dictionary
@@ -1263,16 +1443,13 @@ async function pick(choice) {
   draw();
   revealMarked();
 
-  const sourceCode = current.panels[0].code;
-  const others = otherPanels(choice.panel, sourceCode, settings.languages)
-    .map((index) => current.panels[index])
-    .filter(Boolean)
-    .map((entry) => ({ code: entry.code, text: entry.text }));
+  const codes = current.panels.map((entry) => entry.code);
+  const others = otherTexts(choice.panel);
 
   /* A single word the aligner has a place for in both other panels is not
      asked about: an expression of several words is, like a term. */
   const places = wordCount(term) === 1 && current.links
-    ? otherPanels(choice.panel, sourceCode, settings.languages)
+    ? otherPanels(choice.panel, codes, settings.languages[0])
       .filter((index) => current.panels[index])
       .map((index) => fragmentsAcross(current.links, current.panels.map((entry) => entry.text), choice.panel,
         { start: choice.start, end: choice.end }, index).join(" + "))
@@ -1333,15 +1510,139 @@ settingsButton.addEventListener("click", openSettingsWindow);
    selected gives — reachable without the shortcut, because the window is
    often already in front. What stood there before is one chevron away. */
 freshButton.addEventListener("click", () => { startFresh(); say(""); });
+/* Drawn only on a phone (style.css): what was copied is read straight away,
+   and an empty clipboard leaves the sheet as it is. */
+/* A card out of what was copied, as the card shortcut makes one out of
+   what is selected. Nothing copied is a blank card. */
+async function cardFromCopied() {
+  let copied = "";
+  try {
+    copied = (await pastedText()).trim();
+  } catch {
+    /* Refused: a blank card. */
+  }
+  return openFreeCard(copied);
+}
+
+/* A press is a blank card; a finger held on the button is a card out of
+   what was copied (the card's own sheet has a button for the same). */
+const HELD_MS = 500;
+let held = null;
+let wasHeld = false;
+cardButton.addEventListener("touchstart", () => {
+  wasHeld = false;
+  held = setTimeout(() => {
+    wasHeld = true;
+    cardFromCopied();
+  }, HELD_MS);
+}, { passive: true });
+for (const over of ["touchend", "touchcancel", "touchmove"]) {
+  cardButton.addEventListener(over, () => clearTimeout(held), { passive: true });
+}
+cardButton.addEventListener("contextmenu", (event) => event.preventDefault());
+cardButton.addEventListener("click", () => {
+  if (wasHeld) { wasHeld = false; return; }
+  /* A phone brings the keyboard up only for a caret set during the press
+     itself, and the card's sheet is drawn a moment later: a field nobody
+     sees takes the caret until the card's word field is there (card-layer.js). */
+  if (onPhone() && !document.getElementById("keyboard-hold")) {
+    const hold = document.createElement("input");
+    hold.id = "keyboard-hold";
+    hold.setAttribute("aria-hidden", "true");
+    document.body.append(hold);
+    hold.focus();
+  }
+  openFreeCard("");
+});
+/* A text that arrives whole and is read at once: what was copied, or what
+   another app handed over. */
+function readAtOnce(arrived) {
+  edited = null;
+  place = history.length;
+  source = 0;
+  draft = arrived;
+  current = null;
+  editing = true;
+  toTop();
+  translate();
+}
+/* What was copied, read at once: the bar's button, and on a phone the one
+   under a new translation's field. A picture copied rather than a text has
+   its text read (recognisePicture). */
+async function pasteClipboard() {
+  if ((await pasteHeld().catch(() => "text")) === "picture") return recognisePicture("pasteboard");
+  const asked = Date.now();
+  const pasted = (await pastedText().catch(() => "")).trim();
+  const waited = Date.now() - asked;
+  if (pasted) readAtOnce(pasted);
+  if (waited > IOS_ASKED_MS) noticeAsked();
+}
+/* Reading what was copied takes no time unless iOS put its question to the
+   reader. The app cannot see the setting that stops it, only that wait: at
+   the second one it says, once, how. */
+const IOS_ASKED_MS = 500;
+async function noticeAsked() {
+  const stored = await loadSettings();
+  if (stored.pasteAsked >= 2) return;
+  const noted = await saveSettings({ ...stored, pasteAsked: stored.pasteAsked + 1 });
+  if (noted.pasteAsked === 2) (await import("./phone-sheets.js")).offerPasteSetting(noted);
+}
+pasteButton.addEventListener("click", pasteClipboard);
+
+/* A picture's text on the phone, read like a screenshot's: taken with the
+   camera or chosen in the photo library (the buttons under a new
+   translation's field), or copied. Nothing chosen leaves the sheet as it
+   was; what came of the rest stands under it. */
+async function recognisePicture(source) {
+  const found = await readPicture(source, settings.languages.filter(Boolean), () => say(text.screenReading));
+  if (found.none) return say("");
+  if (found.failed) return say(text.screenNoAnswer);
+  const read = textOfLines(found.lines);
+  if (!read) return say(text.pictureNothing);
+  say("");
+  recognized = { text: read, by: found.by };
+  readAtOnce(read);
+}
+/* On a phone the button is greyed while nothing was copied: asked of the
+   system without reading what was copied, which iOS would answer with its
+   question whether the app may. Asked again whenever the app is in front,
+   and every moment while it is — another app copies while this one waits. */
+if (onPhone()) {
+  const refreshPaste = async () => {
+    const empty = !(await pasteHeld().catch(() => "text"));
+    for (const node of [pasteButton, ...sheet.querySelectorAll('[data-source="clipboard"]')]) node.disabled = empty;
+  };
+  refreshPaste();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshPaste(); });
+  setInterval(() => { if (!document.hidden) refreshPaste(); }, 1500);
+  /* The edges of the screen the page does not reach — under the clock, over
+     the home bar — in the page's own ground, light or dark. */
+  paintGround();
+  globalThis.matchMedia?.("(prefers-color-scheme: dark)")?.addEventListener?.("change", () => paintGround());
+}
+/* On a phone another app can hand a text over in an address of this app's
+   own (`triglosa://read?text=…`, or `card` for a flashcard out of it) —
+   from the Shortcuts app, and through a shortcut from the share menu. Asked for at the start as well: an app
+   started by such an address had no page yet to hear of it. */
+if (onPhone()) {
+  onOpenedWith((address) => {
+    const handed = textHandedOver(address);
+    if (!handed) return;
+    /* A picture shared: its lines, recognised on the phone, put in order. */
+    const read = handed.lines ? textOfLines(readRecognized(handed.lines)) : handed.text;
+    if (!read) return say(text.pictureNothing);
+    if (handed.what === "card") return openFreeCard(handed.lines ? read.replace(/\s+/g, " ") : read);
+    if (handed.lines) recognized = { text: read, by: "device" };
+    readAtOnce(read);
+  });
+}
 /* The same as Escape and as the close button every other window has: the
    window goes away, the app stays. */
 closeButton.addEventListener("click", () => { forgetPointer(); hideWindow(); });
 
 /* The pin says what a click on it will do, and shows what it is. */
 function showPin() {
-  const name = withKey(settings.pinned ? text.unpinWindow : text.pinWindow, WINDOW_KEYS.pin);
-  pinButton.querySelector(".pill-label").textContent = name;
-  pinButton.setAttribute("aria-label", name);
+  nameButton(pinButton, settings.pinned ? text.unpinWindow : text.pinWindow, WINDOW_KEYS.pin);
   pinButton.setAttribute("aria-pressed", String(settings.pinned));
 }
 /* Kept in the settings file so it outlasts the app. Written over what the
@@ -1351,12 +1652,15 @@ async function togglePin() {
   settings = await saveSettings({ ...(await loadSettings()), pinned: !settings.pinned });
   showPin();
   applyPresence(settings);
+  if (root.querySelector(".drop-hint")) draw();
 }
 pinButton.addEventListener("click", togglePin);
 /* What every program on this system opens its settings with, and the key a
    window lying over somebody else's full screen has to answer to. Escape puts
    it away rather than ending anything: a reading still being worked out goes
    on, and the window comes back to it. */
+quietContextMenu(document);
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "," && (event.metaKey || event.ctrlKey)) {
     event.preventDefault();
@@ -1399,8 +1703,12 @@ function copyPicked() {
    while its field has focus, and a window closed at that moment would leave
    the app holding nothing. */
 await onSettingsChanged(async () => {
-  settings = await loadSettings();
-  apiKey = await loadApiKey();
+  const before = JSON.stringify(settings.languages);
+  settings = forSystem(await loadSettings());
+  /* Other languages set: a panel chosen in the window over the old ones
+     would stand over the new. */
+  if (JSON.stringify(settings.languages) !== before) panelChoice = null;
+  apiKey = await loadApiKey(settings);
   /* Fewer kept from now on: the oldest go at once, not with the next
      reading. */
   const shown = showing();
@@ -1415,6 +1723,8 @@ await onSettingsChanged(async () => {
   currentLlm = (await backends()).llm;
   draw();
   checkPermission();
+  /* A yes in the first steps counts this day at once. */
+  countSeen(settings);
 });
 
 /* The shortcut, and what arrives through it. The selection is read before
@@ -1422,58 +1732,100 @@ await onSettingsChanged(async () => {
    code runs the window is already in front and the focused element would be
    the original field. */
 await applyShortcut();
-await onCapture({
-  async onText(selection) {
-    if (selection.route === "copied") copiedOnce = true;
-    source = selection.source || 0;
-    edited = null;
-    draft = selection.text;
-    /* A program may answer with one character of a Chinese word as the word
-       under the pointer: the text around it says which word that is. */
-    if (selection.route === "pointer-word" && selection.context) {
-      const { text: around, at } = selection.context;
-      const word = around.slice(at, at + selection.text.length) === selection.text
-        ? wordAround(around, at, at + selection.text.length)
-        : null;
-      if (word && word.end - word.start > selection.text.length) {
-        selection = { ...selection, text: around.slice(word.start, word.end), context: { text: around, at: word.start } };
-        draft = selection.text;
-        lightUp(word.start, word.end);
-      }
-    }
-    /* The sentence under the pointer arrives as the word the pointer was on
-       and the text around it; the sentence is cut out of that here, read as
-       a text of its own, and lit up where it stands. */
-    let stretch = null;
-    if (selection.route === "pointer-sentence") {
-      const sentence = sentenceUnder(selection.context, selection.text.length);
-      if (!sentence) return;
-      draft = sentence.text;
-      lightUp(sentence.start, sentence.end);
-      stretch = sentence;
-    } else if (selection.context && wordCount(selection.text) > SHORT_MAX_WORDS) {
-      stretch = selectionSpan(selection.context, selection.text);
-    }
-    /* One to three words come with the text around them, and their sentence
-       goes along where the reader switched that on (sentence.js). */
-    lookup = settings.withSentence && selection.context
-      && selection.route !== "pointer-sentence" && wordCount(selection.text) <= SHORT_MAX_WORDS
-      ? await sentenceFor(selection.text, selection.context, { settings, ...(await backends()) }).catch(() => null)
+/* A selection read out of another program, the sentence or the word
+   under the pointer, or the text read off a piece of the screen: shown as a
+   reading of its own. */
+async function takeSelection(selection) {
+  if (selection.route !== "screen" && !selection.recognizedBy) recognized = null;
+  if (selection.route === "copied") copiedOnce = true;
+  source = selection.source || 0;
+  edited = null;
+  draft = selection.text;
+  /* A program may answer with one character of a Chinese word as the word
+     under the pointer: the text around it says which word that is. */
+  if (selection.route === "pointer-word" && selection.context) {
+    const { text: around, at } = selection.context;
+    const word = around.slice(at, at + selection.text.length) === selection.text
+      ? wordAround(around, at, at + selection.text.length)
       : null;
-    editing = false;
-    current = null;
-    walk = null;
-    translate();
-    /* The reading it starts from is the one just put on screen. */
-    startWalk(selection, stretch);
-    if (walk && showing()?.draft === draft.trim()) {
-      walk.entries[0] = showing();
-      draw();
-    } else {
-      walk = null;
+    if (word && word.end - word.start > selection.text.length) {
+      selection = { ...selection, text: around.slice(word.start, word.end), context: { text: around, at: word.start } };
+      draft = selection.text;
+      light(selection, word.start, word.end);
     }
-    await appear();
-  },
+  }
+  /* The sentence under the pointer arrives as the word the pointer was on
+     and the text around it; the sentence is cut out of that here, read as
+     a text of its own, and lit up where it stands. */
+  let stretch = null;
+  if (selection.route === "pointer-sentence") {
+    const sentence = sentenceUnder(selection.context, selection.text.length);
+    /* A program may hand over the word's own piece of text alone — a
+       heading's span in Chrome — or two blocks run together: what stands on
+       the screen around it has the sentence. Where the screen may not be
+       recorded, what the program gave is still better than nothing. */
+    const wanting = !sentence || wordCount(sentence.text) < 2 || runsTogether(sentence.text);
+    if (!selection.boxes && wanting && (!sentence || await screenPermitted())) {
+      readUnderPointer(true);
+      return;
+    }
+    if (!sentence) {
+      await pointerFailed(text.pointerNothing);
+      return;
+    }
+    draft = sentence.text;
+    light(selection, sentence.start, sentence.end);
+    stretch = sentence;
+  } else if (selection.context && wordCount(selection.text) > SHORT_MAX_WORDS) {
+    stretch = selectionSpan(selection.context, selection.text);
+  }
+  /* Read off the screen around the pointer: who recognised it is said
+     under the original. */
+  if (selection.recognizedBy) recognized = { text: draft.trim(), by: selection.recognizedBy };
+  /* One to three words come with the text around them, and their sentence
+     goes along where the reader switched that on (sentence.js). Naming the
+     sentence's language may take the model a second: the window shows the
+     word meanwhile rather than waiting for it, and what the program held is
+     read already. */
+  const withSentence = settings.withSentence && selection.context
+    && selection.route !== "pointer-sentence" && wordCount(selection.text) <= SHORT_MAX_WORDS;
+  if (withSentence) await showArriving();
+  lookup = withSentence
+    ? await sentenceFor(selection.text, selection.context, { settings, ...(await backends()) }).catch(() => null)
+    : null;
+  trace({ route: selection.route, by: selection.recognizedBy || "program", text: draft, sentence: lookup?.text });
+  editing = false;
+  current = null;
+  walk = null;
+  translate();
+  /* The reading it starts from is the one just put on screen. */
+  startWalk(selection, stretch);
+  if (walk && showing()?.draft === draft.trim()) {
+    walk.entries[0] = showing();
+    draw();
+  } else {
+    walk = null;
+  }
+  await appear();
+}
+
+/* The text that arrived, on a sheet that is not one of the kept readings
+   yet, while what goes along with it is still being found. */
+async function showArriving() {
+  place = history.length;
+  edited = null;
+  editing = false;
+  current = null;
+  draw();
+  toTop();
+  say(text.detecting);
+  await appear();
+}
+
+await onCapture({
+  /* A selected image file, from the Finder or Explorer, is read as a
+     picture. */
+  onText: (selection) => (selection.route === "image" ? readImageFile(selection.text, selection.source) : takeSelection(selection)),
   /* Nothing came back. Nothing selected, or nothing new copied, brings back
      what was on screen when the window was put away: a reader pressing the
      shortcut without a selection wants the window back, and a blank sheet is
@@ -1492,6 +1844,148 @@ await onCapture({
   },
 });
 
+/* A frame drawn over the screen (the screen shortcut, or the menu's entry):
+   the window comes forward saying the text is being recognised, and the
+   text read becomes a reading like a selection — Insert writes it where
+   the reader was last working. Nothing found, or nothing to read with,
+   leaves a blank sheet and the reason. */
+await onScreen({
+  async onChosen({ purpose, shown }) {
+    /* Copied, or put on a card: the reading window stays as it was, and
+       what went wrong is said in a note of its own. */
+    if (purpose !== "read") {
+      const found = await readFramed();
+      if (found.failed) return showNote(failedSaying(found.failed));
+      if (purpose === "copy") await copyRecognized(found.text);
+      else await openFreeCard(found.text.replace(/\s+/g, " "));
+      if (shown) await appear();
+      return;
+    }
+    startFresh();
+    say(text.screenReading);
+    await appear();
+    const found = await readFramed();
+    if (found.failed) {
+      say(failedSaying(found.failed));
+      return;
+    }
+    say("");
+    recognized = { text: found.text, by: found.by };
+    await takeSelection({ text: found.text, source: 0, route: "screen", context: null });
+  },
+  async onFailed({ reason, purpose }) {
+    const saying = reason === "permission" ? text.screenPermission : text.screenFailed;
+    if (purpose !== "read") return showNote(saying);
+    startFresh();
+    say(saying);
+    await appear();
+  },
+});
+
+/* A stretch of the text a selection came with, lit up where it stands: in
+   the program's own text, or in the piece of the screen read around the
+   pointer. */
+function light(selection, start, end) {
+  if (selection.boxes) lightScreen(selection.boxes(start, end));
+  else lightUp(start, end);
+}
+
+/* The word or the sentence shortcut where the program handed over no text:
+   found in what the recogniser reads around the pointer, and taken as the
+   program's own would be. The piece is photographed before this hears of
+   it, so the window may stand over it now: it comes at once, saying the
+   text is being recognised, and says why where nothing comes of it — a
+   shortcut is never left without an answer. */
+await onPointerScreen({
+  async onRead({ sentence, at, size }) {
+    startFresh();
+    say(text.pointerReading);
+    await appear();
+    const translation = await deviceBackend();
+    await ensureTranslationHelper(translation);
+    const found = await readScreen({ translation, languages: settings.languages.filter(Boolean) });
+    if (found.failed) {
+      trace({ route: "pointer-screen", failed: found.failed });
+      say(found.failed === "absent" ? text.screenAbsent : text.screenNoAnswer);
+      return;
+    }
+    const under = wordUnderPointer(found.lines, at, { rtl: rightToLeft(found.lines), size });
+    if (!under) {
+      trace({ route: "pointer-screen", failed: "no word", lines: found.lines.length });
+      say(text.pointerNothing);
+      return;
+    }
+    say("");
+    const selection = {
+      text: under.word, source: 0, route: sentence ? "pointer-sentence" : "pointer-word", context: under.context, boxes: under.boxes,
+    };
+    if (!sentence) lightScreen(under.boxes(under.context.at, under.context.at + under.word.length));
+    await takeSelection({ ...selection, recognizedBy: found.by });
+  },
+  async onFailed(reason) {
+    trace({ route: "pointer-screen", failed: reason });
+    pointerFailed(reason === "permission" ? text.screenPermission : text.screenFailed);
+  },
+});
+
+/* Nothing read under the pointer, said on a blank sheet; what was read
+   before is one chevron away. */
+async function pointerFailed(saying) {
+  startFresh();
+  say(saying);
+  await appear();
+}
+
+/* An image file's text, read as a frame drawn on the screen is: from a
+   file selected in the Finder or Explorer, or dropped on the window. */
+async function readImageFile(path, from = 0) {
+  startFresh();
+  say(text.screenReading);
+  await appear();
+  if (!(await frameImage(path))) {
+    say(text.imageUnreadable);
+    return;
+  }
+  const found = await readFramed();
+  if (found.failed) {
+    say(found.failed === "nothing" ? text.imageNothing : failedSaying(found.failed));
+    return;
+  }
+  say("");
+  recognized = { text: found.text, by: found.by };
+  await takeSelection({ text: found.text, source: from, route: "screen", context: null });
+}
+
+/* A picture over the window is shown where it will land. */
+await onImageDropped({
+  onDrop: (path) => readImageFile(path),
+  onOver: (image) => {
+    document.body.dataset.drop = text.dropImage;
+    document.body.classList.toggle("drop-target", image);
+  },
+});
+
+/* The text in the frame just drawn, put in reading order: { text, by }, or
+   { failed } — "absent", "helper" or "nothing". */
+async function readFramed() {
+  const languages = settings.languages.filter(Boolean);
+  const translation = await deviceBackend();
+  await ensureTranslationHelper(translation);
+  const found = await readScreen({ translation, languages });
+  if (found.failed) return found;
+  const read = textOfLines(found.lines);
+  return read ? { text: read, by: found.by } : { failed: "nothing" };
+}
+
+/* Recognised lines as the text they were, in reading order. Declared, not
+   assigned: an address another app opened this one with is answered while
+   the page is still being set up. */
+function textOfLines(lines) {
+  return screenText(lines, { rtl: rightToLeft(lines) }).trim();
+}
+
+const failedSaying = (failed) => ({ absent: text.screenAbsent, nothing: text.screenNothing })[failed] || text.screenNoAnswer;
+
 /* The card shortcut, and the menu's card entry. What was selected goes on
    the side of its language — found the way a reading finds it — and the
    card window opens with it; with nothing selected, blank. The reading
@@ -1502,17 +1996,34 @@ await onCapture({
    second, and a card that waits for that is a shortcut that seems not to
    have been heard. The answer then replaces the card, unless another card
    has taken the window in the meantime. */
+async function showCard(title, card) {
+  if (!onPhone()) return openCard(title, card);
+  /* One window: the card lies over the reading, in the same page. */
+  const { openCardLayer } = await import("./card-layer.js");
+  return openCardLayer(card, { fromCopied: cardFromCopied });
+}
+
+/* A card already standing, answered further (see updateCard). */
+async function refreshCard(card) {
+  if (!onPhone()) return updateCard(card);
+  const { updateCardLayer } = await import("./card-layer.js");
+  return updateCardLayer(card);
+}
+
 async function openFreeCard(selected) {
   const reader = settings.languages[0];
   const title = windowTitle(text.cardCreate);
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  /* The language a card last remembered, read fresh: the card window keeps
+     it without telling this one. */
+  const { cards } = await loadSettings();
   const build = (detected) => {
-    const { choices, preset } = cardLanguages(settings, detected);
+    const { choices, preset } = cardLanguages({ ...settings, cards: { ...settings.cards, language: cards.language } }, detected);
     return { ...freeCard({ text: selected, detected, reader, choices, preset }), id };
   };
-  if (!selected) return openCard(title, build(""));
+  if (!selected) return showCard(title, build(""));
 
-  await openCard(title, { ...build(""), detecting: true });
+  await showCard(title, { ...build(""), detecting: true });
   let detected = "";
   try {
     const { translation, llm, identifier } = await backends();
@@ -1522,7 +2033,7 @@ async function openFreeCard(selected) {
   } catch {
     /* Not named: the text goes on the word side, as any foreign word. */
   }
-  await updateCard(build(detected));
+  await refreshCard(build(detected));
 }
 
 await onCardCapture({
@@ -1578,7 +2089,7 @@ async function appear(fresh = false) {
    closing — so the pairs are warmed every time it appears, and once now for
    the time it was started. The helper takes its sessions with it when it
    idles out, which is what makes the second and later times worth anything. */
-await onWindowShown(() => { forgetPointer(); warmSoon(); checkPermission(); });
+await onWindowShown(() => { forgetPointer(); warmSoon(); checkPermission(); countSeen(settings); });
 await onAppearAsked(appear);
 await onFreshAsked(() => { startFresh(); say(""); });
 warmSoon();
@@ -1590,5 +2101,15 @@ draw();
 focusDraft();
 
 /* The first steps, at every start until the reader says not to: a window of
-   their own, the reading window staying hidden as ever. */
-if (settings.welcome) openWelcome(windowTitle(text.welcome.steps));
+   their own, the reading window staying hidden as ever. Once more for a
+   reader who has not answered whether the app may count, which a reader of
+   an earlier version never was asked. */
+if ((settings.welcome || settings.stats === null) && !onPhone()) openWelcome(windowTitle(text.welcome.steps));
+/* On a phone, once, as a sheet over the reading. */
+if (settings.welcome && onPhone()) import("./phone-sheets.js").then((sheets) => sheets.openWelcomeSheet());
+/* The day the app was started on, where the reader allowed it. */
+countSeen(settings);
+/* The page has come this far: everything that answers the shortcut and the
+   menu is listening. A journal without this line after a start says why
+   nothing came. */
+noteJournal("page ready");

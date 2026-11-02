@@ -27,6 +27,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { UNFINISHED_IN } from "./unfinished.mjs";
 import { dirname, join, normalize, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -113,6 +114,7 @@ export const REQUESTS = {
   spellingPrompt: "Q20",
   wordLanguagePrompt: "Q21",
   improveCardPrompt: "",
+  explainCardPrompt: "",
   headwordPrompt: "",
 };
 
@@ -254,6 +256,15 @@ if (import.meta.main) {
       console.warn(`Reminder: the path of a reading changed (${path.join(", ")}) and ${READING_PAGE} did not.` +
         " Read its diagrams against the change.");
     }
+  }
+
+  /* What can only be written once the stores have answered: the store
+     pages' addresses and the counter's. The export refuses them; until then
+     every commit says so. */
+  for (const [file, holes] of UNFINISHED_IN) {
+    const text = existsSync(join(ROOT, file)) ? readFileSync(join(ROOT, file), "utf8") : "";
+    const open = holes.filter((hole) => hole.test(text));
+    if (open.length) console.warn(`Reminder: ${file} still holds ${open.map(String).join(", ")} — fill it in before the release.`);
   }
 
   if (problems.length) {

@@ -12,7 +12,7 @@
    templates. */
 
 import { noteFields } from "../card.js";
-import { insideApp } from "./env.js";
+import { onDesktop, shell } from "./env.js";
 
 export const ANKI_URL = "http://127.0.0.1:8765";
 export const CARD_TAG = "Triglosa";
@@ -53,9 +53,8 @@ export function readAddResult(response) {
    background and takes its time — measured,
    fourteen seconds is enough and a cold start is most of it. */
 export async function launchAnki() {
-  if (!insideApp()) return false;
-  const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("launch_anki");
+  if (!onDesktop()) return false;
+  await shell("launch_anki");
   return true;
 }
 
@@ -69,9 +68,8 @@ export async function launchAnki() {
    Everything that leaves the process in this app goes through a seam, and
    this is that seam: a caller may hand in its own. */
 export async function ankiPost(body) {
-  if (insideApp()) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return invoke("anki_request", { body });
+  if (onDesktop()) {
+    return shell("anki_request", { body });
   }
   const response = await fetch(ANKI_URL, {
     method: "POST",

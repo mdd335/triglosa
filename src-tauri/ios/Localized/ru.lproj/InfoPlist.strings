@@ -1,0 +1,2 @@
+/* Why the camera is asked for: the camera button under a new translation. */
+"NSCameraUsageDescription" = "Triglosa читает текст на снятом тобой фото и переводит его. Фото остаётся на твоём iPhone.";

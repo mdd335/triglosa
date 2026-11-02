@@ -1,4 +1,4 @@
-# Presses a key combination the way a keyboard would, e.g. "Win+Shift+E".
+# Presses a key combination the way a keyboard would, e.g. "Ctrl+Alt+T".
 param([Parameter(Mandatory)][string]$Combination)
 Add-Type -Namespace Native -Name Keys -MemberDefinition '[DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, System.UIntPtr extra); [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint type);'
 $codes = @{ Win = 0x5B; Ctrl = 0x11; Alt = 0x12; Shift = 0x10; Esc = 0x1B; Enter = 0x0D; Tab = 0x09; Space = 0x20; Comma = 0xBC; Quote = 0xDE }

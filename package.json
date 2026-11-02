@@ -1,9 +1,9 @@
 {
   "name": "triglosa",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "engines": {
     "node": ">=24.2"
   },
@@ -15,8 +15,9 @@
     "app": "node scripts/aligner-fetch.mjs && tauri dev",
     "bundle": "node scripts/aligner-fetch.mjs && tauri build --bundles app && node scripts/sign.mjs",
     "bundle:intel": "node scripts/aligner-fetch.mjs && bash scripts/build-sidecar.sh x86_64-apple-darwin && tauri build --bundles app --target x86_64-apple-darwin && node scripts/sign.mjs x86_64-apple-darwin",
-    "release": "npm run sidecar && npm run bundle && node scripts/dmg.mjs && npm run bundle:intel && node scripts/dmg.mjs x86_64-apple-darwin",
+    "release": "npm run sidecar && npm run bundle && node scripts/notarize.mjs && node scripts/dmg.mjs && npm run bundle:intel && node scripts/notarize.mjs x86_64-apple-darwin && node scripts/dmg.mjs x86_64-apple-darwin",
     "sidecar": "bash scripts/build-sidecar.sh",
+    "ios": "node scripts/ios.mjs",
     "test": "node --test \"tests/**/*.test.*js\"",
     "check": "node scripts/check.mjs",
     "lint": "eslint .",
@@ -24,16 +25,16 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@tauri-apps/cli": "^2.11.4",
+    "@tauri-apps/cli": "^2.12.4",
     "eslint": "^10.11.0",
     "globals": "^17.12.0",
     "jsdom": "^29.1.1",
     "vite": "^8.3.0"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-http": "^2.6.0",
-    "@tauri-apps/plugin-opener": "^2.5.5",
-    "@tauri-apps/plugin-shell": "^2.3.6"
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-http": "^2.8.3",
+    "@tauri-apps/plugin-opener": "^2.7.2",
+    "@tauri-apps/plugin-shell": "^2.6.0"
   }
 }

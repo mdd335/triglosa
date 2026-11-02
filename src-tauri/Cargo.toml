@@ -1,10 +1,10 @@
 [package]
 name = "triglosa"
-version = "0.6.0"
+version = "0.7.0"
 description = "Read in a foreign language with the words worth learning explained"
 edition = "2021"
 rust-version = "1.77.2"
-license = "MIT"
+license = "GPL-3.0-only"
 
 # The binary's name is what macOS shows in the dock while developing — a
 # bundled build takes productName from tauri.conf.json, but `tauri dev` runs
@@ -21,41 +21,57 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = [] }
 tauri-plugin-http = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2"
-# Installing a newer version on the reader's click: src/update.rs.
-tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# What only a computer has: the menu bar symbol, the helper's process, the
+# shortcuts, the updater and the word aligner. The iPhone's shell
+# (src/mobile.rs) builds without them.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-shell = "2"
+tauri-plugin-global-shortcut = "2"
+# Installing a newer version on the reader's click: src/update.rs.
+tauri-plugin-updater = "2"
 # The word aligner behind the hover: src/align.rs. ONNX Runtime comes linked
 # in, and this is the last version of the wrapper whose ready-made library
 # still exists for Intel Macs — held there on purpose.
 ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "download-binaries"] }
 tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
 
+# The reading window and the cards as panels that come forward without
+# bringing the app with them: src/overlay.rs says why.
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-nspanel = "=2.1.1"
+
 # Windows' own API, for what macOS reaches through its frameworks: the
-# credential store, the clipboard, UI Automation, key presses and the
-# spelling checker. Tauri already
+# credential store, the clipboard and the files Explorer copies, UI
+# Automation, key presses, the spelling checker and reading image files.
+# Tauri already
 # builds this crate, so it adds features rather than a dependency.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
   "Win32_Foundation",
   "Win32_Globalization",
   "Win32_Graphics_Dwm",
   "Win32_Graphics_Gdi",
+  "Win32_Graphics_Imaging",
   "Win32_Security_Credentials",
+  "Win32_Storage_Packaging_Appx",
   "Win32_System_Com",
   "Win32_System_LibraryLoader",
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_System_Ole",
+  "Win32_System_SystemInformation",
   "Win32_System_Threading",
   "Win32_System_Variant",
   "Win32_UI_Accessibility",
   "Win32_UI_HiDpi",
+  "Win32_UI_Shell",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
 ] }

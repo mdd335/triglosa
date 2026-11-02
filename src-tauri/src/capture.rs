@@ -111,6 +111,7 @@ mod platform {
         Err(NO.into())
     }
     pub fn note_clipboard() {}
+    pub fn copy(_text: &str) {}
     pub fn watch_front() {}
     pub fn read_from_menu() -> Result<Selection, String> {
         read()
@@ -171,7 +172,7 @@ mod platform {
     use windows::Win32::UI::Accessibility::{
         CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern,
         IUIAutomationTextRange, SetWinEventHook, TextPatternRangeEndpoint_End,
-        TextPatternRangeEndpoint_Start, TextUnit_Character, TextUnit_Word,
+        TextPatternRangeEndpoint_Start, TextUnit_Character, TextUnit_Paragraph, TextUnit_Word,
         UIA_DataGridControlTypeId, UIA_DataItemControlTypeId, UIA_ListControlTypeId,
         UIA_ListItemControlTypeId, UIA_TableControlTypeId, UIA_TextPatternId,
         UIA_TreeControlTypeId, UIA_TreeItemControlTypeId, HWINEVENTHOOK,
@@ -202,6 +203,13 @@ mod platform {
 
     pub fn note_clipboard() {
         SEEN.store(unsafe { GetClipboardSequenceNumber() }, Ordering::Relaxed);
+    }
+
+    /* Text the app puts on the clipboard for the reader, not to be taken
+    for the reader's own copy afterwards. */
+    pub fn copy(text: &str) {
+        clipboard_write(text);
+        note_clipboard();
     }
 
     /* Another program may hold the clipboard open for a moment; it is asked
@@ -361,6 +369,62 @@ mod platform {
         })
     }
 
+    /* Whether the window in front is Explorer's — a folder or the desktop. */
+    fn in_explorer(window: HWND) -> bool {
+        use windows::Win32::System::Threading::{
+            OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
+            PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+        let process = process_of(window);
+        if process == 0 {
+            return false;
+        }
+        unsafe {
+            let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, process) else {
+                return false;
+            };
+            let mut name = [0u16; 260];
+            let mut length = name.len() as u32;
+            let read = QueryFullProcessImageNameW(
+                handle,
+                PROCESS_NAME_WIN32,
+                windows::core::PWSTR(name.as_mut_ptr()),
+                &mut length,
+            );
+            let _ = windows::Win32::Foundation::CloseHandle(handle);
+            read.is_ok()
+                && String::from_utf16_lossy(&name[..length as usize])
+                    .to_lowercase()
+                    .ends_with("\\explorer.exe")
+        }
+    }
+
+    /* The first image among the files on the clipboard — what Explorer's
+    copy puts there. */
+    fn copied_image() -> Option<String> {
+        use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
+        if !open_clipboard() {
+            return None;
+        }
+        let found = unsafe {
+            match GetClipboardData(15) {
+                Ok(handle) if !handle.is_invalid() => {
+                    let drop = HDROP(handle.0);
+                    let count = DragQueryFileW(drop, u32::MAX, None);
+                    (0..count).find_map(|index| {
+                        let mut name = vec![0u16; 1024];
+                        let length = DragQueryFileW(drop, index, Some(&mut name)) as usize;
+                        let path = String::from_utf16_lossy(&name[..length]);
+                        crate::screen::is_image(&path).then_some(path)
+                    })
+                }
+                _ => None,
+            }
+        };
+        let _ = unsafe { CloseClipboard() };
+        found
+    }
+
     /* The programs asked about a selection, by process. */
     static ASKED: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
 
@@ -414,8 +478,11 @@ mod platform {
                 .as_ref()
                 .map(|(text, _, nothing)| (text.chars().count(), nothing))
         );
+        /* In Explorer a list's rows are files: the copy below brings them,
+        and an image among them is read. */
+        let files = in_explorer(front);
         if let Some((text, context, nothing)) = automated {
-            if nothing {
+            if nothing && !files {
                 return Err("empty".into());
             }
             if !text.trim().is_empty() {
@@ -438,16 +505,26 @@ mod platform {
         press_with_control(VK_C);
         let deadline = Instant::now() + Duration::from_millis(500);
         let mut copied = String::new();
+        let mut image = None;
         while Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(25));
             copied = clipboard_read();
-            if !copied.is_empty() {
+            image = files.then(copied_image).flatten();
+            if !copied.is_empty() || image.is_some() {
                 break;
             }
         }
         clipboard_write(&saved);
         note_clipboard();
 
+        if let Some(path) = image {
+            return Ok(Selection {
+                text: path,
+                source,
+                route: "image".into(),
+                context: None,
+            });
+        }
         if copied.trim().is_empty() {
             return Err("empty".into());
         }
@@ -683,6 +760,7 @@ mod platform {
             let ahead = wide
                 .MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, AHEAD)
                 .ok()?;
+            let ended = kept_to_block(range, &wide);
             let before = wide.Clone().ok()?;
             before
                 .MoveEndpointByRange(
@@ -693,9 +771,84 @@ mod platform {
                 .ok()?;
             let at = text_of(&before)?.encode_utf16().count();
             let text = text_of(&wide)?;
-            let cut = ahead >= AHEAD;
+            let cut = ahead >= AHEAD && !ended;
             Some((super::Around { text, at, cut }, wide))
         }
+    }
+
+    /* Firefox hands two blocks over with nothing between them
+    ("thirteen.Un", "wordsDer"): where no white space stands at the edge of
+    the paragraph a range is in, the text around it stops there. Whether
+    the end was moved. */
+    fn kept_to_block(range: &IUIAutomationTextRange, wide: &IUIAutomationTextRange) -> bool {
+        let edges = || -> Option<bool> {
+            unsafe {
+                let block = range.Clone().ok()?;
+                block.ExpandToEnclosingUnit(TextUnit_Paragraph).ok()?;
+                let start = block.Clone().ok()?;
+                start
+                    .MoveEndpointByRange(
+                        TextPatternRangeEndpoint_End,
+                        &block,
+                        TextPatternRangeEndpoint_Start,
+                    )
+                    .ok()?;
+                let in_front = start.Clone().ok()?;
+                let moved = in_front
+                    .MoveEndpointByUnit(TextPatternRangeEndpoint_Start, TextUnit_Character, -1)
+                    .ok()?;
+                let inside = wide
+                    .CompareEndpoints(
+                        TextPatternRangeEndpoint_Start,
+                        &block,
+                        TextPatternRangeEndpoint_Start,
+                    )
+                    .ok()?
+                    < 0;
+                if inside && moved != 0 && !blank(&in_front) {
+                    wide.MoveEndpointByRange(
+                        TextPatternRangeEndpoint_Start,
+                        &block,
+                        TextPatternRangeEndpoint_Start,
+                    )
+                    .ok()?;
+                }
+                let end = block.Clone().ok()?;
+                end.MoveEndpointByRange(
+                    TextPatternRangeEndpoint_Start,
+                    &block,
+                    TextPatternRangeEndpoint_End,
+                )
+                .ok()?;
+                let behind = end.Clone().ok()?;
+                let moved = behind
+                    .MoveEndpointByUnit(TextPatternRangeEndpoint_End, TextUnit_Character, 1)
+                    .ok()?;
+                let inside = wide
+                    .CompareEndpoints(
+                        TextPatternRangeEndpoint_End,
+                        &block,
+                        TextPatternRangeEndpoint_End,
+                    )
+                    .ok()?
+                    > 0;
+                let open_end = inside && moved != 0 && !blank(&behind);
+                if open_end {
+                    wide.MoveEndpointByRange(
+                        TextPatternRangeEndpoint_End,
+                        &block,
+                        TextPatternRangeEndpoint_End,
+                    )
+                    .ok()?;
+                }
+                Some(open_end)
+            }
+        };
+        edges().unwrap_or(false)
+    }
+
+    fn blank(range: &IUIAutomationTextRange) -> bool {
+        text_of(range).is_some_and(|text| text.chars().all(char::is_whitespace))
     }
 
     /* A selection short enough to be looked up as a word: one to three
@@ -1034,6 +1187,13 @@ mod platform {
         SEEN.store(clipboard_count(), Ordering::Relaxed);
     }
 
+    /* Text the app puts on the clipboard for the reader, not to be taken
+    for the reader's own copy afterwards. */
+    pub fn copy(text: &str) {
+        clipboard_write(text);
+        note_clipboard();
+    }
+
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFTypeRef;
@@ -1246,9 +1406,8 @@ mod platform {
     asked of the system-wide element answers the same either way, measured:
     without the permission `AXRole` still succeeds, `AXFocusedUIElement`
     and `AXFocusedApplication` both come back "no value", and only a call
-    against a window belonging to somebody else is refused outright. An
-    earlier version asked the system-wide element and would have called
-    every refusal a yes. */
+    against a window belonging to somebody else is refused outright. Asked
+    of the system-wide element, every refusal would read as a yes. */
     pub fn trusted() -> bool {
         if unsafe { AXIsProcessTrusted() != 0 } {
             return true;
@@ -1432,9 +1591,12 @@ mod platform {
                 }
             }
         }
+        /* In the Finder a list's rows are files: the copy below brings
+        them, and an image among them is read. */
+        let files = in_finder(program);
         match asked {
             Some(Asked::Selected(selection)) => return Ok(selection),
-            Some(Asked::Nothing) => return Err("empty".into()),
+            Some(Asked::Nothing) if !files => return Err("empty".into()),
             _ => {}
         }
 
@@ -1459,8 +1621,17 @@ mod platform {
                 break;
             }
         }
+        let image = files.then(|| copied_image(&copied)).flatten();
 
         clipboard_write(&saved);
+        if let Some(path) = image {
+            return Ok(Selection {
+                text: path,
+                source,
+                route: "image".into(),
+                context: None,
+            });
+        }
 
         if copied.trim().is_empty() {
             return Err("empty".into());
@@ -1538,12 +1709,56 @@ mod platform {
         if text.trim().is_empty() {
             return Err("nothing-copied".into());
         }
+        if let Some(path) = copied_image(&text) {
+            return Ok(Selection {
+                text: path,
+                source: 0,
+                route: "image".into(),
+                context: None,
+            });
+        }
         Ok(Selection {
             text,
             source: 0,
             route: "copied".into(),
             context: None,
         })
+    }
+
+    /* Whether a process is the Finder. */
+    fn in_finder(process: i32) -> bool {
+        extern "C" {
+            fn proc_pidpath(pid: i32, buffer: *mut c_void, size: u32) -> i32;
+        }
+        if process <= 0 {
+            return false;
+        }
+        let mut path = [0u8; 4096];
+        let length = unsafe { proc_pidpath(process, path.as_mut_ptr().cast(), path.len() as u32) };
+        length > 0
+            && std::str::from_utf8(&path[..length as usize])
+                .is_ok_and(|path| path.ends_with("/Finder.app/Contents/MacOS/Finder"))
+    }
+
+    /* The image a Finder copy put on the clipboard. Its text is the files'
+    names, so only where the first names an image is the file itself
+    asked for, through osascript, which reads a file's address off the
+    clipboard without a crate or a permission. */
+    fn copied_image(copied: &str) -> Option<String> {
+        let first = copied.lines().next()?.trim();
+        if !crate::screen::is_image(first) {
+            return None;
+        }
+        let out = Command::new("osascript")
+            .env("LC_CTYPE", "UTF-8")
+            .args(["-e", "POSIX path of (the clipboard as «class furl»)"])
+            .output()
+            .ok()?;
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (out.status.success()
+            && crate::screen::is_image(&path)
+            && std::path::Path::new(&path).is_file())
+        .then_some(path)
     }
 
     /* The text goes where the reader was last working: they may have
@@ -2984,7 +3199,11 @@ mod platform {
             let Some(range) = parameterized(element, side, marker.0) else {
                 continue;
             };
-            let Some(rect) = marker_box(element, &range).filter(|rect| holds(*rect, point)) else {
+            if marker_box(element, &range).is_none_or(|rect| !holds(rect, point)) {
+                continue;
+            }
+            let range = seen_apart(element, &range, point).unwrap_or(range);
+            let Some(rect) = marker_box(element, &range) else {
                 continue;
             };
             let text = parameterized(element, "AXStringForTextMarkerRange", range.0)
@@ -3001,6 +3220,60 @@ mod platform {
             }
         }
         None
+    }
+
+    /* The piece of a word under the point where the page shows it apart.
+    Chrome and Safari join what stands side by side without a space in the
+    text — a heading and the links a page puts after it with spaces and
+    brackets of its own drawing ("ZweckBearbeitenQuelltext" on Wikipedia,
+    measured) — and call the whole a word. Its characters are walked on the
+    screen, and a gap wider than a quarter of the line between two of them
+    parts it. None where nothing parts it. */
+    fn seen_apart(element: AXUIElementRef, word: &Owned, point: CGPoint) -> Option<Owned> {
+        /* Chrome does not say a range's length: the word's own then. */
+        let length = marker_length(element, word)
+            .or_else(|| {
+                let text = parameterized(element, "AXStringForTextMarkerRange", word.0)
+                    .and_then(|value| string_from(value.0))?;
+                Some(text.encode_utf16().count() as CFIndex)
+            })
+            .filter(|length| (2..=40).contains(length))?;
+        let start = Owned::new(unsafe { AXTextMarkerRangeCopyStartMarker(word.0) })?;
+        let mut markers = vec![start];
+        let mut boxes = Vec::new();
+        for _ in 0..length {
+            let next = parameterized(element, "AXNextTextMarkerForTextMarker", markers.last()?.0)?;
+            let one = marker_range(element, markers.last()?, &next)?;
+            boxes.push(marker_box(element, &one)?);
+            markers.push(next);
+        }
+        let (from, to) = piece_at(&boxes, point)?;
+        marker_range(element, &markers[from], &markers[to])
+    }
+
+    /* Of a word's characters' boxes, the run between two gaps that holds
+    the point, as the first character's place and the one after the last;
+    None where no gap parts the word. A gap counts on one line only. */
+    fn piece_at(boxes: &[CGRect], point: CGPoint) -> Option<(usize, usize)> {
+        let mut cuts = vec![0];
+        for (i, pair) in boxes.windows(2).enumerate() {
+            let (left, right) = (pair[0], pair[1]);
+            let gap = right.origin.x - (left.origin.x + left.size.width);
+            let same_line = (right.origin.y - left.origin.y).abs() < left.size.height / 2.0;
+            if same_line && gap > left.size.height / 4.0 {
+                cuts.push(i + 1);
+            }
+        }
+        if cuts.len() == 1 {
+            return None;
+        }
+        cuts.push(boxes.len());
+        cuts.windows(2)
+            .find(|piece| {
+                let (from, to) = (&boxes[piece[0]], &boxes[piece[1] - 1]);
+                point.x >= from.origin.x && point.x <= to.origin.x + to.size.width
+            })
+            .map(|piece| (piece[0], piece[1]))
     }
 
     /* Route two: the character at the point, the word around it cut out of
@@ -4194,6 +4467,6 @@ mod platform {
 }
 
 pub use platform::{
-    note_clipboard, open_settings, read, read_from_menu, read_under_pointer, request,
+    copy, note_clipboard, open_settings, read, read_from_menu, read_under_pointer, request,
     sentence_marks, trusted, use_permission, watch_force_click, watch_front, write,
 };

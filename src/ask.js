@@ -11,7 +11,7 @@ import { orderByTextPosition, wordCount } from "./text.js";
 import { englishName, isSupported, languagePack, withoutArticle } from "./languages/index.js";
 import { coversRange, longestRunInText, scatteredRunsInText } from "./match/positions.js";
 import { contentWordCount, isBasicWord, isLoanword } from "./vocabulary.js";
-import { VERB_CANDIDATES, grammarOf, isNonFinite, knownPerson, meaningWordCount, mergeSameVerb, parseVerbForms, parseVerbTable, selectVerbForms, withoutBasicVerbs } from "./parse/verbs.js";
+import { grammarOf, isNonFinite, knownPerson, meaningWordCount, mergeSameVerb, parseVerbForms, parseVerbTable, withoutBasicVerbs } from "./parse/verbs.js";
 import { MAX_PHRASE_WORDS, MAX_WORDS, firstFieldLine, isPassage, parseMarkedWord, parsePassage, asksForWordClass, parseWordClass, parseVerbGrammar, parseWords, namesTheLookup, withoutFormOpening, sharesContentWord, verbFormOf, withoutNestedTerms } from "./parse/words.js";
 import { isBaseForm } from "./parse/terms.js";
 import { asksForSynonyms } from "./parse/synonyms.js";
@@ -54,12 +54,13 @@ import { parseAlternatives } from "./parse/alternatives.js";
 import { spellingPrompt } from "./prompts/spelling.js";
 import { wordLanguageInput, wordLanguagePrompt } from "./prompts/word-language.js";
 import { readSpelling, readWordLanguage } from "./spelling.js";
-import { headwordPrompt, improveCardPrompt, improveCardInput } from "./prompts/card.js";
-import { parseImprovedCard } from "./parse/card.js";
+import { explainCardInput, explainCardPrompt, headwordPrompt, improveCardPrompt, improveCardInput } from "./prompts/card.js";
+import { parseCardExplanation, parseImprovedCard } from "./parse/card.js";
 import { parseHeadword } from "./parse/headword.js";
 import { parseExample, parseMore, readsAs } from "./parse/more.js";
 import { glanceInput, glancePrompt, glanceWideInput, glanceWidePrompt } from "./prompts/glance.js";
 import { parseGlance, parseGlanceWide } from "./parse/glance.js";
+import { faultForThrow } from "./faults.js";
 
 
 /* A whole text through the model — first or as the stand-in, whichever the
@@ -240,22 +241,6 @@ async function lookupVerb(llm, { word, text, source, reader, level, lookup, inSe
   const grammar = said ? grammarOf(said.person, said.tense, source) : { person: verb.person, tense: verb.tense };
   return { verb: { ...verb, ...grammar, form },
            basic: !withoutBasicVerbs([verb], source, { level, own: source === reader }).length };
-}
-
-/* The whole verb section in one call, both stages. run.js uses the stages
-   separately — the forms alone are enough for the word alignment, which
-   should not wait for the much longer annotation. */
-export async function verbsFor(llm, { text, source, reader, level }) {
-  const forms = await findVerbForms(llm, { text, source });
-  if (!forms.length) return { forms: [], verbs: [] };
-  const verbs = await annotateVerbs(llm, {
-    text,
-    source,
-    reader,
-    level,
-    forms: selectVerbForms(forms, VERB_CANDIDATES, source),
-  });
-  return { forms: forms.map((form) => ({ form })), verbs };
 }
 
 /* An abbreviation in the word list gets its own question. Written out, it is
@@ -823,8 +808,11 @@ export async function completeCard(llm, card) {
 }
 
 /* A flashcard made general and given an explanation worth learning from, on
-   the reader's request in the card window. Answers the three fields, or null
-   where nothing usable came back — the card on screen then stays as it is. */
+   the reader's request in the card window: the word and its meaning first,
+   with the sentence from the text; their articles; then, of the word and its
+   meaning alone, the explanation — a person's both forms in front of it, so
+   that it explains them alike. Answers the three fields, or null where nothing usable
+   came back — the card on screen then stays as it is. */
 export async function improveCard(llm, card, { level }) {
   const term = englishName(card.termLanguage);
   const reader = englishName(card.meaningLanguage);
@@ -834,27 +822,55 @@ export async function improveCard(llm, card, { level }) {
     system: improveCardPrompt({
       term,
       reader,
-      level,
       termCapitals: !!own.capitalisesNouns,
       readerCapitals: !!theirs.capitalisesNouns,
-      spelling: readerSpelling(card.meaningLanguage),
-      articles: !!own.definiteArticles,
       hasSentence: !!card.context?.sentence,
       hasTranslation: !!card.context?.translation,
     }),
     user: improveCardInput({ term, reader, card }),
-    maxTokens: 900,
+    maxTokens: 400,
   });
   const improved = parseImprovedCard(raw, card);
   if (!improved) return null;
+
   const withArticles = await headwordsFor(llm, { ...card, ...improved });
-  return withArticles ? { term: withArticles.term, meaning: withArticles.meaning, note: improved.note } : improved;
+  const word = withArticles ? withArticles.term : improved.term;
+  const meaning = withArticles ? withArticles.meaning : improved.meaning;
+  /* Asked once more where it failed or came back empty — the card is
+     otherwise left with its old note and no examples — but not after a
+     timeout: the reader has waited long enough. */
+  let explanation = "";
+  for (let attempt = 0; attempt < 2 && !explanation; attempt++) {
+    try {
+      const answer = await llm.chat({
+        system: explainCardPrompt({
+          term,
+          reader,
+          level,
+          spelling: readerSpelling(card.meaningLanguage),
+          articles: !!own.definiteArticles,
+        }),
+        user: explainCardInput({ term, reader, word, meaning: meaning.replace(/\n/g, " ") }),
+        maxTokens: 600,
+      });
+      explanation = parseCardExplanation(answer, improved.sentence);
+    } catch (error) {
+      /* No explanation: the card keeps its sentence. */
+      if ((error?.fault || faultForThrow(error)).kind === "timeout") break;
+    }
+  }
+  const note = [improved.sentence, explanation].filter(Boolean).join("\n\n");
+  return { term: word, meaning, note: note || String(card.note || "") };
 }
 
 /* Each side's nouns with their articles, in a language whose pack names them:
    only for what is short enough to be a headword, and a side holding several
-   meanings ("Kasse; bezahlen") asked about one by one. Answers the card with
-   its sides replaced, or null where nothing changed. */
+   meanings ("Kasse; bezahlen") asked about one by one. A side is a noun only
+   where the other one is too, wherever both were asked: "moreno" beside
+   "braun; dunkelhäutig" is no dark-haired man and woman, whatever the model,
+   asked of the word alone, made of it. Shown the other side instead, the
+   local model lost a person's other form (run 60). Answers the card with its
+   sides replaced, or null where nothing changed. */
 const HEADWORD_MOST_WORDS = 3;
 export const HEADWORD_TOKENS = 40;
 
@@ -869,7 +885,7 @@ function headwordParts(value, code) {
 export async function headwordsFor(llm, card) {
   const side = async (value, code) => {
     const pieces = headwordParts(value, code);
-    if (!pieces) return value;
+    if (!pieces) return { value, noun: null };
     const answered = await Promise.all(pieces.map(async (part, index) => {
       if (index % 2) return part;
       try {
@@ -891,12 +907,16 @@ export async function headwordsFor(llm, card) {
       if (kept.length) kept.push(answered[index - 1]);
       kept.push(answered[index]);
     }
-    return kept.join("");
+    const noun = answered.some((part, index) => index % 2 === 0 && part.toLowerCase() !== pieces[index].toLowerCase());
+    return { value: kept.join(""), noun };
   };
-  const [term, meaning] = await Promise.all([
+  const [ownSide, otherSide] = await Promise.all([
     side(card.term, card.termLanguage),
     side(card.meaning, card.meaningLanguage),
   ]);
+  const alone = (one, other) => one.noun && other.noun === false;
+  const term = alone(ownSide, otherSide) ? card.term : ownSide.value;
+  const meaning = alone(otherSide, ownSide) ? card.meaning : otherSide.value;
   if (term === card.term && meaning === card.meaning) return null;
   return { ...card, term, meaning };
 }

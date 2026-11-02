@@ -221,6 +221,20 @@ export const hasCard = (card) => !!(card && String(card.term || "").trim());
 
 const fold = (s) => stripDiacritics(String(s || "")).toLowerCase().trim();
 
+/* Which of these languages a name of Anki's is about — a field, a deck or a
+   note type called "Spanisch", "Spanish vocabulary" or "Español (con
+   ejemplos)" — by the languages' own names, asked as guessFieldMap asks
+   them: in the reader's language, in English and in the language's own. A
+   whole word of the name has to be one; "" where none is. */
+export function languageNamedIn(name, codes, reader) {
+  const words = ` ${fold(name).split(/[^\p{L}\p{N}]+/u).filter(Boolean).join(" ")} `;
+  return (codes || []).find((code) => [reader, "en", code].filter(Boolean)
+    .some((inLanguage) => {
+      const named = fold(displayName(code, inLanguage));
+      return named && words.includes(` ${named} `);
+    })) || "";
+}
+
 /* Which of a note type's fields each of the three belongs in.
 
    Guessed rather than asked, because the reader can see and change the

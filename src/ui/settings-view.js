@@ -10,14 +10,17 @@
    to the system's key store, so it arrives and leaves through its own pair of
    callbacks rather than through onChange. */
 
-import { onWindows } from "../system.js";
+import { currentSystem, onPhone, onWindows } from "../system.js";
 import {
   DEFAULT_LEVEL,
-  ENDPOINT_PRESETS,
   FIRST_LANGUAGES,
   LEVELS,
   APP_ICONS,
   CARD_MODES,
+  ankiConfigured,
+  ankiTarget,
+  ankiTargets,
+  withAnkiTarget,
   FORCE_CLICK,
   HOTKEYS,
   KEPT_READINGS,
@@ -27,6 +30,8 @@ import {
   collapsePairs,
   neededPairs,
   usesPermission,
+  modelConsentFor,
+  modelHostOf,
 } from "../settings.js";
 import { displayName, isSupported, languageLabel } from "../languages/index.js";
 import { createLlmBackend } from "../platform/llm.js";
@@ -39,6 +44,7 @@ import {
 } from "../platform/translation.js";
 import {
   appFetch,
+  translationFetch,
   appVersion,
   ensureTranslationHelper,
   insideApp,
@@ -48,6 +54,7 @@ import {
   openUrl,
   openLanguageSettings,
   prepareLanguages,
+  openPhoneSettings,
 } from "../platform/env.js";
 import {
   accessibilityGranted,
@@ -57,18 +64,24 @@ import {
   takenShortcuts,
 } from "../platform/capture.js";
 import { registerShortcuts } from "../platform/shortcut.js";
+import { openScreenSettings, requestScreenPermission, screenPermitted } from "../platform/screen.js";
 import { ANKICONNECT_CODE, createAnkiBackend } from "../platform/anki.js";
+import { createAnkiMobile } from "../platform/anki-mobile.js";
 import { CARD_FIELDS, guessFieldMap } from "../card.js";
 import { hotkeyFrom, hotkeyLabel, shortcutTaken } from "../hotkey.js";
 import { faultOf } from "../faults.js";
-import { CAPTURE_CODE_URL, HELP_URL, ISSUES_URL, MODEL_HELP_URL, PROJECT_URL, checkForUpdate } from "../updates.js";
+import { CAPTURE_CODE_URL, HELP_URL, ISSUES_URL, PROJECT_URL, RELEASES_URL, checkForUpdate } from "../updates.js";
 import { faultText, labels, windowTitle } from "./labels.js";
 import { openWelcome } from "../platform/windows.js";
 import { keyHint } from "../platform/keychain.js";
-import { installUpdate } from "../platform/update.js";
+import { fromStore, installUpdate } from "../platform/update.js";
 import { diagnosticsText } from "../diagnostics.js";
 import { SEARCH_NAMES, SYSTEM_SEARCH, WINDOWS_SEARCH } from "../platform/search.js";
 import { element, field, group, reportOn, select, secretInput, textInput } from "./elements.js";
+import { icon } from "./icons.js";
+import { languageGroups, languageList } from "./language-choice.js";
+import { modelSetup } from "./model-setup.js";
+import { LOCAL_SERVERS, ONLINE, holdsPreset, presetOf } from "../setup.js";
 
 /* Asked once for the whole session rather than once per rendering. Changing a
    language redraws this view, and a pair that was asked about before must not
@@ -86,15 +99,74 @@ let requested = false;
    this window is open is not a case worth carrying state for. */
 let keyboard = { layout: null, taken: [] };
 
-export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { permission = accessibilityGranted, findUpdate = latestVersion } = {}) {
+export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPlace }, { permission = accessibilityGranted, screenPermission = screenPermitted, findUpdate = latestVersion, storeCopy = fromStore } = {}) {
   const reader = settings.languages[0];
   const text = labels(reader);
-  const view = element("div", "settings");
+  const view = element("div", "settings-layout");
+  const nav = element("nav", "settings-nav");
+  nav.setAttribute("aria-label", text.settings);
+  const content = element("div", "settings");
+  view.append(nav, content);
+
+  /* One page per group, one entry for it in the list beside them. Every page
+     is built at every drawing and only the one chosen is shown: what the
+     others hold keeps watching and answering — the permission, the language
+     packs — as it did when they stood one under the other. */
+  const pages = [];
+  let page = null;
+  const phone = onPhone();
+  const placeOnPhone = () => view.classList.toggle("on-list", phone && onList);
+  const startPage = (key, title) => {
+    page = element("section", "settings-page");
+    page.dataset.page = key;
+    page.append(group(title));
+    content.append(page);
+    const entry = element("button", "settings-entry");
+    entry.dataset.page = key;
+    entry.append(icon(PAGE_ICONS[key]), element("span", null, title));
+    /* On a phone the list is a screen of its own, each entry leading on to
+       its page, as the system's own settings do. */
+    if (phone) entry.append(icon("next"));
+    entry.addEventListener("click", () => {
+      showPage(key);
+      if (!phone) return;
+      onList = false;
+      placeOnPhone();
+      onPlace?.();
+    });
+    nav.append(entry);
+    pages.push({ key, page, entry });
+  };
+  const showPage = (key) => {
+    const known = pages.some((one) => one.key === key);
+    const chosen = known ? key : pages[0].key;
+    const moved = chosen !== pageShown;
+    pageShown = chosen;
+    remember(chosen);
+    for (const one of pages) {
+      one.page.hidden = one.key !== chosen;
+      if (one.key === chosen) one.entry.setAttribute("aria-current", "page");
+      else one.entry.removeAttribute("aria-current");
+    }
+    /* A redraw after a change keeps its place on the page; another page
+       starts at its top. */
+    if (moved) content.scrollTop = 0;
+  };
+  /* Up and down step through the list while it has the focus, as a list
+     beside pages does everywhere else on both systems. */
+  nav.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    event.preventDefault();
+    const at = pages.findIndex((one) => one.key === pageShown);
+    const next = pages[Math.min(pages.length - 1, Math.max(0, at + (event.key === "ArrowDown" ? 1 : -1)))];
+    showPage(next.key);
+    next.entry.focus();
+  });
 
   const named = (code) => ({ value: code, label: languageLabel(code, reader) || code });
   /* In the order of the names the reader sees, not of the codes. */
-  const alphabetical = (codes) =>
-    codes.map(named).sort((a, b) => a.label.localeCompare(b.label, reader));
+  const byName = new Intl.Collator(reader).compare;
+  const alphabetical = (codes) => codes.map(named).sort((a, b) => byName(a.label, b.label));
 
   /* The list is ordered, and the order carries meaning: first the language
      explanations are written in, then the ones being learned.
@@ -141,12 +213,12 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
 
   /* ---- the languages ---- */
 
-  view.append(group(text.groupLanguages));
+  startPage("languages", text.groupLanguages);
 
   const first = select(alphabetical(FIRST_LANGUAGES), settings.languages[0]);
   first.classList.add("short");
   first.addEventListener("change", () => change(0, first.value));
-  view.append(field({ label: text.firstLanguage, control: first }));
+  page.append(field({ label: text.firstLanguage, control: first, hint: text.firstLanguageHint, beside: false }));
 
   /* The languages the app is tuned for first, under a heading of their own,
      then the others under theirs: which kind a language is has to be seen
@@ -161,7 +233,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   const second = select(grouped(choosableLanguages(settings.languages[0])), settings.languages[1]);
   second.classList.add("short");
   second.addEventListener("change", () => change(1, second.value));
-  view.append(field({
+  page.append(field({
     label: text.secondLanguage,
     control: languageRow(second, settings.languages[1]),
     hint: hintFor(settings.languages[1]),
@@ -174,42 +246,59 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   const third = select(thirdOptions, settings.languages[2] || "");
   third.classList.add("short");
   third.addEventListener("change", () => change(2, third.value));
-  view.append(field({
+  page.append(field({
     label: text.thirdLanguage,
     control: languageRow(third, settings.languages[2]),
     hint: hintFor(settings.languages[2]),
   }));
+  /* What the list above decides, and what can still be changed for a while
+     in the reading window itself. */
+  const after = element("div", "languages-after");
+  after.append(...text.languagesIntro.map((line) => element("p", "hint group-hint", line)));
+  page.append(after);
 
   /* ---- the model ---- */
 
-  view.append(group(text.groupModel));
+  startPage("model", text.groupModel);
 
-  /* What the whole group is for, and — for anyone who has never fetched an
-     API key — where the long answer is. The answer itself belongs to setting
-     the app up rather than to using it, so it is a section of the README and
-     not three paragraphs pushing these three fields off the screen. A link
-     that opens it: somebody who downloaded the app has no README beside it. */
-  const modelHint = element("p", "hint group-hint", `${text.modelIntro} ${text.modelHelpAsk} `);
-  modelHint.append(textLink(text.modelHelpLink, MODEL_HELP_URL));
-  view.append(modelHint);
+  /* What the whole group is for, then the two ways to a model
+     (model-setup.js), which fill in the fields below them. */
+  page.append(element("p", "hint group-hint", text.modelIntro),
+    element("p", "hint group-hint", `${text.modelQuestion} ${text.modelWays}`));
+  page.append(modelSetup({ text, settings, onChange, link: textLink }));
 
-  const endpoint = textInput(settings.endpoint, ENDPOINT_PRESETS[0].endpoint);
+  /* Under each field only what matters on the way chosen: OpenRouter's
+     address and models, or anyone's. */
+  const hintOf = (hints) => hints[settings.way] || hints.own;
+
+  /* OpenRouter's address changed by mistake is put back with a
+     button, which stands only while the address is another. */
+  const endpoint = textInput(settings.endpoint, "https://…/v1");
+  endpoint.addEventListener("change", () => onChange({ ...settings, endpoint: endpoint.value }));
   const endpointRow = element("div", "with-presets");
   endpointRow.append(endpoint);
-  for (const preset of ENDPOINT_PRESETS) {
-    const button = element("button", null, preset.label);
-    button.addEventListener("click", () => {
-      endpoint.value = preset.endpoint;
-      onChange({ ...settings, endpoint: preset.endpoint });
-    });
-    endpointRow.append(button);
+  if (!holdsPreset(settings.way, settings.endpoint)) {
+    const restore = element("button", null, text.endpointPreset(ONLINE.provider));
+    restore.addEventListener("click", () => onChange({ ...settings, endpoint: presetOf(settings.way).endpoint }));
+    endpointRow.append(restore);
   }
-  endpoint.addEventListener("change", () => onChange({ ...settings, endpoint: endpoint.value }));
-  view.append(field({ label: text.endpoint, hint: text.endpointHint, control: endpointRow }));
+  const endpointControl = element("div", "endpoint-rows");
+  endpointControl.append(endpointRow);
+  /* A computer can run a model of its own, and these two have known addresses. */
+  if (settings.way === "own" && !onPhone()) {
+    const servers = element("div", "with-presets");
+    for (const { name, endpoint: address } of LOCAL_SERVERS) {
+      const fill = element("button", null, text.endpointPreset(name));
+      fill.addEventListener("click", () => onChange({ ...settings, endpoint: address }));
+      servers.append(fill);
+    }
+    endpointControl.append(servers);
+  }
+  page.append(field({ label: text.endpoint, hint: hintOf(text.endpointHints), control: endpointControl }));
 
   const model = textInput(settings.model);
   model.addEventListener("change", () => onChange({ ...settings, model: model.value }));
-  view.append(field({ label: text.model, hint: text.modelHint, control: model }));
+  page.append(field({ label: text.model, hint: hintOf(text.modelHints), control: model }));
 
   /* The key never reaches the settings file, and it is never shown back
      either. The field stands empty and its placeholder carries the last four
@@ -242,9 +331,9 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
     });
     keyRow.append(forget);
   }
-  const keyField = field({ label: text.apiKey, hint: text.apiKeyHint, control: keyRow });
+  const keyField = field({ label: text.apiKey, hint: hintOf(text.apiKeyHints), control: keyRow });
   keyField.append(keyFailed);
-  view.append(keyField);
+  page.append(keyField);
 
   /* Saying what answered saves half the support traffic: "nothing happens" and
      "the address is right but no model is loaded" look identical otherwise.
@@ -274,28 +363,63 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   });
   const testRow = element("div", "field");
   testRow.append(test, result);
-  view.append(testRow);
+  page.append(testRow);
+  /* On a phone, whether texts go to the model at this address at all: asked
+     before the first one goes (phone-sheets.js) and changed here. */
+  if (phone && modelHostOf(settings.endpoint)) {
+    const host = modelHostOf(settings.endpoint);
+    page.append(field({
+      label: text.modelConsentSetting,
+      hint: text.modelConsentHint(host),
+      control: switchFor(modelConsentFor(settings) === true, (on) => onChange({ ...settings, modelConsent: { host, allowed: on } })),
+    }));
+  }
 
   /* ---- the translations ---- */
 
-  view.append(group(text.groupTranslation));
+  startPage("translation", text.groupTranslation);
+  if (phone) {
+    const open = element("button", null, text.pasteOpen);
+    open.addEventListener("click", openPhoneSettings);
+    page.append(field({ label: text.pasteSetting, lead: text.pasteHint, control: open }));
+  }
+  /* On Windows there is no translation on the device: the model is the only
+     translator, and the group holds nothing but the hover and the kept
+     readings. A phone has Apple's translation and no hover — nothing hovers
+     there — and nothing of what follows that belongs to a window, a keyboard
+     or another program. */
+  const onDevice = !onWindows();
+  /* What a word became, on hover — a translation too, of one word at a time,
+     and after it how many readings stay to step back to — both
+     about every translation, so above who makes it. */
+  if (!phone) page.append(field({
+    label: text.glance,
+    hint: text.glanceHint,
+    control: switchFor(settings.glance, (on) => onChange({ ...settings, glance: on })),
+  }));
+  /* How many readings the title bar's chevrons step back through. */
+  const kept = select(
+    KEPT_READINGS.map((count) => ({ value: String(count), label: count ? text.keptLast(count) : text.optionOff })),
+    String(settings.kept),
+  );
+  kept.classList.add("short");
+  kept.addEventListener("change", () => onChange({ ...settings, kept: Number(kept.value) }));
+  page.append(field({ label: text.kept, hint: text.keptHint, control: kept }));
   /* Apple's translation is not set up anywhere: it is part of the system and
      wants nothing but a language pack per pair, which is what this list is
-     about. The group says that first, then which packs are there, then who
-     translates by default and that the other steps in. */
+     about. Under the hover and the kept readings the group says that first,
+     then which packs are there, then who translates by default and that the
+     other steps in. */
   /* What the device can translate, and what it cannot yet. The three answers
      are different in kind and only one of them is actionable: a pair that is
      merely not downloaded can be fetched from here, while a pair the device
      does not know never will be. Both fall back to the model, so neither is
      fatal — this only says which is which. */
-  /* On Windows there is no translation on the device: the model is the only
-     translator, and the group holds nothing but the hover. */
-  const onDevice = !onWindows();
   const pairs = element("p", "hint");
   pairs.textContent = text.pairsChecking;
   const pairsRow = element("div", "field pairs");
   pairsRow.append(element("label", null, text.devicePairs), element("p", "hint", text.deviceIntro), pairs);
-  if (onDevice) view.append(pairsRow);
+  if (onDevice) page.append(pairsRow);
   /* Who goes first, and that the other steps in. */
   const translator = select(
     TRANSLATORS.map((value) => ({ value, label: text.translatorModes[value] })),
@@ -306,22 +430,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   if (settings.translator === "model" && !settings.endpoint) {
     translatorField.append(element("p", "hint", text.translatorNoModel));
   }
-  if (onDevice) view.append(translatorField);
-  /* What a word became, on hover — a translation too, of one word at a time,
-     and after it how many readings stay to step back to. */
-  view.append(field({
-    label: text.glance,
-    hint: text.glanceHint,
-    control: switchFor(settings.glance, text, (on) => onChange({ ...settings, glance: on })),
-  }));
-  /* How many readings the title bar's chevrons step back through. */
-  const kept = select(
-    KEPT_READINGS.map((count) => ({ value: String(count), label: count ? text.keptLast(count) : text.optionOff })),
-    String(settings.kept),
-  );
-  kept.classList.add("short");
-  kept.addEventListener("change", () => onChange({ ...settings, kept: Number(kept.value) }));
-  view.append(field({ label: text.kept, control: kept }));
+  if (onDevice) page.append(translatorField);
   let fetchButton = null;
   let gaps = false;
   if (onDevice) showPairs();
@@ -339,7 +448,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
   if (onDevice) window.addEventListener("focus", recheck);
 
   async function showPairs() {
-    device = device || createTranslationBackend({ helperUrl: HELPER_URL }, await appFetch());
+    device = device || createTranslationBackend({ helperUrl: HELPER_URL }, await translationFetch());
     /* Not a bare running() check: a helper left over from an older build
        holds the port and answers in a shape this window no longer reads.
        Retiring it is part of finding out whether the device is there. */
@@ -352,8 +461,11 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
     }
     const name = (code) => displayName(code, reader) || code;
     const missing = { downloadable: [], unsupported: [] };
+    /* A pair nothing is known about is no pair known to be there. */
+    let unknown = false;
     for (const pair of neededPairs(settings.languages)) {
       const status = await device.pairStatus(pair.from, pair.to);
+      unknown = unknown || !status;
       if (status === PAIR_INSTALLED || !status) continue;
       if (status === PAIR_DOWNLOADABLE) missing.downloadable.push(pair);
       else if (status === PAIR_UNSUPPORTED) missing.unsupported.push(pair);
@@ -373,7 +485,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
       requested = false;
     }
     if (missing.unsupported.length) lines.push(text.pairsUnsupported(written(missing.unsupported)));
-    pairs.textContent = lines.length ? lines.join(" ") : text.pairsAllInstalled;
+    pairs.textContent = lines.length ? lines.join(" ") : unknown ? "" : text.pairsAllInstalled;
     gaps = missing.downloadable.length > 0;
     fetchButton?.remove();
     fetchButton = null;
@@ -427,7 +539,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
 
   /* ---- what gets shown ---- */
 
-  view.append(group(text.groupSections));
+  startPage("sections", text.groupSections);
 
   /* The same places a card is offered by, and the third left out where there
      is no third language, as it is there. The verbs leave out a place whose
@@ -444,13 +556,13 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
     );
     node.addEventListener("change", () =>
       onChange({ ...settings, show: { ...settings.show, [section]: node.value } }));
-    view.append(field({ label, hint, control: node }));
+    page.append(field({ label, hint, control: node }));
   };
-  showRow("terms", text.terms, text.showTermsHint);
-  showRow("verbs", text.verbs, text.showVerbsHint);
-  view.append(field({
+  showRow("terms", text.showTerms, text.showTermsHint);
+  showRow("verbs", text.showVerbs, text.showVerbsHint);
+  page.append(field({
     label: text.underline,
-    control: switchFor(settings.underline, text, (on) => onChange({ ...settings, underline: on })),
+    control: switchFor(settings.underline, (on) => onChange({ ...settings, underline: on })),
   }));
   /* On a Mac the system's own engine comes first; Windows has none, and its
      stand-in is shown as what it is. */
@@ -460,108 +572,219 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange }, { 
     onWindows() && settings.search === SYSTEM_SEARCH ? WINDOWS_SEARCH : settings.search);
   search.classList.add("short");
   search.addEventListener("change", () => onChange({ ...settings, search: search.value }));
-  view.append(field({ label: text.searchEngine, hint: text.searchHint, control: search }));
+  page.append(field({ label: text.searchEngine, hint: text.searchHint, control: search }));
 
-  /* ---- the window ---- */
+  if (!phone) {
+    /* ---- the window ---- */
 
-  view.append(group(text.groupWindow));
-  view.append(field({
-    label: text.fitWindow,
-    control: switchFor(settings.fitWindow, text, (on) => onChange({ ...settings, fitWindow: on })),
-  }));
-  /* On a Mac the menu bar, the Dock or both. On Windows the symbol in the
-     notification area always stays, and the question is whether the open
-     window also has a taskbar button — the Dock's counterpart, "both". */
-  const iconChoices = onWindows() ? APP_ICONS.filter((value) => value !== "dock") : APP_ICONS;
-  const icons = select(
-    iconChoices.map((value) => ({ value, label: text.appIcons[value] })),
-    iconChoices.includes(settings.appIcon) ? settings.appIcon : "both",
-  );
-  icons.classList.add("short");
-  icons.addEventListener("change", () => onChange({ ...settings, appIcon: icons.value }));
-  view.append(field({ label: text.appIcon, control: icons }));
+    startPage("window", text.groupWindow);
+    page.append(field({
+      label: text.fitWindow,
+      control: switchFor(settings.fitWindow, (on) => onChange({ ...settings, fitWindow: on })),
+    }));
+    /* On a Mac the menu bar, the Dock or both. On Windows the symbol in the
+       notification area always stays, and the question is whether the open
+       window also has a taskbar button — the Dock's counterpart, "both". */
+    const iconChoices = onWindows() ? APP_ICONS.filter((value) => value !== "dock") : APP_ICONS;
+    const icons = select(
+      iconChoices.map((value) => ({ value, label: text.appIcons[value] })),
+      iconChoices.includes(settings.appIcon) ? settings.appIcon : "both",
+    );
+    icons.classList.add("short");
+    icons.addEventListener("change", () => onChange({ ...settings, appIcon: icons.value }));
+    page.append(field({ label: text.appIcon, control: icons }));
 
-  /* ---- the shortcuts ---- */
+    /* ---- the shortcuts ---- */
 
-  view.append(group(text.groupShortcuts));
-  view.append(element("p", "hint group-hint", text.shortcutsLead));
+    startPage("shortcuts", text.groupShortcuts);
+    page.append(element("p", "hint group-hint", text.shortcutsLead));
 
-  /* One field per combination, what it does said under it like every other
-     row's hint. What pressing it takes along depends on the permission below
-     them, so the two that read a selection have a second line for when there
-     is none. */
-  const shortcuts = [
-    { key: "hotkey", label: text.hotkey, lead: text.hotkeyLead, selected: text.hotkeyLeadSelected },
-    { key: "freshHotkey", label: text.freshHotkey },
-    { key: "cardHotkey", label: text.cardHotkey, lead: text.cardHotkeyLead, selected: text.cardHotkeyLeadSelected },
-  ].map((one) => ({ ...one, ...shortcutField(one, { settings, text, onChange }) }));
-  for (const one of shortcuts) view.append(one.row);
-
-  /* Windows asks no permission for reading a selection, so there is nothing
-     to explain and the shortcuts always take the selection along. */
-  const leads = (direct) => {
-    for (const one of shortcuts) if (one.selected) one.lead.textContent = direct ? one.selected : one.lead0;
-  };
-
-  /* ---- text from other programs ---- */
-
-  /* What reads another program's text or writes into it, in a group of its
-     own: on the Mac the system's permission first and, once it is granted,
-     what it is used for; on Windows the same without anything to grant. */
-  view.append(group(text.groupReading));
-  const pointer = [
-    { key: "wordHotkey", label: text.wordHotkey, lead: text.wordHotkeyLead },
-    { key: "sentenceHotkey", label: text.sentenceHotkey, lead: text.sentenceHotkeyLead },
-  ].map((one) => ({ ...one, ...shortcutField(one, { settings, text, onChange }) }));
-  shortcuts.push(...pointer);
-  const reading = readingFields({ settings, text, onChange, pointer: pointer.map((one) => one.row) });
-  if (onWindows()) {
-    leads(true);
-    view.append(...reading);
-  } else {
-    view.append(...permissionFields({ settings, text, onChange, onDirect: leads, reading, permission }));
-  }
-
-  /* Asked the first time this view is built, and the fields written again
-     once the answers are in — a field would otherwise show a key by its
-     American name until something else happened to redraw it. */
-  if (!keyboard.layout) {
-    Promise.all([keyLabels(), takenShortcuts()]).then(([layout, taken]) => {
-      if (!layout) return;
-      keyboard = { layout, taken: taken || [] };
-      if (view.isConnected) for (const one of shortcuts) one.refresh();
+    /* One field per combination, what it does said under it like every other
+       row's hint. What pressing it takes along depends on the permission below
+       them, so the two that read a selection have a second line for when there
+       is none. */
+    /* In the menu's order and its sections — translating, cards, copying —
+       with a little room between the sections. The screenshot's three need
+       a permission of their own on the Mac, in a box under "Other programs". */
+    const shortcuts = [];
+    const sections = [
+      [
+        { key: "hotkey", label: text.hotkey, lead: text.hotkeyLead, selected: text.hotkeyLeadSelected },
+        { key: "screenHotkey", label: text.screenHotkey, lead: text.screenHotkeyLead },
+        { key: "freshHotkey", label: text.freshHotkey },
+      ],
+      [
+        { key: "cardHotkey", label: text.cardHotkey, lead: text.cardHotkeyLead, selected: text.cardHotkeyLeadSelected },
+        { key: "screenCardHotkey", label: text.screenCardHotkey, lead: text.screenCardHotkeyLead },
+      ],
+      [{ key: "screenCopyHotkey", label: text.screenCopyHotkey, lead: text.screenCopyHotkeyLead }],
+    ];
+    sections.forEach((section, index) => {
+      if (index) page.append(element("div", "section-gap"));
+      for (const one of section) {
+        Object.assign(one, shortcutField(one, { settings, text, onChange }));
+        shortcuts.push(one);
+        page.append(one.row);
+      }
     });
+    /* What becomes of the screenshots, said once under them. */
+    page.append(element("p", "hint group-hint", text.screenPrivacy));
+
+    /* Windows asks no permission for reading a selection, so there is nothing
+       to explain and the shortcuts always take the selection along. */
+    const leads = (direct) => {
+      for (const one of shortcuts) if (one.selected) one.lead.textContent = direct ? one.selected : one.lead0;
+    };
+
+    /* ---- text from other programs ---- */
+
+    /* What reads another program's text or writes into it, in a group of its
+       own: on the Mac the system's permission first and, once it is granted,
+       what it is used for; on Windows the same without anything to grant. */
+    startPage("reading", text.groupReading);
+    const pointer = [
+      { key: "wordHotkey", label: text.wordHotkey, lead: text.wordHotkeyLead },
+      { key: "sentenceHotkey", label: text.sentenceHotkey, lead: text.sentenceHotkeyLead },
+    ].map((one) => ({ ...one, ...shortcutField(one, { settings, text, onChange }) }));
+    shortcuts.push(...pointer);
+    const reading = readingFields({ settings, text, onChange, pointer: pointer.map((one) => one.row) });
+    if (onWindows()) {
+      leads(true);
+      /* What becomes of what is read, said once under it: nothing asks a
+         permission there, so nothing else says that a picture of the screen
+         stands in where a program hands over no text. */
+      page.append(...reading, element("p", "hint group-hint", text.readingPrivacy));
+    } else {
+      /* The two permissions first, one after the other, and then what the
+         first is used for. */
+      const [box, ...uses] = permissionFields({ settings, text, onChange, onDirect: leads, reading, permission });
+      page.append(box, screenPermissionBox(text, screenPermission), ...uses);
+    }
+
+    /* Asked the first time this view is built, and the fields written again
+       once the answers are in — a field would otherwise show a key by its
+       American name until something else happened to redraw it. */
+    if (!keyboard.layout) {
+      Promise.all([keyLabels(), takenShortcuts()]).then(([layout, taken]) => {
+        if (!layout) return;
+        keyboard = { layout, taken: taken || [] };
+        if (view.isConnected) for (const one of shortcuts) one.refresh();
+      });
+    }
   }
 
   /* ---- the flashcards ---- */
 
-  view.append(group(text.groupCards));
+  startPage("cards", text.groupCards);
   /* By place in the reader's list, like the verbs and the terms. A third that
-     is not set makes its own answer pointless, so it is not offered. */
-  const modes = CARD_MODES.filter((mode) => mode !== "third" || settings.languages[2]);
+     is not set makes its own answer pointless, so it is not offered, and
+     both learned languages are then the second alone. */
+  const hasThird = !!settings.languages[2];
+  const modes = CARD_MODES.filter((mode) => hasThird || (mode !== "third" && mode !== "second"));
   const howMany = select(
-    modes.map((mode) => ({ value: mode, label: text.cardModes[mode] })),
-    settings.cards.mode,
+    modes.map((mode) => ({
+      value: mode,
+      label: text.cardModes[!hasThird && mode === "learned" ? "second" : mode],
+    })),
+    !hasThird && settings.cards.mode === "second" ? "learned" : settings.cards.mode,
   );
   howMany.addEventListener("change", () =>
     onChange({ ...settings, cards: { ...settings.cards, mode: howMany.value } }));
-  view.append(field({
+  page.append(field({
     label: text.cardsEnabled,
     hint: text.cardsEnabledHint,
     control: howMany,
   }));
   /* Offered whatever the answer above: a card out of the selection is made
      by its own shortcut, and that one is improved too. */
-  view.append(field({
+  page.append(field({
     label: text.cardsImprove,
-    control: switchFor(settings.cards.improve, text, (on) =>
+    hint: text.cardsImproveHint,
+    control: switchFor(settings.cards.improve, (on) =>
       onChange({ ...settings, cards: { ...settings.cards, improve: on } })),
   }));
-  if (settings.cards.mode !== "never") view.append(ankiFields(settings, text, onChange));
+  if (settings.cards.mode !== "never") page.append(ankiFields(settings, text, onChange));
 
-  view.append(...aboutFields(text, { settings, apiKey, findUpdate }));
+  startPage("about", text.groupAbout);
+  /* The anonymous count, asked in the first steps and changed here, under
+     the version. Only a computer counts (stats.js). */
+  const [versionRow, ...aboutRest] = aboutFields(text, { settings, apiKey, findUpdate, storeCopy });
+  page.append(versionRow);
+  if (!phone) {
+    page.append(field({
+      label: text.statsSetting,
+      hint: `${text.statsHint} ${text.statsThanks}`,
+      control: switchFor(settings.stats === true, (on) => onChange({ ...settings, stats: on })),
+    }));
+  }
+  page.append(...aboutRest);
 
+  showPage(pageShown);
+  shownPage = showPage;
+  shownView = { place: placeOnPhone };
+  placeOnPhone();
   return view;
+}
+
+/* The symbol beside each page's name in the list. */
+const PAGE_ICONS = {
+  languages: "languages",
+  model: "improve",
+  translation: "translations",
+  sections: "sections",
+  window: "window",
+  shortcuts: "keyboard",
+  reading: "insert",
+  cards: "card",
+  about: "about",
+};
+
+/* The page on show, kept past a redraw — every change rebuilds the view —
+   and past closing the window, so the settings open where they were left.
+   Kept in the window's own storage: it is a convenience, not a setting,
+   and nothing breaks where that storage is refused. */
+const PAGE_KEY = "triglosa.settingsPage";
+let pageShown = recalled();
+let shownPage = null;
+
+function recalled() {
+  try {
+    return globalThis.localStorage?.getItem(PAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function remember(key) {
+  try {
+    globalThis.localStorage?.setItem(PAGE_KEY, key);
+  } catch {
+    /* Opened at the first page next time; nothing else is lost. */
+  }
+}
+
+/* A page asked for from outside the view: the update entry in the menu bar,
+   a card's "choose a deck". Shown at once where the view stands, and the
+   one the next drawing opens on. */
+export function openPage(key) {
+  pageShown = key;
+  onList = false;
+  if (shownPage) shownPage(key);
+  shownView?.place();
+}
+
+/* On a phone: whether the list of pages is on screen rather than a page,
+   kept past the redraw every change causes. The settings open on the list. */
+let onList = true;
+let shownView = null;
+
+export function backToList() {
+  onList = true;
+  shownView?.place();
+}
+
+export function onPageList() {
+  return onList;
 }
 
 /* One combination's field. What is written down is the physical key rather
@@ -671,12 +894,14 @@ const latestVersion = async () => checkForUpdate(await appVersion(), await appFe
 /* Which version this is, whether there is a newer one, and the way to the
    project. The group the menu bar's update entry opens this window at — see
    showAbout in settings-window.js. */
-function aboutFields(text, { settings, apiKey, findUpdate }) {
-  const heading = group(text.groupAbout);
-  heading.id = "about";
+function aboutFields(text, { settings, apiKey, findUpdate, storeCopy }) {
 
+  /* The release notes are always a click away, not only behind a newer
+     version found. */
   const version = element("p", "hint standalone");
-  appVersion().then((value) => { version.textContent = value ? text.aboutVersion(value) : ""; });
+  const notes = textLink(text.aboutNotes, RELEASES_URL);
+  version.append(notes);
+  appVersion().then((value) => { if (value) version.replaceChildren(text.aboutVersion(value), " · ", notes); });
 
   const result = element("p", "hint");
   const check = element("button", null, text.updatesCheck);
@@ -737,7 +962,15 @@ function aboutFields(text, { settings, apiKey, findUpdate }) {
   const buttons = element("div", "with-presets");
   buttons.append(check);
   const row = element("div", "field");
-  row.append(version, buttons, result, element("p", "hint", text.updatesHint));
+  /* A phone's app is put there from a computer; there is nothing to check
+     for or to install from here. */
+  if (onPhone()) row.append(version);
+  else {
+    const hint = element("p", "hint", text.updatesHint);
+    row.append(version, buttons, result, hint);
+    /* The Store brings a Store copy's updates. */
+    storeCopy().then((yes) => { if (yes) [buttons, result, hint].forEach((node) => node.remove()); });
+  }
   show();
 
   /* The way to the project as a sentence, its three places as links in it:
@@ -754,19 +987,23 @@ function aboutFields(text, { settings, apiKey, findUpdate }) {
     report: await systemReport(),
     settings,
     keySet: !!apiKey,
-    permission: onWindows() ? false : await accessibilityGranted(),
-    system: onWindows() ? "windows" : "mac",
+    permission: onWindows() || onPhone() ? false : await accessibilityGranted(),
+    system: currentSystem(),
   })), text.copied));
   const diagnosticsRow = element("div", "with-presets diagnostics");
   diagnosticsRow.append(diagnostics);
   const linkRow = element("div", "field");
   /* The first steps again, for whoever said not to show them at a start. */
   const again = element("button", "welcome-again", text.welcome.open);
-  again.addEventListener("click", () => openWelcome(windowTitle(text.welcome.steps)));
+  again.addEventListener("click", () => (onPhone()
+    ? import("./phone-sheets.js").then((sheets) => sheets.openWelcomeSheet())
+    : openWelcome(windowTitle(text.welcome.steps))));
   const steps = element("div", "field");
   steps.append(again);
   linkRow.append(links, diagnosticsRow, element("p", "hint", text.diagnosticsHint));
-  return [heading, row, steps, linkRow];
+  /* The way back to the first steps last, under what the page is about;
+     not on a phone, where nothing starts in the background. */
+  return [row, linkRow, steps];
 }
 
 /* A link inside a sentence, opened in the browser rather than in this
@@ -781,16 +1018,14 @@ function textLink(word, url) {
   return link;
 }
 
-/* A setting with two answers. The window has no switch of its own and one
-   more shape is one more thing to look at; the lists beside it already read
-   as "this, or that". */
-function switchFor(on, text, apply) {
-  const node = select(
-    [{ value: "on", label: text.optionOn }, { value: "off", label: text.optionOff }],
-    on ? "on" : "off",
-  );
-  node.className = "short";
-  node.addEventListener("change", () => apply(node.value === "on"));
+/* A setting with two answers: a switch beside its name, which turns it too
+   (field() ties the two together). */
+function switchFor(on, apply) {
+  const node = element("input", "toggle");
+  node.type = "checkbox";
+  node.setAttribute("role", "switch");
+  node.checked = !!on;
+  node.addEventListener("change", () => apply(node.checked));
   return node;
 }
 
@@ -808,22 +1043,49 @@ let anki = null;
    without it. */
 function ankiFields(settings, text, onChange) {
   const box = element("div", "anki");
-  const config = settings.cards.anki;
-
-  const save = (next) =>
-    onChange({ ...settings, cards: { ...settings.cards, anki: { ...config, ...next } } });
+  const ankiSettings = settings.cards.anki;
+  const saveAnki = (next) =>
+    onChange({ ...settings, cards: { ...settings.cards, anki: { ...ankiSettings, ...next } } });
 
   box.append(field({
     label: text.ankiEnabled,
     hint: text.ankiEnabledHint(ANKICONNECT_CODE),
-    control: switchFor(config.enabled, text, (on) => save({ enabled: on })),
+    control: switchFor(ankiSettings.enabled, (on) => saveAnki({ enabled: on })),
   }));
-  if (!config.enabled) return box;
+  if (!ankiSettings.enabled) return box;
+
+  /* One deck, note type and mapping per language a card is offered for —
+     the questions below answer them for the language chosen in the row.
+     Where cards are made in every language, the row ends in a plus that
+     adds one more. A language that just joined the row is the one shown;
+     otherwise the first still without a deck, so the settings open on what
+     is missing. */
+  const targets = ankiTargets(settings);
+  const wide = settings.cards.mode === "foreign";
+  const joined = seenTargets && targets.find((code) => !seenTargets.includes(code));
+  if (joined) {
+    targetShown = joined;
+    /* Added from a card, the language's questions may be far down the
+       window; they are what the reader came for. */
+    setTimeout(() => box.scrollIntoView?.({ block: "start", behavior: "smooth" }), 0);
+  }
+  else if (!targets.includes(targetShown)) {
+    targetShown = targets.find((code) => !ankiConfigured(settings, code)) || targets[0] || "";
+  }
+  seenTargets = targets;
+  const key = targetShown;
+  const config = ankiTarget(settings, key);
+  const save = (next) => saveAnki({ decks: { ...ankiSettings.decks, [key]: { ...config, ...next } } });
+  /* Which languages a field named after one is looked for: the reader's and
+     this one. */
+  const named = [settings.languages[0], key];
 
   const body = element("div", "anki-body");
   box.append(body);
 
-  const backend = createAnkiBackend();
+  /* A phone's Anki is asked another way and answers the same questions. */
+  const phone = onPhone();
+  const backend = phone ? createAnkiMobile() : createAnkiBackend();
 
   const ask = async () => {
     const answering = await backend.answering();
@@ -840,6 +1102,14 @@ function ankiFields(settings, text, onChange) {
     if (body.isConnected) draw();
   };
 
+  /* What a fetch from AnkiMobile came to, said under the lists once they
+     are drawn again: back from Anki with nothing new would otherwise look
+     like nothing having changed. */
+  let told = "";
+  const fetched = (came) => (came === "absent" ? text.ankiAbsent : came === "left" ? text.ankiLeft : "");
+
+  const toldLine = () => (told ? [element("p", "hint failed", told)] : []);
+
   function draw() {
     body.replaceChildren();
     if (!anki) {
@@ -854,17 +1124,65 @@ function ankiFields(settings, text, onChange) {
       start.addEventListener("click", async () => {
         start.disabled = true;
         start.textContent = text.ankiStarting;
-        await backend.start();
+        told = fetched(await backend.start());
         anki = null;
         draw();
       });
       const again = element("button", null, text.ankiRecheck);
       again.addEventListener("click", () => { anki = null; draw(); });
-      buttons.append(start, again);
-      body.append(buttons);
+      buttons.append(start);
+      /* A phone has nothing to look for again: its lists are fetched. */
+      if (!phone) buttons.append(again);
+      body.append(buttons, ...toldLine());
       return;
     }
-    body.append(deckField(anki.decks, config, text, save, draw));
+    /* Syncing is one answer for every deck, so where the row of languages
+       stands it stands above that row and not among one language's
+       questions. AnkiMobile syncs by itself. */
+    const sync = phone ? null : field({
+      label: text.ankiSync,
+      hint: text.ankiSyncHint,
+      control: switchFor(ankiSettings.sync, (on) => saveAnki({ sync: on })),
+    });
+    /* Another language's questions are other questions, asked anew. */
+    const reopen = () => box.replaceWith(ankiFields(settings, text, onChange));
+    const row = targets.length > 1 || wide;
+    /* What follows the row is asked per language, which the line over it
+       says, set apart from the switches above that hold for every deck. */
+    if (row) {
+      if (sync) body.append(sync);
+      body.append(element("p", "hint group-hint anki-per-language", text.ankiPerLanguage),
+        targetChoice(targets, { settings, text, reopen, onChange, saveAnki, wide }));
+    }
+    if (!key) {
+      if (sync && !row) body.append(sync);
+      return;
+    }
+    /* Another deck is asked its note type anew, and the fields with it: a
+       deck per language is often a note type per language, and one carried
+       over would put the word into the last language's field. */
+    const saveDeck = (next) => (next.deck === config.deck ? save(next)
+      : save({ ...next, noteType: "", fields: { term: "", meaning: "", note: "" } }));
+    body.append(deckField(anki.decks, config, text, saveDeck, draw, phone));
+    /* The lists are as Anki had them when they were fetched; a deck made
+       since is one trip away, offered right under the list it would be
+       missing from. */
+    if (phone) {
+      const again = element("button", null, text.ankiRecheck);
+      again.addEventListener("click", async () => {
+        again.disabled = true;
+        told = fetched(await backend.start());
+        anki = null;
+        draw();
+      });
+      const row = element("div", "with-presets");
+      row.append(again);
+      /* A field without a label: the line under the button in a button's
+         grey, and what the last fetch came to under that. */
+      const holder = element("div", "field");
+      holder.append(row, element("p", "hint", text.ankiRecheckHint), ...toldLine());
+      body.append(holder);
+    }
     /* A deck was chosen since this was last asked, and what the deck is built
        out of is the answer to the next question. */
     if (anki.forDeck !== config.deck) {
@@ -873,17 +1191,75 @@ function ankiFields(settings, text, onChange) {
       body.append(element("p", "hint", text.ankiSearching));
       return;
     }
-    body.append(noteTypeField(anki, settings, text, save, backend));
-    if (config.noteType) body.append(mappingField(config, settings, text, save, backend));
-    body.append(field({
-      label: text.ankiSync,
-      hint: text.ankiSyncHint,
-      control: switchFor(config.sync, text, (on) => save({ sync: on })),
-    }));
+    /* The note type is a question about a deck, asked once there is one. */
+    if (config.deck) body.append(noteTypeField(anki, config, named, text, save, backend));
+    if (config.deck && config.noteType) body.append(mappingField(config, text, save, backend));
+    if (sync && !row) body.append(sync);
   }
 
   draw();
   return box;
+}
+
+/* Which language's deck the settings show, among ankiTargets, and the
+   languages the row held when it was last drawn. Not settings, like the one
+   below: they last as long as this window does. */
+let targetShown = "";
+let seenTargets = null;
+
+/* The languages a card goes to Anki from, one button each, the one shown
+   pressed. Choosing one draws its questions in place. A language the reader
+   added — none of their own — carries a cross while it is shown, which
+   takes it and its deck away again; where cards are made in every language
+   the row ends in a plus offering the rest, listed as everywhere else. */
+function targetChoice(targets, { settings, text, reopen, onChange, saveAnki, wide }) {
+  const row = element("div", "anki-targets");
+  row.setAttribute("role", "group");
+  row.setAttribute("aria-label", text.ankiTargetChoice);
+  const reader = settings.languages[0];
+  for (const code of targets) {
+    const one = element("button", null, languageLabel(code, reader));
+    one.dataset.target = code;
+    const shown = code === targetShown;
+    one.setAttribute("aria-pressed", String(shown));
+    const added = !settings.languages.includes(code);
+    if (added && shown) {
+      const remove = element("span", "remove");
+      remove.setAttribute("role", "button");
+      remove.setAttribute("aria-label", text.ankiRemoveLanguage);
+      remove.append(icon("close"));
+      one.append(remove);
+    }
+    one.addEventListener("click", (event) => {
+      if (event.target.closest(".remove")) {
+        const decks = { ...settings.cards.anki.decks };
+        delete decks[code];
+        saveAnki({ decks });
+        return;
+      }
+      if (shown) return;
+      targetShown = code;
+      typingDeck = false;
+      reopen();
+    });
+    row.append(one);
+  }
+  if (wide) {
+    const add = element("span", "anki-add");
+    add.append(icon("add"));
+    const groups = languageGroups({ reader, taken: [reader, ...targets] });
+    const list = languageList(groups, { reader, text });
+    /* Nothing chosen until a language is, and nothing in the list says so:
+       chosen, the first language could never be the one changed to. */
+    list.selectedIndex = -1;
+    list.setAttribute("aria-label", text.ankiAddLanguage);
+    list.addEventListener("change", () => {
+      if (list.value) onChange(withAnkiTarget(settings, list.value));
+    });
+    add.append(list);
+    row.append(add);
+  }
+  return row;
 }
 
 /* Whether the reader is typing a deck name rather than picking one. Not a
@@ -894,12 +1270,13 @@ let typingDeck = false;
 /* Any deck Anki reports, and a name that is not among them. A deck is created
    on first use, which saves a detour and takes nothing away — a note type
    never is, because that would reach into somebody's own card templates. */
-function deckField(decks, config, text, save, redraw) {
+function deckField(decks, config, text, save, redraw, listed = false) {
   const row = element("div", "with-presets");
 
   /* A name Anki does not know is a name being typed, whether the reader
-     started typing it this minute or set it in an older version. */
-  if (typingDeck || (config.deck && !decks.includes(config.deck))) {
+     started typing it this minute or set it in an older version. Not where
+     only a deck Anki has can be written to (`listed`). */
+  if (!listed && (typingDeck || (config.deck && !decks.includes(config.deck)))) {
     const name = textInput(config.deck);
     /* Saved when the field is left, the way every other text field in this
        window is. */
@@ -914,7 +1291,7 @@ function deckField(decks, config, text, save, redraw) {
   const list = select(
     [{ value: "", label: "—" }]
       .concat(decks.map((name) => ({ value: name, label: name })))
-      .concat([{ value: NEW_DECK, label: text.ankiNewDeck }]),
+      .concat(listed ? [] : [{ value: NEW_DECK, label: text.ankiNewDeck }]),
     config.deck,
   );
   list.addEventListener("change", () => {
@@ -942,10 +1319,11 @@ const NEW_DECK = "\u0000new";
    marked with how many of them there are, they stand at the top of the list,
    and where nothing is set yet the commonest is set — pick a deck and this
    question is answered without being asked. Where the deck is empty Anki
-   cannot know either, and then the line underneath says where to look in
-   Anki itself rather than pretending. */
-function noteTypeField(anki, settings, text, save, backend) {
-  const config = settings.cards.anki;
+   cannot know either: the first of Anki's own types is set, and the line
+   underneath says where to look in Anki itself rather than pretending. There
+   is no empty entry — a card filed into a deck needs a note type, and an
+   empty one only stopped Anki from taking it. */
+function noteTypeField(anki, config, named, text, save, backend) {
   const used = anki.used || [];
   const counted = new Map(used.map((entry) => [entry.noteType, entry.cards]));
   /* What the deck uses first, then everything else in Anki's own order. */
@@ -953,35 +1331,30 @@ function noteTypeField(anki, settings, text, save, backend) {
     .concat(anki.noteTypes.filter((name) => !counted.has(name)));
 
   const choose = async (noteType) => {
-    if (!noteType) return save({ noteType: "", fields: { term: "", meaning: "", note: "" } });
     const names = await backend.fieldsOf(noteType);
-    save({ noteType, fields: guessFieldMap(names, settings.languages) });
+    save({ noteType, fields: guessFieldMap(names, named) });
   };
 
   const list = select(
-    [{ value: "", label: "—" }].concat(ordered.map((name) => ({
+    ordered.map((name) => ({
       value: name,
       label: counted.has(name) ? `${name} — ${text.ankiNoteTypeUsed(counted.get(name))}` : name,
-    }))),
+    })),
     config.noteType,
   );
   list.addEventListener("change", () => choose(list.value));
 
   const row = field({ label: text.ankiNoteType, hint: text.ankiNoteTypeHint, control: list });
-  if (!config.deck) return row;
-  if (used.length) {
-    row.append(element("p", "hint", text.ankiNoteTypeFound(used[0].noteType)));
-    /* Answered rather than asked. Only where nothing is set: a reader who
-       chose another type on purpose does not get it taken away. */
-    if (!config.noteType) choose(used[0].noteType);
-  } else {
-    row.append(element("p", "hint", text.ankiNoteTypeLook));
-  }
+  row.append(element("p", "hint",
+    used.length ? text.ankiNoteTypeFound(used[0].noteType) : text.ankiNoteTypeLook));
+  /* Answered rather than asked. Only where nothing is set: a reader who
+     chose another type on purpose does not get it taken away. */
+  if (!config.noteType && ordered.length) choose(ordered[0]);
   return row;
 }
 
 /* Three lists, one per field of a card. */
-function mappingField(config, settings, text, save, backend) {
+function mappingField(config, text, save, backend) {
   /* Named generically here and by their language on the card itself. A
      setting covers every language the reader learns, and naming one of them
      would be right for one card in two. */
@@ -1052,18 +1425,19 @@ let permissionGranted = false;
 function permissionFields({ settings, text, onChange, onDirect = () => {}, reading = [], permission }) {
   const box = element("div", "field");
   box.append(element("label", null, text.permission));
-  const trust = element("p", "hint standalone", `${text.permissionTrust} `);
-  trust.append(textLink(text.permissionCode, CAPTURE_CODE_URL));
+  const trust = element("p", "hint standalone", text.permissionTrust);
+  const use = element("p", "hint standalone", `${text.permissionTrustUse} `);
+  use.append(textLink(text.permissionCode, CAPTURE_CODE_URL));
   const buttons = element("div", "with-presets");
   /* Whether macOS grants it, under the buttons that change that. */
   const state = element("p", "hint");
   const note = element("p", "hint");
-  box.append(trust, buttons, state, note);
+  box.append(trust, use, buttons, state, note);
 
   const direct = field({
     label: text.directSelection,
     hint: text.directSelectionLead,
-    control: switchFor(usesPermission(settings), text, (on) => onChange({ ...settings, directSelection: on })),
+    control: switchFor(usesPermission(settings), (on) => onChange({ ...settings, directSelection: on })),
   });
   const options = [direct, ...reading];
 
@@ -1104,17 +1478,72 @@ function permissionFields({ settings, text, onChange, onDirect = () => {}, readi
     draw(now, false);
   };
 
-  /* The watcher asks whether it is still needed; the check itself only
-     checks. Written the other way round, the first call — which happens
-     before this node is in the document — read "not connected" and switched
-     the watcher off, so the answer stayed at "not granted" for good. */
+  watchWhileShown(box, check);
+
+  return [box, ...options];
+}
+
+/* A permission's box asks again every moment and a half for as long as it
+   stands in the page: the reader turns the switch in System Settings and
+   comes back. The watcher asks whether it is still needed; the check itself
+   only checks. Written the other way round, the first call — which happens
+   before the box is in the document — would read "not connected" and switch
+   the watcher off, so the answer would stay at "not granted" for good. */
+function watchWhileShown(box, check) {
   const watch = setInterval(() => {
     if (!box.isConnected) return clearInterval(watch);
     check();
   }, 1500);
   check();
+}
 
-  return [box, ...options];
+/* Whether macOS lets Triglosa record the screen, as last heard. */
+let screenGranted = false;
+
+/* The Mac's Screen Recording permission, for text read off the screen, in
+   the same shape as the one above: what it adds, that the screen is
+   recorded only for this and the picture never leaves the device, whether macOS
+   grants it, and the buttons that change that — with nothing hanging on it.
+   Watched the same way. macOS takes a change to it only once Triglosa is
+   opened again, so after asking the box says so. */
+function screenPermissionBox(text, permitted) {
+  const box = element("div", "field");
+  box.append(element("label", null, text.screenPermissionTitle));
+  const lead = element("p", "hint standalone", text.screenPermissionLead);
+  const use = element("p", "hint standalone", text.screenPermissionUse);
+  const buttons = element("div", "with-presets");
+  const state = element("p", "hint");
+  box.append(lead, use, buttons, state);
+
+  const draw = (granted, pending) => {
+    buttons.replaceChildren();
+    const open = element("button", null, text.permissionOpen);
+    open.addEventListener("click", () => openScreenSettings());
+    state.textContent = granted ? text.permissionHave : pending ? text.screenPermissionPending : "";
+    state.hidden = !state.textContent;
+    if (granted) {
+      buttons.append(open);
+      return;
+    }
+    const ask = element("button", null, text.permissionAsk);
+    ask.addEventListener("click", async () => {
+      await requestScreenPermission();
+      draw(false, true);
+    });
+    buttons.append(ask, open);
+  };
+
+  let granted = screenGranted;
+  draw(granted, false);
+  const check = async () => {
+    const now = await permitted();
+    screenGranted = now;
+    if (now === granted) return;
+    granted = now;
+    draw(now, false);
+  };
+  watchWhileShown(box, check);
+  return box;
 }
 
 /* What reads another program's text around a selection or under the
@@ -1131,13 +1560,13 @@ function readingFields({ settings, text, onChange, pointer }) {
   /* What goes to the model with a looked-up word: the switch says how much. */
   const withSentence = field({
     label: text.withSentence,
-    control: switchFor(settings.withSentence, text, (on) => onChange({ ...settings, withSentence: on })),
+    control: switchFor(settings.withSentence, (on) => onChange({ ...settings, withSentence: on })),
     hint: text.withSentenceLead,
   });
 
   const nextSentence = field({
     label: text.nextSentence,
-    control: switchFor(settings.nextSentence, text, (on) => onChange({ ...settings, nextSentence: on })),
+    control: switchFor(settings.nextSentence, (on) => onChange({ ...settings, nextSentence: on })),
     hint: text.nextSentenceLead,
   });
 

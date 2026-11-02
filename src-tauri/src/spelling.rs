@@ -1,6 +1,7 @@
 /* The system's own spelling checker: whether it knows a word in a language,
 and what it would make of it where it does not (src/spelling.js decides what
-that is worth). macOS through NSSpellChecker, Windows through ISpellChecker;
+that is worth). macOS through NSSpellChecker, the iPhone through UITextChecker (no
+correction of its own: its guesses stand in), Windows through ISpellChecker;
 elsewhere nothing is known. What it would make of a word is asked only
 where it is wanted (`full`): a correction and guesses cost the Mac about 60 ms
 a language, a yes or no a few.
@@ -75,7 +76,7 @@ fn merged(verdicts: Vec<Verdict>) -> Verdict {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod native {
     use super::{dictionaries_of, merged, Verdict, MOST_GUESSES};
     use std::collections::HashMap;
@@ -90,6 +91,7 @@ mod native {
         fn objc_autoreleasePoolPop(pool: *mut c_void);
     }
 
+    #[cfg(target_os = "macos")]
     #[link(name = "AppKit", kind = "framework")]
     extern "C" {}
 
@@ -148,7 +150,77 @@ mod native {
             .collect()
     }
 
+    /* One dictionary's verdict, the iPhone's way: the same question without
+    a document, and guesses only. */
+    #[cfg(target_os = "ios")]
+    unsafe fn verdict(
+        checker: *mut c_void,
+        word: &str,
+        language: &str,
+        _tag: isize,
+        full: bool,
+    ) -> Verdict {
+        let send = objc_msgSend as *const ();
+        let check: extern "C" fn(
+            *mut c_void,
+            *const c_void,
+            *mut c_void,
+            Range,
+            isize,
+            bool,
+            *mut c_void,
+        ) -> Range = std::mem::transmute(send);
+        let guess: extern "C" fn(
+            *mut c_void,
+            *const c_void,
+            Range,
+            *mut c_void,
+            *mut c_void,
+        ) -> *mut c_void = std::mem::transmute(send);
+        let text = string(word);
+        let language = string(language);
+        let whole = Range {
+            location: 0,
+            length: word.encode_utf16().count(),
+        };
+        let miss = check(
+            checker,
+            selector("rangeOfMisspelledWordInString:range:startingAt:wrap:language:"),
+            text,
+            whole,
+            0,
+            false,
+            language,
+        );
+        if miss.location == NOT_FOUND || miss.length == 0 {
+            return Verdict {
+                there: true,
+                known: true,
+                ..Verdict::default()
+            };
+        }
+        let mut guesses = if full {
+            strings(guess(
+                checker,
+                selector("guessesForWordRange:inString:language:"),
+                whole,
+                text,
+                language,
+            ))
+        } else {
+            Vec::new()
+        };
+        guesses.truncate(MOST_GUESSES);
+        Verdict {
+            there: true,
+            known: false,
+            correction: None,
+            guesses,
+        }
+    }
+
     /* One dictionary's verdict. */
+    #[cfg(target_os = "macos")]
     unsafe fn verdict(
         checker: *mut c_void,
         word: &str,
@@ -264,24 +336,55 @@ mod native {
         let mut answers = HashMap::new();
         unsafe {
             let pool = objc_autoreleasePoolPush();
+            #[cfg(target_os = "macos")]
             let checker = object(class("NSSpellChecker"), selector("sharedSpellChecker"));
+            /* A checker of its own each time, so that nothing this reading
+            checks is remembered for the next. */
+            #[cfg(target_os = "ios")]
+            let checker = object(
+                object(class("UITextChecker"), selector("alloc")),
+                selector("init"),
+            );
             if !checker.is_null() {
+                #[cfg(target_os = "macos")]
                 let available = strings(object(checker, selector("availableLanguages")));
+                #[cfg(target_os = "ios")]
+                let available = strings(object(
+                    class("UITextChecker"),
+                    selector("availableLanguages"),
+                ));
                 /* A document of its own, so that nothing this reading checks
                 is remembered for the next. */
+                #[cfg(target_os = "macos")]
                 let tag = number(class("NSSpellChecker"), selector("uniqueSpellDocumentTag"));
+                #[cfg(target_os = "ios")]
+                let tag = 0;
                 for word in words {
                     let mut per_language = HashMap::new();
                     for code in languages {
-                        let verdicts = dictionaries_of(&available, code)
-                            .iter()
-                            .map(|dictionary| verdict(checker, word, dictionary, tag, full))
-                            .collect();
+                        /* Up to the first dictionary that knows the word:
+                        English alone has a handful, and a word asked in
+                        all of them cost a reading's lines half a second. */
+                        let mut verdicts = Vec::new();
+                        for dictionary in dictionaries_of(&available, code) {
+                            let answer = verdict(checker, word, &dictionary, tag, full);
+                            let known = answer.known;
+                            verdicts.push(answer);
+                            if known {
+                                break;
+                            }
+                        }
                         per_language.insert(code.clone(), merged(verdicts));
                     }
                     answers.insert(word.clone(), per_language);
                 }
+                #[cfg(target_os = "macos")]
                 close(checker, selector("closeSpellDocumentWithTag:"), tag);
+                #[cfg(target_os = "ios")]
+                {
+                    let _ = (number, close);
+                    object(checker, selector("release"));
+                }
             }
             objc_autoreleasePoolPop(pool);
         }
@@ -355,6 +458,21 @@ mod native {
         })
     }
 
+    /* The factory and every language's checkers, made once and kept:
+    making a language's took up to 0.1 s and letting them go 0.2 s, against
+    a millisecond for the words themselves (run sixty-five). */
+    struct Kept {
+        factory: ISpellCheckerFactory,
+        available: Vec<String>,
+        checkers: HashMap<String, Vec<ISpellChecker>>,
+    }
+
+    /* Made in the multithreaded apartment, which every thread asking joins
+    first, and used by one at a time under the lock. */
+    unsafe impl Send for Kept {}
+
+    static KEPT: std::sync::Mutex<Option<Kept>> = std::sync::Mutex::new(None);
+
     pub fn check(
         words: &[String],
         languages: &[String],
@@ -362,30 +480,52 @@ mod native {
     ) -> HashMap<String, HashMap<String, Verdict>> {
         let mut answers = HashMap::new();
         let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-        let factory: Option<ISpellCheckerFactory> =
-            unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }.ok();
-        let Some(factory) = factory else {
+        let mut kept = KEPT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if kept.is_none() {
+            let factory: Option<ISpellCheckerFactory> =
+                unsafe { CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER) }.ok();
+            let Some(factory) = factory else {
+                return answers;
+            };
+            let available = unsafe { factory.SupportedLanguages() }
+                .map(|found| all(&found, usize::MAX))
+                .unwrap_or_default();
+            *kept = Some(Kept {
+                factory,
+                available,
+                checkers: HashMap::new(),
+            });
+        }
+        let Some(kept) = kept.as_mut() else {
             return answers;
         };
-        let available = unsafe { factory.SupportedLanguages() }
-            .map(|found| all(&found, usize::MAX))
-            .unwrap_or_default();
-        let checkers: HashMap<&String, Vec<ISpellChecker>> = languages
-            .iter()
-            .map(|code| {
-                let made = dictionaries_of(&available, code)
-                    .iter()
-                    .filter_map(|tag| {
-                        unsafe { factory.CreateSpellChecker(&HSTRING::from(tag.as_str())) }.ok()
-                    })
-                    .collect();
-                (code, made)
-            })
-            .collect();
+        for code in languages {
+            if kept.checkers.get(code).is_some_and(|made| !made.is_empty()) {
+                continue;
+            }
+            /* A language without a dictionary is looked for again each
+            time: the reader may add it to Windows while the app runs. */
+            if !kept.checkers.is_empty() {
+                kept.available = unsafe { kept.factory.SupportedLanguages() }
+                    .map(|found| all(&found, usize::MAX))
+                    .unwrap_or_default();
+            }
+            let made = dictionaries_of(&kept.available, code)
+                .iter()
+                .filter_map(|tag| {
+                    unsafe {
+                        kept.factory
+                            .CreateSpellChecker(&HSTRING::from(tag.as_str()))
+                    }
+                    .ok()
+                })
+                .collect();
+            kept.checkers.insert(code.clone(), made);
+        }
         for word in words {
             let mut per_language = HashMap::new();
             for code in languages {
-                let verdicts = checkers[code]
+                let verdicts = kept.checkers[code]
                     .iter()
                     .filter_map(|checker| verdict(checker, word, full))
                     .collect();
@@ -407,13 +547,13 @@ pub async fn check_spelling(
     full: Option<bool>,
 ) -> HashMap<String, HashMap<String, Verdict>> {
     let full = full.unwrap_or(false);
-    #[cfg(any(target_os = "macos", windows))]
+    #[cfg(any(target_os = "macos", target_os = "ios", windows))]
     {
         tauri::async_runtime::spawn_blocking(move || native::check(&words, &languages, full))
             .await
             .unwrap_or_default()
     }
-    #[cfg(not(any(target_os = "macos", windows)))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", windows)))]
     {
         let _ = (words, languages, full);
         HashMap::new()
@@ -485,5 +625,53 @@ mod tests {
         assert!(answers["weird"]["en"].known);
         assert!(answers["weird"]["pt"].there);
         assert!(!answers["weird"]["xx"].there);
+    }
+
+    /// The lines of dictionary entries as the app asks about them after
+    /// each entry (run sixty-five): the panel's language first, then the
+    /// words it does not know in the others, and how long each takes. Run
+    /// where a checker is: cargo test -- --ignored the_lines_of_entries
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    #[ignore]
+    fn the_lines_of_entries() {
+        let entries: [(&str, &[&str]); 5] = [
+            ("es", &["puro", "ehrlich", "rein"]),
+            ("de", &["Kiste", "Schachtel", "Behälter"]),
+            ("en", &["only", "merely", "just"]),
+            ("fr", &["seulement", "ne", "que", "juste"]),
+            ("en", &["nostalgia", "por", "lugares", "distantes"]),
+        ];
+        let all: Vec<String> = ["de", "en", "es", "fr"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        native::check(&["a".to_string()], &all, false);
+        for (target, words) in entries {
+            let words: Vec<String> = words.iter().map(|s| s.to_string()).collect();
+            let started = std::time::Instant::now();
+            let own = native::check(&words, &[target.to_string()], false);
+            let first = started.elapsed();
+            let strangers: Vec<String> = words
+                .iter()
+                .filter(|word| !own[*word][target].known)
+                .cloned()
+                .collect();
+            let started = std::time::Instant::now();
+            if !strangers.is_empty() {
+                native::check(&strangers, &all, false);
+            }
+            println!(
+                "{target} {words:?}: own {first:?}, others {:?} for {strangers:?}",
+                started.elapsed()
+            );
+        }
+        let answers = native::check(
+            &["puro".to_string(), "ehrlich".to_string()],
+            &["es".to_string(), "de".to_string()],
+            false,
+        );
+        assert!(answers["puro"]["es"].known);
+        assert!(!answers["ehrlich"]["es"].known && answers["ehrlich"]["de"].known);
     }
 }

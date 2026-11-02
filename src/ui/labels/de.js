@@ -3,7 +3,6 @@ import { why } from "./detail.js";
 export default {
   placeholder: "Text einfügen oder eintippen",
   translate: "Übersetzen",
-  translateKeys: "Übersetzen (⌘↩)",
   enterKey: "⌘↩",
   edit: "Editieren",
   settings: "Einstellungen",
@@ -40,31 +39,33 @@ export default {
   copy: "Kopieren",
   insert: "Einfügen",
   copied: "Kopiert",
+  paste: "Einfügen",
+  settingsDone: "Fertig",
   search: "Suchen (extern)",
   speak: "Aussprechen",
   opened: "Geöffnet",
   conjugation: "Konjugation (extern)",
-  card: "Lernkarte",
+  card: "Lernkarte erstellen",
   cardCreate: "Lernkarte erstellen",
   cardLanguage: "Sprache der Lernkarte",
   sourceLanguage: "Sprache ändern",
-  otherLanguage: "Andere Sprache …",
-  findLanguage: "Sprache eingeben",
+  addLanguage: "Sprache hinzufügen",
+  removeLanguage: "Sprache entfernen",
   unknownLanguage: "Unbekannte Sprache",
   added: "Angelegt",
   synonymBack: "Voriges Wort",
   synonymForward: "Nächstes Wort",
   cardTerm: "Fremdsprache",
   cardMeaning: "Muttersprache",
-  cardNote: "Erklärung",
+  cardNote: "Notizen",
   cardCopyAll: "Alle drei kopieren",
   cardCopyField: "Feld kopieren",
-  cardToAnki: "Direkt nach Anki",
+  cardToAnki: "In Anki speichern",
   cardAnkiStart: "Anki starten",
   cardAnkiStarting: "Anki wird gestartet …",
-  cardAnkiSetup: "Stapel wählen",
+  cardAnkiSetup: "Anki-Stapel wählen",
   cardNoteUnmapped: "Kein Feld zugeordnet — diese Zeilen gehen nicht nach Anki.",
-  ankiSaved: "Die Karte liegt im Stapel.",
+  ankiSaved: (deck) => (deck ? `Die Karte liegt im Stapel „${deck}“.` : "Die Karte liegt im Stapel."),
   cardClosing: "Das Fenster wird geschlossen.",
   ankiDuplicate: "Diese Karte liegt schon im Stapel — Anki vergleicht dazu das erste Feld des Notiztyps.",
   ankiSending: "Wird angelegt …",
@@ -143,15 +144,16 @@ export default {
   groupTranslation: "Übersetzungen",
   groupWindow: "Fenster",
   groupShortcuts: "Tastenkürzel",
-  groupReading: "Text aus anderen Programmen",
+  groupReading: "Andere Programme",
   groupCards: "Lernkarten",
   groupAbout: "Über Triglosa",
   aboutVersion: (version) => `Version ${version}`,
+  aboutNotes: "Versionshinweise anzeigen",
   /* The way to the project, as a sentence with its links in it. */
   aboutLinks: (link) => ["Triglosa findest du auf ", link("project", "GitHub"), ", Hilfe dort in der ", link("help", "Readme"), ". Wenn dir ein Fehler auffällt oder du dir eine Funktion wünschst, eröffne gern ein ", link("issues", "Issue"), "."],
   updatesCheck: "Nach Updates suchen",
   updatesChecking: "Suche …",
-  updatesHint: "Fragt GitHub nach der neuesten Version, nur wenn du hier klickst. Heruntergeladen wird erst, wenn du auf „Jetzt installieren“ klickst.",
+  updatesHint: "Fragt GitHub nach der neuesten Version. Heruntergeladen wird erst, wenn du auf „Jetzt installieren“ klickst.",
   updatesNone: "Du hast die neueste Version.",
   updatesFound: (version) => `Version ${version} ist verfügbar.`,
   updatesDownload: "Download und Versionshinweise anzeigen",
@@ -165,46 +167,53 @@ export default {
   diagnosticsHint: "Für einen Problembericht: Version, System, Sprachen, KI-Modell und letzte Fehler. Nie deine Texte oder dein API-Schlüssel. Gesendet wird nichts, du fügst es selbst ein.",
   updatesFailed: (status) => `Keine Antwort von GitHub${status ? ` (${status})` : ""}. Bitte versuche es später noch einmal.`,
 
-  optionOn: "an",
   optionOff: "aus",
-  cardsEnabled: "Lernkarten anbieten",
+  cardsEnabled: "Knopf für Lernkarten anzeigen",
   cardModes: {
     never: "nie",
     second: "nur bei der zweiten Sprache",
     third: "nur bei der dritten Sprache",
+    learned: "bei der zweiten und dritten Sprache",
     foreign: "bei allen Fremdsprachen",
   },
   cardsImprove: "Lernkarten automatisch mit KI verbessern",
+  cardsImproveHint: "Karten können immer per Knopfdruck mit KI verbessert werden.",
   ankiEnabled: "Direkt nach Anki exportieren",
   ankiEnabledHint: (code) => `Braucht Anki mit dem Add-on AnkiConnect (Code ${code}).`,
-  ankiSync: "Nach jeder Karte synchronisieren",
+  ankiSync: "Anki nach jeder Karte synchronisieren",
   ankiSyncHint:
-    "Drückt Ankis Sync-Knopf. Funktioniert nur, wenn AnkiWeb eingerichtet ist.",
+    "Funktioniert nur, wenn AnkiWeb eingerichtet ist.",
   ankiSearching: "Wird gesucht …",
   ankiMissing:
     "Anki antwortet nicht. Bitte starte Anki und prüfe, ob AnkiConnect installiert ist.",
   ankiRecheck: "Nochmal suchen",
   ankiLaunch: "Anki starten",
   ankiStarting: "Anki wird gestartet …",
-  ankiDeck: "Stapel",
+  ankiDeck: "Anki-Stapel",
+  ankiAddLanguage: "Sprache hinzufügen",
+  ankiRemoveLanguage: "Sprache entfernen",
+  ankiTargetChoice: "Sprache",
+  ankiPerLanguage: "Anki-Einstellungen pro Sprache",
   ankiDeckHint:
     "Jeder Stapel, den Anki meldet. Ein Name, den es dort noch nicht gibt, wird beim ersten Speichern angelegt.",
   ankiNewDeck: "Neuer Stapel …",
   ankiDeckList: "Aus der Liste",
-  ankiNoteType: "Notiztyp",
+  ankiNoteType: "Anki-Notiztyp",
   ankiNoteTypeHint: "Der Notiztyp entscheidet, welche Felder eine Karte hat.",
   ankiNoteTypeUsed: (count) => `in diesem Stapel (${count})`,
   ankiNoteTypeFound: (name) =>
     `Die Karten im ausgewählten Stapel nutzen den Notiztyp „${name}“.`,
   ankiNoteTypeLook:
     "Der ausgewählte Stapel hat noch keine Karten, an denen sich der Notiztyp ablesen lässt. Bitte wähle ihn selbst aus.",
-  ankiFields: "Felder",
+  ankiFields: "Anki-Felder",
   ankiFieldsHint: "Welches Feld des Notiztyps welche der drei Zeilen bekommt.",
   ankiNoField: "— nicht schreiben",
   ankiFirstField: (name) =>
     `Das erste Feld des Notiztyps („${name}“) bekommt zusätzlich das Wort in der Fremdsprache. Anki nimmt Notizen mit leerem erstem Feld nicht an.`,
 
+  languagesIntro: ["Triglosa zeigt jeden Text neben seinen Übersetzungen in diesen Sprachen (höchstens zwei Übersetzungen).", "Dein eingestelltes Niveau bestimmt, welche Begriffe und Verben in der jeweiligen Sprache erklärt werden.", "Im Übersetzungsfenster kannst du die Sprache einer Übersetzung vorübergehend ändern oder eine dritte hinzufügen. Das gilt bis zum Beenden von Triglosa."],
   firstLanguage: "Muttersprache",
+  firstLanguageHint: "Auch die Sprache der App.",
   secondLanguage: "Zweite Sprache",
   thirdLanguage: "Dritte Sprache (optional)",
   noThird: "keine",
@@ -236,6 +245,8 @@ export default {
   },
   showVerbsHint: "Grundform, Person und Zeit zu bis zu drei fortgeschrittenen Verbformen im Text.",
   showTermsHint: "Erklärungen zu bis zu drei fortgeschrittenen Wörtern oder Redewendungen im Text.",
+  showTerms: "Begriffe anzeigen",
+  showVerbs: "Verben anzeigen",
   underline: "Farbige Unterstreichung im Text",
   searchEngine: "Suchmaschine",
   searchHint: "Für „Suchen (extern)“ bei Begriffen, Verben und markierten Wörtern. Geöffnet wird im Standardbrowser.",
@@ -243,18 +254,44 @@ export default {
   glance: "Wortübersetzung beim Zeigen",
   glanceHint: "Zeigt über Wörtern in Fremdsprachen, was ihnen in deiner Sprache entspricht.",
   modelIntro:
-    "Ohne KI-Modell gibt es nur Apples Übersetzung auf dem Gerät, sofern das Sprachpaket geladen ist. Verbinde ein KI-Modell für genauere Übersetzungen, Begriffe, Verben, Erklärungen und weitere Funktionen.",
-  modelHelpAsk: "Noch nie ein KI-Modell eingerichtet?",
-  modelHelpLink: "Zur Anleitung",
+    "Ohne KI-Modell gibt es nur Apples Übersetzung auf dem Gerät, sofern das Sprachpaket geladen ist. Ein KI-Modell bringt genauere Übersetzungen, Begriffe, Verben, Erklärungen und weitere Funktionen. Triglosa bringt selbst keins mit.",
+  modelQuestion: "Welche Art von Verbindung möchtest du nutzen?",
+  modelWays: "Ein Weg, der gut funktioniert, ist vorbereitet. Alternativ kannst du einen beliebigen Anbieter eintragen.",
+  setupOnline: "Online",
+  setupOnlineVia: "über OpenRouter",
+  setupOnlineLine: "Genau und schnell. OpenRouter ist ein eigenständiger Anbieter, bei dem du Guthaben aufladen musst.",
+  setupOwn: "Selbst eintragen",
+  setupOwnVia: "beliebiger Anbieter",
+  setupRecommended: (name, filled) => `Empfohlenes Modell: ${name}${filled ? ", schon eingetragen" : ""}`,
+  setupOnlineSteps: (site, key, privacy) => [
+    ["Lege ein Konto an auf ", site("openrouter.ai"), "."],
+    ["Lade Guthaben auf – 5 € reichen für viele tausend Übersetzungen."],
+    ["Erstelle einen ", key("API-Schlüssel"), " und füge ihn unten ein."],
+    ["Optional: Schalte in den ", privacy("Datenschutz-Einstellungen"), " „Zero Data Retention“ ein für mehr Datenschutz."],
+  ],
+  setupOnlineFree: (name) => `Ohne Guthaben funktioniert auch eine kostenlose Version von ${name}, die Google anbietet. Es reicht aber nur für wenige Übersetzungen am Tag, und deine Texte können von Google gespeichert und zum Training verwendet werden. Es eignet sich daher nur zum Ausprobieren und funktioniert nicht mit eingeschalteter Zero Data Retention.`,
+  setupOnlineFreeTake: "Kostenloses Modell eintragen",
+  setupOnlinePaidTake: "Empfohlenes Modell eintragen",
+  setupMore: (guide) => ["Mehr Informationen zur Auswahl des Anbieters und einen Vergleich verschiedener Modelle findest du in der ", guide("README"), "."],
+  setupChatbot: "Kommst du nicht weiter, kann dir auch ein KI-Chatbot deines Vertrauens helfen.",
+  setupGuide: "Anleitung",
   endpoint: "Adresse des KI-Modells",
-  endpointHint:
-    "Jede Adresse mit OpenAI-kompatibler Schnittstelle — in der Cloud oder lokal.",
+  endpointHints: {
+    online: "Die Adresse von OpenRouter. Für einen anderen Anbieter wähle oben „Selbst eintragen“.",
+    own: "Jede Adresse mit OpenAI-kompatibler Schnittstelle — in der Cloud oder lokal.",
+  },
+  endpointPreset: (name) => `${name}-Adresse eintragen`,
   model: "Modell",
-  modelHint: "Bleibt das Feld leer, nimmt die App das erste Modell, das unter der Adresse angeboten wird.",
+  modelHints: {
+    online: "Jedes Modell von OpenRouter, mit dem Namen, der auf seiner Seite dort steht.",
+    own: "Bleibt das Feld leer, nimmt die App das erste Modell, das unter der Adresse angeboten wird.",
+  },
   apiKey: "API-Schlüssel",
   apiKeyEmpty: "keiner hinterlegt",
-  apiKeyHint:
-    "Landet im Schlüsselbund des Systems, nie in der Einstellungsdatei. Ein lokales Modell braucht meist keinen.",
+  apiKeyHints: {
+    online: "Der Schlüssel von OpenRouter (Schritt 3). Landet im Schlüsselbund des Systems, nie in der Einstellungsdatei.",
+    own: "Landet im Schlüsselbund des Systems, nie in der Einstellungsdatei. Ein lokales Modell braucht meist keinen.",
+  },
   forgetKey: "Vergessen",
   keySaveFailed: (detail) =>
     `Der API-Schlüssel wurde nicht gespeichert${detail ? ` (${detail})` : ""}. Bitte versuche es noch einmal.`,
@@ -274,9 +311,9 @@ export default {
      together in labels.js (`creditLine`): `by` answers the word in front of
      a name and the name. */
   credits: {
-    verbs: { translated: "übersetzt", explained: "erklärt", assigned: "zugeordnet", detected: "Sprache erkannt", words: "Wörter zugeordnet" },
+    verbs: { translated: "übersetzt", explained: "erklärt", assigned: "zugeordnet", detected: "Sprache erkannt", words: "Wörter zugeordnet", recognized: "Text erkannt" },
     and: "und",
-    by: ({ kind, name }) => ({ device: ["von", "Apple (auf dem Gerät)"], triglosa: ["von", "Triglosa"] })[kind] || (name ? ["von", name] : ["vom", "KI-Modell"]),
+    by: ({ kind, name }) => ({ device: ["von", "Apple (auf dem Gerät)"], triglosa: ["von", "Triglosa"], triglosaDevice: ["von", "Triglosa (auf dem Gerät)"] })[kind] || (name ? ["von", name] : ["vom", "KI-Modell"]),
     line: (verbs, who) => `${verbs} ${who}`,
     chosen: "Sprache von dir gewählt",
   },
@@ -298,7 +335,7 @@ export default {
   pairsFetch: "Sprachen laden …",
   pairsFetchAgain: "Erneut anfordern …",
   pairsOnTheirWay:
-    "Der Download läuft im Hintergrund und kann einige Minuten dauern. Wurde das Fenster von macOS geschlossen, einfach erneut anfordern.",
+    "Der Download läuft im Hintergrund und kann einige Minuten dauern, du musst nichts weiter tun. Während er läuft, zeigt „Erneut anfordern“ nichts an. Wurde das Fenster von macOS geschlossen, fordere einfach erneut an.",
   pairsPrompt: "Sprachen für Apples Übersetzung laden",
   pairsFetched: "Angefordert",
   pairsBySettings:
@@ -307,6 +344,7 @@ export default {
 
   fitWindow: "Fensterhöhe automatisch an den Inhalt anpassen",
   kept: "Vergangene Übersetzungen merken",
+  keptHint: "Bleiben gespeichert, bis du Triglosa beendest.",
   keptLast: (n) => `die letzten ${n}`,
   appIcon: "Symbol, während Triglosa läuft",
   appIcons: { menubar: "in der Menüleiste", dock: "im Dock", both: "in Menüleiste und Dock" },
@@ -350,13 +388,15 @@ export default {
   nextSentenceLead:
     "Zeigt unter dem Original den Satz, der im Ursprungstext folgt. Ein Klick übersetzt ihn.",
 
-  permission: "macOS-Berechtigung",
+  permission: "macOS-Berechtigung zum Lesen und Einfügen",
   directSelection: "Markierten Text direkt lesen und einfügen",
   directSelectionLead:
     "Die Tastenkürzel übernehmen markierten Text, ohne dass du ihn vorher kopierst, und Übersetzungen lassen sich direkt in andere Programme einfügen.",
   permissionHave: "Die Berechtigung ist in macOS erteilt.",
   permissionTrust:
-    "Optional: Mit der macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ (unter Datenschutz & Sicherheit, bis macOS 26 „Bedienungshilfen“) kann Triglosa markierten Text direkt lesen, das Wort oder den Satz unter dem Zeiger lesen und Übersetzungen direkt in andere Programme einfügen. Triglosa nutzt die Berechtigung nur für diese Funktionen und nur, wenn du sie aktivierst. Triglosa ist Open Source, du kannst das also nachprüfen:",
+    "Optional: Mit der macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ (unter Datenschutz & Sicherheit, bis macOS 26 „Bedienungshilfen“) kann Triglosa markierten Text direkt lesen, das Wort oder den Satz unter dem Zeiger lesen und Übersetzungen direkt in andere Programme einfügen.",
+  permissionTrustUse:
+    "Triglosa nutzt die Berechtigung nur für diese Funktionen und nur, wenn du sie aktivierst. Triglosa ist Open Source, du kannst das also nachprüfen:",
   permissionCode: "zum Code",
   permissionAsk: "Erlauben …",
   permissionOpen: "Systemeinstellungen öffnen",
@@ -371,11 +411,55 @@ export default {
     : reason === "accessibility" ? "Berechtigung fehlt"
     : "Nicht eingefügt",
 
+  trayTranslating: "Übersetzen",
+
+  trayCards: "Lernkarten",
+
   trayCapture: "Markierten Text übersetzen",
   trayCaptureCopied: "Kopierten Text übersetzen",
   trayCard: "Lernkarte aus markiertem Text erstellen",
   trayCardCopied: "Lernkarte aus kopiertem Text erstellen",
   trayCardBlank: "Neue Lernkarte",
+  trayScreen: "Text aus Bildschirmfoto übersetzen",
+  trayScreenCopy: "Text aus Bildschirmfoto kopieren",
+  trayScreenCard: "Lernkarte aus Bildschirmfoto erstellen",
+  screenHotkey: "Text aus Bildschirmfoto übersetzen",
+  screenHotkeyLead: "Du ziehst einen Rahmen um Text auf dem Bildschirm, Triglosa erkennt und übersetzt ihn.",
+  screenCopyHotkey: "Text aus Bildschirmfoto kopieren",
+  screenCopyHotkeyLead: "Du ziehst einen Rahmen um Text auf dem Bildschirm, und der erkannte Text kommt in die Zwischenablage. Triglosa bleibt geschlossen.",
+  screenCardHotkey: "Lernkarte aus Bildschirmfoto erstellen",
+  screenCardHotkeyLead: "Du ziehst einen Rahmen um Text auf dem Bildschirm, und der erkannte Text kommt auf eine neue Lernkarte.",
+  screenPrivacy: "Bildschirmfotos werden nur auf deinem Gerät verarbeitet. An das KI-Modell geht nur der erkannte Text.",
+  screenPermissionTitle: "macOS-Berechtigung für Bildschirmfotos",
+  screenPermissionLead:
+    "Optional: Mit der macOS-Berechtigung „Bildschirm- & Systemaudioaufnahme“ (unter Datenschutz & Sicherheit) kann Triglosa Text überall auf dem Bildschirm per Bildschirmfoto übersetzen, kopieren und auf Lernkarten bringen und das Wort oder den Satz unter dem Zeiger auch dort lesen, wo ein Programm keinen Text hergibt.",
+  screenPermissionUse:
+    "Triglosa nimmt den Bildschirm nur auf, wenn du eine dieser Funktionen verwendest. Bildschirmfotos werden nur auf deinem Gerät verarbeitet. An das KI-Modell geht nur der erkannte Text.",
+  screenPermissionPending:
+    "macOS hat Triglosa dort in die Liste aufgenommen. Bitte schalte Triglosa in der Liste ein und öffne Triglosa danach neu.",
+  screenHint: "Ziehe einen Rahmen um den Text · Esc bricht ab",
+  screenReading: "Text wird erkannt …",
+  screenNothing: "Kein Text erkannt. Bitte wähle einen anderen Ausschnitt.",
+  imageUnreadable: "Das Bild ließ sich nicht öffnen. Bitte wähle ein anderes Bild.",
+  imageNothing: "Kein Text im Bild erkannt. Bitte wähle ein anderes Bild.",
+  dropImage: "Bild hier ablegen, um es zu übersetzen",
+  /* Under a new translation's field on a computer, where a phone has its
+     camera, photos and clipboard. */
+  dropHint: "Ziehe ein Bild ins Fenster, um es zu übersetzen.",
+  dropNeedsPin: (name, pin) => ["Dafür muss „", name, "“ ", pin, " aktiviert sein."],
+  screenNoAnswer: "Die Texterkennung hat nicht geantwortet. Bitte versuche es noch einmal.",
+  screenAbsent: "Die Texterkennung fehlt in dieser Installation. Bitte installiere Triglosa neu.",
+  screenPermission: "Triglosa darf den Bildschirm nicht aufnehmen. Bitte erlaube es in den Systemeinstellungen unter „Bildschirm- & Systemaudioaufnahme“.",
+  screenFailed: "Das Bildschirmfoto ist nicht gelungen. Bitte versuche es noch einmal.",
+  /* The word or the sentence under the pointer read off the screen. */
+  pointerReading: "Text wird per Bildschirmfoto erkannt …",
+  pointerNothing: "Unter dem Zeiger wurde kein Text gefunden. Bitte zeige auf ein Wort und versuche es noch einmal.",
+  /* On a phone: a text from the camera, the photo library or the
+     clipboard (the buttons under a new translation); a picture's text. */
+  pictureCamera: "Kamera",
+  pictureLibrary: "Fotos",
+  clipboard: "Zwischen\u00ADablage",
+  pictureNothing: "Im Bild wurde kein Text erkannt. Bitte versuche es mit einem anderen Bild.",
   trayShow: "Fenster zeigen",
   trayUpdates: "Nach Updates suchen",
   trayHelp: "Hilfe",
@@ -391,22 +475,45 @@ export default {
   unpinWindow: "Nicht mehr im Vordergrund halten",
   welcomeFind:
     "Triglosa läuft im Hintergrund. Das Buch-Symbol findest du oben rechts in der Menüleiste.",
-  welcomeModel: (link) => ["Verbinde ein KI-Modell in den Einstellungen für genauere Übersetzungen, Begriffe, Verben und Erklärungen. Wie das geht, steht in der ", link("Anleitung"), "."],
+  welcomeModel: "Ein KI-Modell übersetzt genauer und erklärt Begriffe, Verben und jedes Wort, das du anklickst, passend zu deinem Niveau. Verbinde eines in den Einstellungen unter „KI-Modell“.",
+  statsSetting: "Anonyme Nutzungsstatistik",
+  statsHint: "Meldet höchstens einmal am Tag, dass Triglosa benutzt wurde: Version, System und die Art des KI-Modells (OpenRouter, LM Studio oder anderes). Geht etwas schief, nur die Art des Fehlers. Nie deine Texte oder etwas, das dich erkennbar macht.",
+  statsThanks: "Vielen Dank.",
   welcome: {
     heading: "Willkommen bei Triglosa",
     steps: "Erste Schritte",
-    languages: "Wähle in den Einstellungen deine eigene Sprache und die Sprachen, die du lernst.",
+    exampleHint: "Ein Beispiel. Zeig mit der Maus auf ein Wort, um zu sehen, was in deiner Sprache daraus wurde.",
+    example: {
+      source: "es",
+      text: "Aunque llovía a cántaros, salimos a pasear por el casco antiguo.",
+      panels: [
+        { code: "de", text: "Obwohl es in Strömen regnete, gingen wir in der Altstadt spazieren." },
+        { code: "en", text: "Although it was raining cats and dogs, we went out for a walk in the old town." },
+      ],
+      terms: [
+        { text: "llover a cántaros", spot: "llovía a cántaros", meaning: "in Strömen regnen", note: "Sehr stark regnen, umgangssprachlich.", in: ["in Strömen regnete", "raining cats and dogs"] },
+        { text: "casco antiguo", spot: "casco antiguo", meaning: "Altstadt", note: "Der historische Kern einer Stadt.", in: ["Altstadt", "old town"] },
+      ],
+      verbs: [
+        { form: "salimos", infinitive: "salir", tense: "Indefinido", meaning: "hinausgehen", person: "1. Person Plural", in: ["gingen", "went out"] },
+      ],
+      glance: "Aunque | Obwohl | Although\nllovía | es ... regnete | it was raining\na cántaros | in Strömen | cats and dogs\nsalimos | gingen wir | we went out\na pasear | spazieren | for a walk\npor | in | in\nel | der | the\ncasco antiguo | Altstadt | old town",
+    },
+    languages: "Wähle in den Einstellungen unter „Sprachen“ deine eigene Sprache und die Sprachen, die du lernst.",
     start: {
       title: "Loslegen.",
       select: (key) => ["Markiere Text in einem beliebigen Programm und drücke ", key, "."],
       copy: (key) => ["Kopiere Text in einem beliebigen Programm (⌘C) und drücke ", key, "."],
-      change: "Das Tastenkürzel kannst du in den Einstellungen ändern.",
+      change: "Das Tastenkürzel kannst du in den Einstellungen unter „Tastenkürzel“ ändern.",
       noKey: "dein Tastenkürzel",
-      set: "Du legst es in den Einstellungen fest.",
+      set: "Du legst es in den Einstellungen unter „Tastenkürzel“ fest.",
     },
     permission: {
       title: "Optional: Text direkt lesen.",
-      body: "Mit der macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ (bis macOS 26 „Bedienungshilfen“) liest Triglosa markierten Text ohne Kopieren und fügt Übersetzungen in andere Programme ein. Du erteilst sie in den Einstellungen.",
+      body: "Mit der macOS-Berechtigung „Gerätesteuerung und Datenzugriff“ (bis macOS 26 „Bedienungshilfen“) liest Triglosa markierten Text ohne Kopieren und fügt Übersetzungen in andere Programme ein. Du erteilst sie in den Einstellungen unter „Andere Programme“.",
+    },
+    stats: {
+      off: "Du kannst das jederzeit in den Einstellungen deaktivieren.",
     },
     more: (link) => ["Alle Informationen zu Triglosa findest du in der ", link("Readme"), " auf GitHub."],
     hide: "Nicht mehr anzeigen",
@@ -417,15 +524,23 @@ export default {
 };
 
 export const windows = {
+  pointerUnreliable: "Die folgenden Funktionen lesen Text aus anderen Programmen aus. Das funktioniert nicht mit jedem Programm zuverlässig.",
+  readingPrivacy: "Triglosa liest Text aus einem anderen Programm nur, wenn du ein Tastenkürzel drückst, und schickt ihn nirgendwohin außer an das KI-Modell. Gibt ein Programm keinen Text heraus, werden Wort und Satz unter dem Zeiger von einem Bildschirmfoto rund um den Zeiger gelesen. Bildschirmfotos werden nur auf deinem Gerät verarbeitet. An das KI-Modell geht nur der erkannte Text.",
   noDevice: "Kein KI-Modell eingerichtet. Bitte richte in den Einstellungen ein KI-Modell ein.",
   onlyKnownLanguages: "Kein KI-Modell eingerichtet. Bitte richte in den Einstellungen ein KI-Modell ein.",
   pairMissing: () => "Kein KI-Modell eingerichtet. Bitte richte in den Einstellungen ein KI-Modell ein.",
   modelIntro:
-    "Triglosa übersetzt und erklärt mit einem KI-Modell. Verbinde eines für Übersetzungen, Begriffe, Verben, Erklärungen und weitere Funktionen.",
+    "Triglosa übersetzt und erklärt mit einem KI-Modell: Übersetzungen, Begriffe, Verben, Erklärungen und weitere Funktionen. Selbst bringt es keins mit.",
   lockedHow:
     "Verbinde in den Einstellungen ein KI-Modell für Übersetzungen, Begriffe, Verben, Erklärungen und weitere Funktionen.",
-  apiKeyHint:
-    "Landet in der Windows-Anmeldeinformationsverwaltung, nie in der Einstellungsdatei. Ein lokales Modell braucht meist keinen.",
+  apiKeyHints: {
+    online: "Der Schlüssel von OpenRouter (Schritt 3). Landet in der Windows-Anmeldeinformationsverwaltung, nie in der Einstellungsdatei.",
+    own: "Landet in der Windows-Anmeldeinformationsverwaltung, nie in der Einstellungsdatei. Ein lokales Modell braucht meist keinen.",
+  },
+  endpointHints: {
+    online: "Die Adresse von OpenRouter. Für einen anderen Anbieter wähle oben „Selbst eintragen“.",
+    own: "Jede Adresse mit OpenAI-kompatibler Schnittstelle — in der Cloud oder lokal.",
+  },
   hotkeyLead:
     "Übersetzt den markierten Text in jedem Programm. Öffnet die letzte Übersetzung, wenn kein Text markiert ist.",
   cardHotkeyLead:
@@ -433,9 +548,55 @@ export const windows = {
   hotkeyTakenSystem: "Dieses Tastenkürzel ist von Windows belegt. Bitte wähle ein anderes.",
   appIcons: { menubar: "nur im Infobereich", both: "auch in der Taskleiste" },
   copyFirst: (key) => `Tipp: Text in einem Programm markieren, dann ${key} drücken.`,
-  translateKeys: "Übersetzen (Strg+Enter)",
   enterKey: "Strg+Enter",
   welcomeFind:
     "Triglosa läuft im Hintergrund. Das Buch-Symbol findest du unten rechts neben der Uhr, wenn du dort auf den kleinen Pfeil (^) klickst. Damit es immer zu sehen ist, halte es mit der Maus gedrückt und schiebe es nach unten, rechts neben den Pfeil. Ein Klick auf das Symbol öffnet das Fenster, ein Rechtsklick das Menü.",
-  welcomeModel: (link) => ["Triglosa übersetzt und erklärt mit einem KI-Modell. Verbinde eines in den Einstellungen. Wie das geht, steht in der ", link("Anleitung"), "."],
+  welcomeModel: "Triglosa übersetzt mit einem KI-Modell, das auch Begriffe, Verben und jedes Wort, das du anklickst, passend zu deinem Niveau erklärt. Verbinde eines in den Einstellungen unter „KI-Modell“.",
+};
+
+export const phone = {
+  translateClipboard: "Zwischenablage übersetzen",
+  /* Before a text goes to an AI model, once for each address (App Review
+     5.1.2(i)): asked in a sheet at the first reading, changed in the
+     settings. */
+  lockedBy: "Momentan kommt die Übersetzung von Apple (auf deinem iPhone).",
+  pasteSetting: "Einfügen ohne Nachfrage",
+  pasteHint: "Fragt iOS bei jedem Einfügen nach, stelle in den iPhone-Einstellungen bei Triglosa „Aus anderen Apps einfügen“ auf „Erlauben“.",
+  pasteLater: "Später",
+  cardSheetClose: "Schließen",
+  pasteOpen: "iPhone-Einstellungen öffnen",
+  modelConsentSetting: "Texte an das KI-Modell senden",
+  modelConsentHint: (host) => `Deine Texte gehen an ${host}. Ohne das übersetzt Apple auf diesem iPhone, und kein Text verlässt es.`,
+  modelConsent: {
+    title: "Texte an das KI-Modell senden?",
+    body: (host) => `Zum Übersetzen und Erklären schickt Triglosa deine Texte an das KI-Modell, das du eingerichtet hast, unter ${host}. Es gelten die Bedingungen und die Datenschutzerklärung des Anbieters. Ohne deine Erlaubnis übersetzt Apple auf diesem iPhone, und kein Text verlässt es.`,
+    allow: "Erlauben",
+    deny: "Nicht erlauben",
+  },
+  /* The first steps, as a sheet over the reading at the first start. */
+  welcomePhone: {
+    setup: "Einrichtung",
+    start: "Eine Übersetzung starten",
+    done: "Los geht’s",
+    exampleHint: "Ein Beispiel: ein Satz, seine zwei Übersetzungen und die Wörter, die sich zu lernen lohnen, markiert.",
+    paste: (button) => ["Kopiere einen Text in einer beliebigen App und tippe dann unten in der Leiste auf ", button, ": Triglosa übersetzt, was du kopiert hast."],
+    share: "Oder markiere Text in einer beliebigen App, tippe auf „Teilen“ und wähle Triglosa.",
+    plus: (button) => ["Oder tippe auf ", button, ", um einen neuen Text einzugeben, einzufügen oder zu fotografieren."],
+    languages: "Wähle in den Einstellungen unter „Sprachen“ deine eigene Sprache und die, die du lernst.",
+    model: "Ein KI-Modell übersetzt genauer und erklärt Begriffe, Verben und jedes Wort, das du antippst, passend zu deinem Niveau. Verbinde eines in den Einstellungen unter „KI-Modell“. Ohne KI-Modell übersetzt Apple auf diesem iPhone.",
+    card: (button) => ["Tippe auf ein Wort, um es nachzuschlagen. ", button, " erstellt eine Lernkarte, die du direkt an Anki senden kannst."],
+  },
+  /* The phone runs no model of its own: one way is prepared there. */
+  ankiEnabledHint: (_code) => "Braucht die App AnkiMobile.",
+  ankiMissing: "Triglosa fragt Anki nach deinen Stapeln und Notiztypen. Anki öffnet sich dafür kurz.",
+  ankiLaunch: "Aus Anki laden",
+  ankiStarting: "Anki öffnet sich …",
+  ankiSending: "Anki öffnet sich …",
+  ankiRecheck: "Stapel aktualisieren",
+  ankiRecheckHint: "Holt Stapel und Notiztypen neu aus Anki.",
+  ankiAbsent: "AnkiMobile ist nicht installiert. Bitte installiere es aus dem App Store.",
+  ankiLeft: "Anki hat keine Liste geschickt. Bitte versuche es noch einmal und erlaube das Einfügen, wenn iOS fragt.",
+  ankiDeckHint: "Jeder Stapel, den Anki gemeldet hat.",
+  ankiNoteTypeLook: "Welchen Notiztyp ein Stapel verwendet, siehst du in Anki: Wenn du dort eine Karte zu diesem Stapel hinzufügst, steht der Notiztyp oben.",
+  cardClosing: "",
 };

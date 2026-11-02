@@ -57,7 +57,7 @@ export function pane({ title, status, body, rows, muted, plain, bare, name }) {
    would add. The sections a model fills are not drawn at all then: a row of
    empty areas says three times over what one sentence says once. */
 export function lockedNote(text) {
-  return element("p", "hint locked-note", text.lockedHow);
+  return element("p", "hint locked-note", [text.lockedBy, text.lockedHow].filter(Boolean).join(" "));
 }
 
 /* A heading inside the settings, above the rows it belongs to. Nine rows in
@@ -69,9 +69,17 @@ export function group(title) {
 /* A settings row: label, control, and one line saying what the setting is
    for. Every setting is a decision pushed onto someone, so each one says why
    it is worth their attention. */
-export function field({ label, lead, hint, control }) {
+export function field({ label, lead, hint, control, beside = true }) {
   const row = element("div", "field");
-  row.append(element("label", null, label));
+  const name = element("label", null, label);
+  row.append(name);
+  /* A switch stands beside its name, which names it and does not turn it:
+     a click on the words is no click on the switch. */
+  if (control.matches?.("input.toggle")) control.setAttribute("aria-label", label);
+  /* A switch or a single list stands at the row's right end, where every
+     other one stands; anything wider goes under the name. A list among
+     others that stand under their names stays with them (`beside`). */
+  if (beside && control.matches?.("input.toggle, select")) row.classList.add("beside");
   /* What the setting does, where it has to be read before the control is
      touched rather than after. */
   if (lead) row.append(element("p", "hint", lead));
@@ -80,8 +88,10 @@ export function field({ label, lead, hint, control }) {
   return row;
 }
 
-/* A menu. An entry with `group` is a heading over its own `options`: the
-   system draws it greyed and it cannot be chosen. */
+/* A menu. An entry with `group` is a heading over its own `options`, after
+   a line where anything stands before it: an entry the system draws greyed
+   and that cannot be chosen, the options under it not set in, as the
+   reading window's language list draws its own. */
 export function select(options, value) {
   const node = element("select");
   const add = (holder, option) => {
@@ -95,10 +105,12 @@ export function select(options, value) {
       add(node, option);
       continue;
     }
-    const group = element("optgroup");
-    group.label = option.group;
-    for (const inside of option.options) add(group, inside);
-    node.append(group);
+    if (node.children.length) node.append(element("hr"));
+    const heading = element("option", null, option.group);
+    heading.disabled = true;
+    heading.value = "";
+    node.append(heading);
+    for (const inside of option.options) add(node, inside);
   }
   return node;
 }
@@ -141,9 +153,9 @@ export function actions(buttons) {
    symbol that says nothing to somebody is a question with an answer, not a
    guess. No `title` beside it: macOS draws one of its own, a second later and
    somewhere else, and one button may only give one answer. What that buys is room: a column of two written
-   buttons set the height of every verb and term row and took up to 160 px of
-   width away from the text beside it. Squares of one size always fit side by
-   side, so neither is true any more.
+   buttons would set the height of every verb and term row and take up to
+   160 px of width away from the text beside it, while squares of one size
+   always fit side by side.
 
    Called without a symbol it is an ordinary written button — which is what
    `reportOn` below still has to answer for: the settings window builds its
@@ -163,6 +175,41 @@ export function button(label, onClick, name) {
   }
   node.addEventListener("click", () => onClick(node));
   return node;
+}
+
+/* A button of a row of them standing side by side — the card's ways out, a
+   new phone translation's sources, and any row of the kind to come: a
+   symbol and its word, in the window's one look for a button. The row
+   (`buttonRow`) shares its width out equally; on a phone the symbol stands
+   over the word, beside it three words across a phone are cut short. */
+export function rowButton(label, symbol, onClick) {
+  const node = element("button", "row-button");
+  node.type = "button";
+  node.dataset.icon = symbol;
+  node.append(icon(symbol), element("span", "row-button-label", label));
+  node.addEventListener("click", () => onClick(node));
+  return node;
+}
+
+/* What a row button says, changed in place: its symbol stays. */
+export function relabel(node, words) {
+  const tag = node.querySelector(".row-button-label");
+  if (tag) tag.textContent = words;
+  else node.textContent = words;
+}
+
+export function buttonRow(buttons, className = "") {
+  const row = element("div", `button-row${className ? ` ${className}` : ""}`);
+  row.append(...buttons.filter(Boolean));
+  return row;
+}
+
+/* A symbol button named, with the key that also reaches it written after
+   the word in grey, the way the system's own menus write one. Anything
+   reading the window rather than looking at it hears both. */
+export function nameButton(node, words, key) {
+  node.querySelector(".pill-label").replaceChildren(words, ...(key ? [element("span", "pill-key", key)] : []));
+  node.setAttribute("aria-label", key ? `${words} (${key})` : words);
 }
 
 /* Every symbol button in `root` shows its label above itself where the label
@@ -211,18 +258,20 @@ export function labelPlace({ top, bottom, label, clipTop, clipBottom }) {
    the label that appears on hover, where a reader who wants to know what just
    happened will look. */
 export async function reportOn(node, work, done) {
+  /* A symbol button and a row button keep their symbol's place and show a
+     tick there; a written one only changes its word. */
   const told = (word, symbol) => {
-    const tag = node.querySelector(".pill-label");
+    const tag = node.querySelector(".pill-label, .row-button-label");
     if (!tag) {
       node.textContent = word;
       return;
     }
     tag.textContent = word;
-    node.setAttribute("aria-label", word);
+    if (node.classList.contains("icon")) node.setAttribute("aria-label", word);
     node.querySelector("svg")?.replaceWith(icon(symbol));
   };
 
-  const label = node.querySelector(".pill-label")?.textContent ?? node.textContent;
+  const label = node.querySelector(".pill-label, .row-button-label")?.textContent ?? node.textContent;
   const symbol = node.dataset.icon;
   if (!node.classList.contains("icon")) node.style.minWidth = `${node.offsetWidth}px`;
   /* Not pressable while it is answering, but not faded either: what it is
@@ -245,4 +294,53 @@ export async function reportOn(node, work, done) {
     node.classList.remove("failed", "reporting");
     node.disabled = false;
   }, 1400);
+}
+
+/* `root`'s content swapped for `view`, with the part that scrolls (found by
+   `scroller`) left where the reader had scrolled it: a change in the
+   settings draws the whole page again, and the new page began at its top,
+   away from the field just set. */
+export function replaceKeepingScroll(root, view, scroller) {
+  const top = root.querySelector(scroller)?.scrollTop ?? 0;
+  root.replaceChildren(view);
+  const now = root.querySelector(scroller);
+  if (now) now.scrollTop = top;
+}
+
+/* The web view's own right-click menu is kept only where text is written.
+   Anywhere else it offers Reload, which throws away the window's readings
+   and state, and nothing on it the window does not do better itself. */
+export function quietContextMenu(root) {
+  root.addEventListener("contextmenu", (event) => {
+    const target = event.target;
+    const writable = target instanceof root.defaultView.Element
+      && target.closest("textarea, input[type=text], input[type=password], input[type=search]");
+    if (!writable) event.preventDefault();
+  });
+}
+
+/* The two keys a window of its own closes with, Escape and ⌘W / Ctrl+W.
+   The app has no menu bar of its own — an Accessory app gets none — so
+   neither of them exists until it is written down here.
+
+   A press the page has already answered is not one of them: the shortcut
+   recorder takes every key while its field has focus — Escape included,
+   which is a combination somebody may well be trying to record — and says
+   so by preventing the default. Escape out of a field being written in
+   (`fields`) leaves the field, not the window, so that what was just typed
+   is not thrown away with it; the second press then closes. */
+export function closeOnKeys(root, close, { fields = "input:not([readonly]), textarea" } = {}) {
+  root.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented) return;
+    const closing = event.key === "Escape"
+      || (event.key.toLowerCase() === "w" && (event.metaKey || event.ctrlKey));
+    if (!closing) return;
+    event.preventDefault();
+    const writing = root.activeElement;
+    if (event.key === "Escape" && fields && writing?.matches?.(fields)) {
+      writing.blur();
+      return;
+    }
+    close();
+  });
 }

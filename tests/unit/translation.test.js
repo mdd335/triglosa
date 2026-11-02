@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert";
 import { readTranslation } from "../../src/parse/translation.js";
+import { whenRunning } from "../../src/platform/translation.js";
 
 const SPANISH = "Para promocionarlo, en marzo de 1976 se lanzó «The Ripper» como sencillo en el Reino Unido";
 const GERMAN = "Zur Förderung erschien im März 1976 „The Ripper“ als Single im Vereinigten Königreich.";
@@ -47,4 +48,12 @@ test("an ordinary translation comes back untouched", () => {
   assert.strictEqual(readTranslation("Erste Zeile\nZweite Zeile", "Primera\nSegunda"), "Erste Zeile\nZweite Zeile");
   assert.strictEqual(readTranslation("", SPANISH), "");
   assert.strictEqual(readTranslation(null), "");
+});
+
+test("a helper slow to come up is waited for, and one that never does is given up on", async () => {
+  let asked = 0;
+  const slow = { running: async () => ++asked > 20 };
+  assert.strictEqual(await whenRunning(slow, { pause: 1 }), true);
+  assert.strictEqual(asked, 21);
+  assert.strictEqual(await whenRunning({ running: async () => false }, { tries: 3, pause: 1 }), false);
 });
