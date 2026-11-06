@@ -16,7 +16,7 @@
    it never stands over the reader's own panel: a word there would be
    answered with itself. */
 
-import { glanceAt, glossOf, unitsOver, withoutHoles } from "../glance.js";
+import { glanceAt, glossOf, unitsOver, withoutHoles, withoutParts } from "../glance.js";
 import { element } from "./elements.js";
 
 /* Long enough that a pointer travelling across the text does not trail signs
@@ -56,7 +56,11 @@ export function watchGlance({ sheet, layer, reading }) {
 
   const bodyOf = (panel) => sheet.querySelector(`.words[data-panel="${panel}"]`);
   const wordAt = (at) => bodyOf(at.panel)?.querySelector(`.w[data-from="${at.from}"]`) || null;
-  const active = () => sign.classList.contains("shown") || !!sheet.querySelector(".glance-lit");
+  /* Whether an answer stands — the sign, or the places lit in every panel —
+     as against a group lit in its own panel while the pointer has not yet
+     rested. */
+  let standing = false;
+  const active = () => standing;
 
   function unlight() {
     for (const node of sheet.querySelectorAll(".glance-lit")) node.classList.remove("glance-lit", "glance-start", "glance-end");
@@ -84,6 +88,21 @@ export function watchGlance({ sheet, layer, reading }) {
   function hide() {
     sign.classList.remove("shown", "pending");
     unlight();
+    standing = false;
+  }
+
+  /* The group under the pointer in its own panel, the moment the pointer
+     arrives: without it the word showed its own darker ground until the
+     answer stood, a single word where the group was to come. */
+  function preview() {
+    unlight();
+    const word = spot && wordAt(spot);
+    const now = reading();
+    if (!word || !now || pressed || document.documentElement.classList.contains("pointer-stale")) return;
+    const found = resolve(now.state, now.reader, spot.panel, word);
+    if (!found) return;
+    const here = spot.panel === 0 ? found.source : spot.panel === found.first ? found.target : found.extra;
+    light(spot.panel, here || []);
   }
 
   function marks(panel, shade) {
@@ -157,6 +176,9 @@ export function watchGlance({ sheet, layer, reading }) {
     }
     const secondTo = unit.second?.to || [];
     if (!unit.to.length && !secondTo.length && own !== 0) return null;
+    /* A unit of the third panel's own: its place there, what it became in
+       the reader's panel and the words of the source text it renders. */
+    const third = unit.third ? { source: unit.source, target: unit.to, extra: [{ start: unit.start, end: unit.end }] } : null;
 
     /* A marked verb or term is one group, and nothing else's: where the
        hover's unit runs into one — "del archipiélago canario" against the
@@ -164,11 +186,14 @@ export function watchGlance({ sheet, layer, reading }) {
        in every panel, and the word under the pointer the piece it is in. */
     const position = Number(word.dataset.from);
     const inside = (ranges) => ranges.filter((range) => position >= range.start && position < range.end);
+    const span = third ? third.source : [{ start: unit.start, end: unit.end }];
     const shades = shadesIn(0).filter((name) =>
-      marks(0, name).some((range) => range.start < unit.end && range.end > unit.start));
-    const found = { source: [{ start: unit.start, end: unit.end }], target: unit.to, extra: secondTo };
+      marks(0, name).some((range) => span.some((part) => range.start < part.end && range.end > part.start)));
+    const found = third || { source: [{ start: unit.start, end: unit.end }], target: unit.to, extra: secondTo };
     if (shades.length) {
       const holes = (at) => shades.flatMap((name) => marks(at, name));
+      const cut = third ? null : withoutParts(unit, holes(0), { source: textOf(0), target: textOf(first), extra: textOf(other) });
+      if (cut) Object.assign(found, cut, { extra: other === -1 ? [] : cut.extra });
       found.source = withoutHoles(textOf(0), found.source, holes(0));
       found.target = withoutHoles(textOf(first), found.target, holes(first));
       found.extra = other === -1 ? [] : withoutHoles(textOf(other), found.extra, holes(other));
@@ -234,10 +259,12 @@ export function watchGlance({ sheet, layer, reading }) {
       light(found.first, found.target);
       if (found.other >= 0) light(found.other, found.extra);
     }
+    standing = !!sheet.querySelector(".glance-lit");
     if (!found.sign) {
       sign.classList.remove("shown", "pending");
       return;
     }
+    standing = true;
     sign.textContent = found.sign;
     sign.classList.toggle("pending", !!found.pending);
     sign.classList.add("shown");
@@ -267,7 +294,10 @@ export function watchGlance({ sheet, layer, reading }) {
     answered = false;
     clearTimeout(timer);
     if (active()) show();
-    else timer = setTimeout(show, GLANCE_DELAY);
+    else {
+      preview();
+      timer = setTimeout(show, GLANCE_DELAY);
+    }
   });
   /* Leaving a word for the space between two words is not leaving the text:
      the next word is a few pixels away, and a sign that went and came back

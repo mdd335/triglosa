@@ -44,11 +44,38 @@ export function placeUnits(pair, units, second) {
     ...(unit.second && second
       ? { second: { to: moved(unit.second.to, second.to.start), gloss: unit.second.gloss } }
       : {}),
+    ...(unit.parts
+      ? {
+          parts: unit.parts.map((part) => ({
+            start: pair.start + part.start,
+            end: pair.start + part.end,
+            to: moved(part.to, pair.to.start),
+            ...(part.second && second ? { second: moved(part.second, second.to.start) } : {}),
+          })),
+        }
+      : {}),
+  }));
+}
+
+/* The third panel's units moved the same way: each stands in the third
+   panel's sentence, renders words of the reader's and of the original. */
+export function placeThird(pair, units) {
+  const moved = (ranges, from) => ranges.map((range) => ({ start: from + range.start, end: from + range.end }));
+  return units.map((unit) => ({
+    start: pair.second.start + unit.start,
+    end: pair.second.start + unit.end,
+    to: moved(unit.to, pair.to.start),
+    gloss: unit.gloss,
+    source: moved(unit.source, pair.start),
+    third: true,
   }));
 }
 
 /* What stands under a position. `side` is "source" for the original,
-   "target" for the reader's panel and "second" for the other translation. Answers { pending } while that sentence
+   "target" for the reader's panel and "second" for the other translation.
+   A unit of the third panel's own carries `third`, `source` (its ranges in
+   the original) and `to` (in the reader's panel), and its own place as
+   `start` and `end`. Answers { pending } while that sentence
    is still being asked about, the unit where there is one, and null where
    nothing is known or ever will be. */
 export function glanceAt(glance, side, position) {
@@ -61,6 +88,8 @@ export function glanceAt(glance, side, position) {
   if (sentence.status === "waiting") return { pending: true };
   if (!sentence.units) return null;
   if (side === "source") return sentence.units.find(inside) || null;
+  /* The third panel has units of its own where the aligner made them. */
+  if (side === "second" && sentence.third) return sentence.third.find(inside) || null;
   if (side === "second") return sentence.units.find((unit) => (unit.second?.to || []).some(inside)) || null;
   return sentence.units.find((unit) => unit.to.some(inside)) || null;
 }
@@ -88,6 +117,30 @@ export function glossOf(text, ranges) {
     out += text.slice(range.start, range.end);
   });
   return out;
+}
+
+/* A unit with the words of the original that lie in a hole taken out, and
+   what each of them became with it: where a mark cuts "KI" out of "einem
+   KI", the "de" that was the noun's in "a un chatbot de IA" goes with it.
+   Null for a unit that does not know what each of its words became. */
+export function withoutParts(unit, holes, texts) {
+  if (!unit.parts) return null;
+  const kept = unit.parts.filter((part) => !holes.some((hole) => hole.start < part.end && hole.end > part.start));
+  /* Sorted, and closed where only a space parts two ranges: lit as one. */
+  const closed = (text, ranges) => ranges
+    .filter((range, at, all) => all.findIndex((other) => other.start === range.start) === at)
+    .sort((x, y) => x.start - y.start)
+    .reduce((out, range) => {
+      const last = out[out.length - 1];
+      if (last && /^[\s'’-]*$/.test(text.slice(last.end, range.start))) last.end = Math.max(last.end, range.end);
+      else out.push({ ...range });
+      return out;
+    }, []);
+  return {
+    source: closed(texts.source, kept.map(({ start, end }) => ({ start, end }))),
+    target: closed(texts.target, kept.flatMap((part) => part.to)),
+    extra: closed(texts.extra, kept.flatMap((part) => part.second || [])),
+  };
 }
 
 /* Ranges with the holes taken out of them, each cut back to the words it

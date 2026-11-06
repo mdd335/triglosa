@@ -16,15 +16,17 @@
    no prompt in this app carries one, and nothing names a language but from
    a pack.
 
-   A memory aid and a line of irregular present-tense forms were asked for
-   too, and taken out again: measured, most of either model's memory aids
-   were invented and the irregular line was wrong more often than right. */
+   A line of irregular present-tense forms was asked for too, and taken out
+   again: measured, it was wrong more often than right. A memory aid went with
+   it, most of either model's invented; an origin or a related word is asked
+   again among the notes, now that every note is checked before it stands. */
 
-export function improveCardPrompt({ term, reader, termCapitals, readerCapitals, hasSentence, hasTranslation }) {
+export function improveCardPrompt({ term, reader, termCapitals, readerCapitals, hasSentence, hasTranslation, readerLines = false }) {
   const capitals = (language, nouns) => nouns
     ? `a noun with a capital first letter and every other word in lower case, as ${language} writes it`
     : `in lower case unless ${language} writes it with a capital, as for a proper name`;
   const translates = hasSentence && !hasTranslation;
+  const own = translates ? 4 : 3;
 
   return [
     `You correct the word and its meaning on a vocabulary flashcard for a reader whose own language is ${reader} and who is learning ${term}.`,
@@ -44,53 +46,116 @@ export function improveCardPrompt({ term, reader, termCapitals, readerCapitals, 
     ...(translates
       ? ["", `FIELD 3 - the sentence from the text, copied word for word as given, followed by its ${reader} translation in round brackets. Nothing else.`]
       : []),
+    ...(readerLines
+      ? ["", `FIELD ${own} - every line under "Lines the reader wrote" that is written in ${term}, copied word for word as given, followed by its ${reader} translation in round brackets, one per line. Leave out every line in another language.`]
+      : []),
     "",
     "Answer in exactly this shape and nothing else:",
     "<field 1>",
     "<field 2>",
-    ...(translates ? ["---", "<field 3>"] : []),
+    ...(translates || readerLines ? ["---"] : []),
+    ...(translates ? ["<field 3>"] : []),
+    ...(readerLines ? [`<field ${own}, one line each>`] : []),
     "The angle brackets mark the fields. Do not write them.",
   ].join("\n");
 }
 
-export function improveCardInput({ term, reader, card }) {
+/* `readerLines` are the lines the reader wrote into the explanation; those
+   still without a translation are listed apart, and the note keeps the rest.
+   Several meanings stand on one line here, as the answer gives them. */
+export function improveCardInput({ term, reader, card, readerLines = [] }) {
   const context = card.context || {};
-  const note = String(card.note || "").trim();
+  const asked = readerLines.filter((line) => line.untranslated).map((line) => line.line);
+  const note = asked.length
+    ? String(card.note || "").split("\n").filter((line) => !asked.includes(line.trim())).join("\n").trim()
+    : String(card.note || "").trim();
   return [
     `Field 1 (${term}): ${card.term || ""}`,
-    `Field 2 (${reader}): ${card.meaning || ""}`,
+    `Field 2 (${reader}): ${String(card.meaning || "").replace(/\s*;?\s*\n\s*/g, "; ")}`,
     note ? `Note on the card: ${note}` : null,
     context.sentence ? `Sentence from the text (${term}): ${context.sentence}` : "There is no sentence from a text.",
     context.sentence && context.translation ? `Its ${reader} translation: ${context.translation}` : null,
+    asked.length ? `Lines the reader wrote:\n${asked.join("\n")}` : null,
   ].filter(Boolean).join("\n");
 }
 
-/* The explanation under an improved card's sentence: how the word is used,
-   and further examples — asked of the word and its meaning, never of the
-   text it came from. */
-export function explainCardPrompt({ term, reader, level, spelling, articles }) {
+/* The explanation under an improved card's sentence: up to three notes on
+   the word - where it is said differently, how it is used, what is worth
+   knowing about it - and one or two further examples, asked of the word and
+   its meaning, never of the text it came from.
+
+   The notes name what a teacher would say rather than a list of categories
+   to fill: given "register, region, construction, false friend", both models
+   wrote one of each whether they knew one or not ("in South America vela
+   can also mean a sail"). The reader's level is not named: a model told it
+   wrote it into the note ("in everyday B1 Spanish"); it shapes the
+   examples, said in words. The two forms of a person or an animal are named
+   only where the card shows both - said to every card, the model explained
+   why a candle has none. Every note is then checked (`checkCardNotesPrompt`). */
+const EXAMPLE_STYLE = {
+  A1: "very short and simple, in everyday words",
+  A2: "very short and simple, in everyday words",
+  B1: "short, in everyday words",
+  B2: "natural and of everyday length",
+  C1: "natural, as a native speaker writes",
+  C2: "natural, as a native speaker writes",
+};
+
+export function explainCardPrompt({ term, reader, level, spelling, articles, bothForms = false }) {
   const article = articles ? "its article or its gender - the card adds the article itself" : "its article";
-  const bothForms = articles
-    ? "For a person or an animal, explain the word alike for both sexes: never say which sex the given form names, never name its masculine or feminine form - the card shows both forms itself. "
-    : "";
-  const items = [
-    `${bothForms}One line in ${reader}: how the word is used, where its meaning alone does not say it: register, region, the construction it typically appears in (a preposition, a reflexive use, a pronoun or case it takes), a false friend. Only what a learner needs. Never ${article}.`,
-    `One or two short, natural ${term} sentences, each on a line of its own and followed by its ${reader} translation in round brackets on the same line, showing a typical combination or, where the meaning has two senses, the second. Keep them at the reader's level.`,
-  ];
+  const style = EXAMPLE_STYLE[level] || EXAMPLE_STYLE.B1;
   return [
-    `You write the explanation on a vocabulary flashcard for a reader whose own language is ${reader} and who is learning ${term} at level ${level}. The card shows a ${term} word and its meaning in ${reader}.`,
+    `You write the notes on a vocabulary flashcard for a reader whose own language is ${reader} and who is learning ${term}. The card shows a ${term} word and its meaning in ${reader}. The notes add what a good teacher who is a native speaker of ${term} would tell a learner about this word - nothing its meaning already says.`,
     "",
-    `Write the explanation in ${reader}; only the example sentences are in ${term}. Plain text: no headings, no bullets, no numbering, no markdown. A blank line between items. In this order, leaving out what does not apply:`,
-    ...items.map((item, index) => `${index + 1}. ${item}`),
+    ...(bothForms ? ["The card names a person or an animal in both forms: explain the word alike for both, never say which sex one form names."] : []),
+    `NOTES - up to three, each one sentence in ${reader} of at most 25 words, each about something different. Worth a note:`,
+    `- a fixed expression or construction the word typically appears in (a preposition, a reflexive use, a case it takes), or its register where it is not neutral;`,
+    `- a real difference between regions: where the word is not said, or means something else, and what is said there instead - only where the word itself differs; most words are said alike everywhere;`,
+    `- its origin or a related word that helps to remember it, a word it is easily confused with, a false friend in ${reader}, a fact of the culture behind it.`,
+    `Write a note only where you know it for certain and it holds everywhere it says. Many words have one or two such notes, a plain word none: then write NONE. Never a note that restates the meaning or describes what the thing is. Never ${article}.`,
     "Nowhere say how the word is conjugated or declined - regular or irregular, its class, its other forms.",
+    "",
+    `EXAMPLES - one or two ${term} sentences, ${style}, each on a line of its own and followed by its ${reader} translation in round brackets on the same line, showing a typical combination or, where the word has two senses, the second.`,
     ...(spelling ? ["", spelling] : []),
     "",
-    "Answer with the explanation alone.",
+    "Answer in exactly this shape, plain text, no markdown:",
+    "NOTES:",
+    "<one note per line, or NONE>",
+    "EXAMPLES:",
+    "<one example per line>",
+    "The angle brackets mark what to write. Do not write them.",
   ].join("\n");
 }
 
 export function explainCardInput({ term, reader, word, meaning }) {
   return [`Word (${term}): ${word}`, `Meaning (${reader}): ${meaning}`].join("\n");
+}
+
+/* Every note checked by the same model, asked apart and at temperature 0.
+   Shown the usage lines of run 57 one by one, the cloud model judged 11 of 16
+   wrong ones wrong and kept 37 of 45 right ones; the local one called nearly
+   everything true, but both set aside about three in four that only restated
+   the meaning. Asked for the wrong detail instead, both found one in almost
+   every note. Only a note judged true and new is kept (run 74). */
+export function checkCardNotesPrompt({ term, reader }) {
+  return [
+    `You check the notes on a vocabulary flashcard for a learner of ${term} whose own language is ${reader}. The card shows a ${term} word and its meaning in ${reader}.`,
+    "",
+    "Notes like these are often partly invented: a region where the word is said to be used, a preposition or construction it is said to take, a register, an origin, an expression that does not exist. Judge every note on two things:",
+    `1. TRUE if every detail in it is right, as a ${term} dictionary and native speakers would confirm; FALSE if any detail is wrong; UNSURE if you cannot confirm every detail.`,
+    "2. NEW if it tells the learner something the word and its meaning do not already say; OBVIOUS if it only restates the meaning, says something any learner would assume, or names a region where nothing differs.",
+    "",
+    "Answer with one line per note and nothing else: its number, then TRUE, FALSE or UNSURE, then NEW or OBVIOUS.",
+  ].join("\n");
+}
+
+export function checkCardNotesInput({ term, reader, word, meaning, notes }) {
+  return [
+    explainCardInput({ term, reader, word, meaning }),
+    "",
+    "Notes:",
+    ...notes.map((note, index) => `${index + 1}. ${note}`),
+  ].join("\n");
 }
 
 /* The word on a flashcard, the way a dictionary of its language names it —

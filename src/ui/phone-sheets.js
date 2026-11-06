@@ -49,9 +49,9 @@ export function phoneWelcomeView(text, reader) {
   };
   view.append(
     element("p", "label", words.setup),
-    list("ol", [words.languages, words.model, words.card(inline("card"))]),
+    list("ol", [words.languages, words.model]),
     element("p", "label", words.start),
-    list("ul", [words.paste(inline("paste")), words.share, words.plus(inline("add"))]),
+    list("ul", [words.paste(inline("paste")), words.share, words.plus(inline("add")), words.control]),
     element("p", "welcome-example-hint", words.exampleHint),
     exampleView(text.welcome.example, reader),
   );

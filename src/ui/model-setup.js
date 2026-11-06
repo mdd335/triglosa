@@ -11,21 +11,23 @@
    No card, no "recommended", no plus and minus: nothing here may look like
    something Triglosa sells. */
 
-import { ONLINE, presetOf } from "../setup.js";
+import { LOCAL_SERVERS, ONLINE, presetOf } from "../setup.js";
 import { MODEL_HELP_URL } from "../updates.js";
-import { element } from "./elements.js";
+import { currentSystem, onPhone } from "../system.js";
+import { appVersion, copyText } from "../platform/env.js";
+import { element, reportOn } from "./elements.js";
 
 const OPENROUTER = "https://openrouter.ai";
 const OPENROUTER_KEYS = "https://openrouter.ai/settings/keys";
 const OPENROUTER_PRIVACY = "https://openrouter.ai/settings/privacy";
 
-/* A way: its name and who provides it. */
-function way(key, chosen, { title, via }, onPick) {
+/* A way, by its name alone. */
+function way(key, chosen, title, onPick) {
   const node = element("button", "setup-choice");
   node.type = "button";
   node.dataset.way = key;
   node.setAttribute("aria-pressed", String(chosen === key));
-  node.append(element("b", null, title), element("span", "via", via));
+  node.append(element("b", null, title));
   node.addEventListener("click", () => onPick(key));
   return node;
 }
@@ -34,7 +36,8 @@ function way(key, chosen, { title, via }, onPick) {
 const lineOf = (text) => element("p", "setup-line", text);
 
 /* How a way is set up: the model it filled in and its steps, in a fold of
-   its own, open until the reader folds it away, which is kept. */
+   its own, open until the reader folds it away, which is kept. The model
+   comes after the steps, beside the free one to try. */
 function guide(text, { title, model }, current, parts, folded, onFold) {
   const box = element("details", "setup-steps");
   box.open = !folded;
@@ -50,7 +53,7 @@ function guide(text, { title, model }, current, parts, folded, onFold) {
     li.append(...step);
     list.append(li);
   }
-  box.append(element("p", null, text.setupRecommended(title, current === model)), list);
+  box.append(list, element("p", null, text.setupRecommended(title, current === model)));
   return box;
 }
 
@@ -63,7 +66,14 @@ export function modelSetup({ text, settings, onChange, link }) {
   const below = element("div", "setup-below");
   const more = element("p", "hint");
   more.append(...text.setupMore((word) => link(word, MODEL_HELP_URL)), " ", text.setupChatbot);
-  root.append(choices, below, more);
+  /* The prompt is not shown: it is read where it is pasted. */
+  const copy = element("button", null, text.setupPromptCopy);
+  copy.type = "button";
+  copy.addEventListener("click", () => reportOn(copy, async () => copyText(await helpPrompt(text)), text.copied));
+  /* The button right under the sentence that offers it. */
+  const help = element("div", "setup-prompt");
+  help.append(more, copy);
+  root.append(choices, below, help);
 
   /* What the way in use holds is put by, and the chosen one's brought
      back: what it held, or its preset where it never held an address. */
@@ -76,8 +86,8 @@ export function modelSetup({ text, settings, onChange, link }) {
   };
 
   choices.append(
-    way("online", chosen, { title: text.setupOnline, via: text.setupOnlineVia }, pick),
-    way("own", chosen, { title: text.setupOwn, via: text.setupOwnVia }, pick),
+    way("online", chosen, text.setupOnline, pick),
+    way("own", chosen, text.setupOwn, pick),
   );
 
   if (chosen === "online") {
@@ -99,4 +109,29 @@ export function modelSetup({ text, settings, onChange, link }) {
   }
 
   return root;
+}
+
+const SYSTEM_NAMES = { mac: "macOS", windows: "Windows", ios: "iOS" };
+
+/* What a chatbot needs to help with the fields: what holds for every reader
+   of this system and version, with the fields named as this window names
+   them. Nothing that is set — the address, the model, the key — goes along. */
+export async function helpPrompt(text) {
+  const computer = !onPhone();
+  return text.setupPrompt({
+    app: ["Triglosa", await appVersion()].filter(Boolean).join(" "),
+    system: SYSTEM_NAMES[currentSystem()] || SYSTEM_NAMES.mac,
+    computer,
+    servers: computer ? LOCAL_SERVERS.map(({ name, endpoint }) => `${name} (${endpoint})`) : [],
+    url: MODEL_HELP_URL,
+    n: {
+      page: text.groupModel,
+      online: text.setupOnline,
+      own: text.setupOwn,
+      endpoint: text.endpoint,
+      model: text.model,
+      apiKey: text.apiKey,
+      test: text.testConnection,
+    },
+  });
 }

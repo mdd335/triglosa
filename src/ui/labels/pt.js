@@ -47,6 +47,7 @@ export default {
   paste: "Colar",
   settingsDone: "OK",
   search: "Pesquisar (externo)",
+  searchWith: (name) => `Pesquisar no ${name}`,
   speak: "Pronunciar",
   opened: "Aberto",
   conjugation: "Conjugação (externo)",
@@ -63,7 +64,7 @@ export default {
   cardTerm: "Língua estrangeira",
   cardMeaning: "Língua materna",
   cardNote: "Notas",
-  cardCopyAll: "Copiar os três",
+  cardCopyAll: "Copiar flashcard",
   cardCopyField: "Copiar campo",
   cardToAnki: "Salvar no Anki",
   cardAnkiStart: "Abrir o Anki",
@@ -102,12 +103,22 @@ export default {
   cardImproving: "Melhorando o flashcard…",
   cardUndo: "Desfazer a melhoria com IA",
   cardImproveNothing: "Nenhuma melhoria utilizável recebida. O flashcard fica como estava.",
+  /* Without a model: Apple writes the side a card is missing. */
+  cardComplete: "Traduzir com a Apple",
+  cardCompleting: "A Apple está traduzindo…",
+  cardCompleteUndo: "Desfazer a tradução",
+  cardCompleteNothing: "Nenhuma tradução recebida da Apple. Confira os pacotes de idioma nos ajustes.",
+  cardHow: "Conecte um modelo de IA nos ajustes para uma tradução mais precisa, uma explicação e frases de exemplo.",
   linking: "ligando…",
   noTerms: "nenhum termo difícil encontrado",
   noTerm: "nenhum termo difícil encontrado",
   noVerbs: "nenhum verbo difícil encontrado",
+  /* Said where Apple translated, before what a model adds there. */
+  byApple: "Traduzido pela Apple (neste dispositivo).",
   lockedHow:
-    "Conecte um modelo de IA nos ajustes para traduções mais precisas, termos, verbos, explicações e outras funções.",
+    "Conecte um modelo de IA nos ajustes para traduções mais precisas, termos, verbos e explicações de cada palavra.",
+  lockedHowShort:
+    "Conecte um modelo de IA nos ajustes para traduções mais precisas, outros significados e explicações.",
   noAnswer: "Nenhuma resposta recebida.",
   faults: {
     unreachable:
@@ -142,6 +153,12 @@ export default {
     "A tradução da Apple não conhece este idioma. Configure um modelo de IA nos ajustes.",
   pairMissing: (from, to) =>
     `Falta o pacote de idioma ${from} → ${to}. Configure um modelo de IA nos ajustes ou baixe lá o pacote de idioma, em “Traduções”.`,
+  /* Only where the pack can be downloaded; where Apple cannot translate the
+     pair at all, `pairUnsupported`. */
+  packMissing: (from, to) =>
+    `Falta o pacote de idioma ${from} → ${to}. Baixe-o nos ajustes, em “Traduções”.`,
+  pairUnsupported: (from, to) =>
+    `A tradução da Apple não consegue traduzir ${from} → ${to}. Configure um modelo de IA nos ajustes.`,
 
   groupLanguages: "Idiomas",
   groupSections: "Termos e verbos",
@@ -149,13 +166,20 @@ export default {
   groupTranslation: "Traduções",
   groupWindow: "Janela",
   groupShortcuts: "Atalhos de teclado",
-  groupReading: "Outros programas",
+  groupReading: "Texto de outros programas",
+  groupReadingEntry: "Outros programas",
   groupCards: "Flashcards",
   groupAbout: "Sobre o Triglosa",
   aboutVersion: (version) => `Versão ${version}`,
   aboutNotes: "Ver as notas de versão",
-  /* The way to the project, as a sentence with its links in it. */
-  aboutLinks: (link) => ["O Triglosa está no ", link("project", "GitHub"), ", a ajuda no ", link("help", "README"), ". Se você encontrar um problema ou quiser um recurso novo, abra uma ", link("issues", "issue"), "."],
+  /* The way to the project, then a box for help and one for feedback, each with a sentence with its link in it. */
+  aboutProject: (link) => ["Todas as informações e o código do Triglosa estão no ", link("GitHub"), "."],
+  groupHelp: "Ajuda",
+  aboutHelp: (link) => ["Você encontra mais ajuda no ", link("README"), "."],
+  groupFeedback: "Feedback",
+  aboutIssues: (link) => ["Se você encontrar um problema ou quiser um recurso novo, abra uma ", link("issue"), " no GitHub."],
+  /* The other two systems Triglosa is made for, the link leading to the README's installing. */
+  aboutElsewhere: (system, link) => ["O Triglosa também está disponível para ", link({ mac: "Windows e iPhone", windows: "Mac e iPhone", ios: "Windows e Mac" }[system]), "."],
   updatesCheck: "Procurar atualizações",
   updatesChecking: "Procurando…",
   updatesHint: "Pergunta ao GitHub pela versão mais recente. A atualização só é baixada quando você clica em “Instalar agora”.",
@@ -174,6 +198,8 @@ export default {
 
   optionOff: "não",
   cardsEnabled: "Mostrar o botão de flashcards",
+  cardsEnabledHint:
+    "“Copiar flashcard” copia os três campos como uma linha separada por tabulações, para uma planilha ou a importação do Anki a partir de um arquivo.",
   cardModes: {
     never: "nunca",
     second: "só para o segundo idioma",
@@ -216,7 +242,7 @@ export default {
   ankiFirstField: (name) =>
     `O primeiro campo do tipo de nota (“${name}”) também recebe a palavra estrangeira. O Anki não aceita notas com o primeiro campo vazio.`,
 
-  languagesIntro: ["O Triglosa mostra cada texto ao lado das traduções para estes idiomas (no máximo duas traduções).", "O nível que você define decide quais termos e verbos são explicados em cada idioma.", "Na janela de tradução você pode mudar por um tempo o idioma de uma tradução ou adicionar uma terceira. Isso vale até você fechar o Triglosa."],
+  languagesIntro: ["O Triglosa mostra cada texto ao lado das traduções para estes idiomas (no máximo duas traduções).", "O nível que você define decide quais termos e verbos são explicados em cada idioma e quão simples são as explicações e as frases de exemplo, também nos flashcards.", "Na janela de tradução você pode mudar por um tempo o idioma de uma tradução ou adicionar uma terceira. Isso vale até você fechar o Triglosa."],
   firstLanguage: "Língua materna",
   firstLanguageHint: "Também o idioma do app.",
   secondLanguage: "Segundo idioma",
@@ -254,19 +280,17 @@ export default {
   showVerbs: "Mostrar verbos",
   underline: "Sublinhado colorido no texto",
   searchEngine: "Buscador",
-  searchHint: "Para “Pesquisar (externo)” em termos, verbos e palavras marcadas. Abre no navegador padrão.",
+  searchHint: "Para pesquisar na web termos, verbos e palavras marcadas. Abre no navegador padrão.",
   searchSystem: "o definido no Safari",
   glance: "Tradução ao passar o cursor",
   glanceHint: "Mostra sobre as palavras em outros idiomas a que elas correspondem no seu idioma.",
   modelIntro:
-    "Sem um modelo de IA, só está disponível a tradução da Apple no dispositivo, se o pacote de idioma estiver baixado. Um modelo de IA traz traduções mais precisas, termos, verbos, explicações e outras funções. O Triglosa não traz nenhum próprio.",
+    "Sem um modelo de IA, só está disponível a tradução da Apple neste dispositivo, se o pacote de idioma estiver baixado. Um modelo de IA traz traduções mais precisas, termos, verbos, explicações e outras funções. O Triglosa não traz nenhum próprio.",
   modelQuestion: "Que tipo de conexão você quer usar?",
-  modelWays: "Um caminho que funciona bem está preparado. Como alternativa, você pode inserir qualquer provedor.",
-  setupOnline: "Online",
-  setupOnlineVia: "pelo OpenRouter",
+  modelWays: "Uma opção que funciona bem é o provedor consolidado OpenRouter. Como alternativa, você pode inserir qualquer provedor.",
+  setupOnline: "OpenRouter",
   setupOnlineLine: "Preciso e rápido. O OpenRouter é um provedor independente em que você precisa carregar crédito.",
-  setupOwn: "Inserir você mesmo",
-  setupOwnVia: "qualquer provedor",
+  setupOwn: "Qualquer provedor",
   setupRecommended: (name, filled) => `Modelo recomendado: ${name}${filled ? ", já preenchido" : ""}`,
   setupOnlineSteps: (site, key, privacy) => [
     ["Crie uma conta em ", site("openrouter.ai"), "."],
@@ -278,11 +302,27 @@ export default {
   setupOnlineFreeTake: "Preencher o modelo gratuito",
   setupOnlinePaidTake: "Preencher o modelo recomendado",
   setupMore: (guide) => ["Mais informações sobre a escolha do provedor e uma comparação de modelos no ", guide("README"), "."],
-  setupChatbot: "Se você travar, um chatbot de IA de sua confiança também pode ajudar.",
+  setupChatbot: "Se você travar, pode copiar o prompt a seguir e enviá-lo a um chatbot de IA de sua confiança.",
+  setupPromptCopy: "Copiar prompt para um chatbot",
+  /* What the chatbot is told: only what holds for every reader of this
+     system, never what is set — a reader asking may have clicked about. */
+  setupPrompt: ({ app, system, computer, servers, url, n }) => `Estou configurando o ${app} no ${system} e preciso de ajuda para conectar um modelo de IA. Primeiro me pergunte em que ponto estou e onde travei ou o que não ficou claro. Depois me ajude passo a passo e responda em português. Quando precisar saber o que eu vejo na tela, sugira que eu descreva ou te mande uma captura de tela.
+
+Sobre o app: o Triglosa é um app gratuito e de código aberto para quem aprende idiomas. Ele mostra um texto ao lado das traduções e explica palavras. Para isso, usa um modelo de IA por qualquer interface compatível com a OpenAI (chat completions), na nuvem ou local. Ele não vem com nenhum modelo.
+
+${computer ? `Nuvem ou local: se eu ainda não souber qual caminho combina comigo, me explique rapidamente a diferença. Na nuvem, meus textos vão para o provedor; é preciso e rápido e costuma custar alguns centavos por mês. Um modelo local roda no meu próprio computador, não custa nada e nenhum texto sai desse computador; em troca, é menos preciso e muitas vezes mais lento. O computador precisa de 16 GB de memória ou mais, 24 GB é melhor; no Windows ajuda uma placa de vídeo com memória própria. O guia recomenda o Gemma 4 E4B no LM Studio, que não roda em Macs com chip Intel. Se você souber o suficiente sobre o meu computador, me diga se um modelo local poderia rodar bem nele; se não, me pergunte o que precisa saber.
+
+` : ""}O modelo é configurado nos ajustes do Triglosa, na página “${n.page}”. Há dois caminhos:
+- “${n.online}”: criar uma conta em openrouter.ai, adicionar crédito, criar uma chave de API em openrouter.ai/settings/keys e colar no campo “${n.apiKey}”. O endereço é fixo e o modelo recomendado já vem preenchido.
+- “${n.own}”: qualquer outro provedor${computer ? ", inclusive um modelo local" : ""}. No campo “${n.endpoint}” vai o endereço base, geralmente terminando em /v1 (sem /chat/completions); em “${n.model}”, o nome do modelo exatamente como o provedor escreve; em “${n.apiKey}”, a chave${computer ? ", que um modelo local geralmente não precisa" : ""}.${computer ? ` Dois botões preenchem os endereços do ${servers.join(" e do ")}. http sem criptografia só funciona neste computador ou na rede local.` : ""}
+O botão “${n.test}” mostra se o modelo responde.
+
+Bom saber: o Triglosa precisa de um modelo que responda sem raciocinar por muito tempo. O app desativa o raciocínio onde o provedor permite e recusa um modelo que só responde raciocinando. O guia do app (em inglês): ${url}
+
+Nunca me peça minha chave de API.`,
   setupGuide: "Instruções",
   endpoint: "Endereço do modelo de IA",
   endpointHints: {
-    online: "O endereço do OpenRouter. Para outro provedor, escolha “Inserir você mesmo” acima.",
     own: "Qualquer endereço com uma interface compatível com a OpenAI — na nuvem ou local.",
   },
   endpointPreset: (name) => `Preencher o endereço do ${name}`,
@@ -305,11 +345,14 @@ export default {
   testOk: (name) => `Responde, com “${name}”.`,
 
   translator: "Tradução por",
-  translatorModes: { model: "Modelo de IA", device: "Apple (no dispositivo)" },
+  translatorModes: { model: "Modelo de IA", device: "Apple (neste dispositivo)" },
   deviceIntro:
     "A tradução da Apple faz parte do macOS: muito rápida e offline, mas muitas vezes imprecisa. Com o pacote de idioma baixado, ela assume automaticamente quando o modelo de IA não responde.",
   translatorHint: "Se um dos dois não puder traduzir, o outro assume automaticamente.",
   translatorNoModel: "Ainda não há nenhum modelo de IA configurado. Até lá, a Apple traduz onde os pacotes de idioma estiverem baixados.",
+  /* Under the choice where Apple goes first and a model is set: a word
+     looked up is still the model's (author 2026-11-05). */
+  translatorShort: "Uma busca de uma a três palavras continua sendo respondida pelo modelo de IA: a Apple costuma errar palavras raras.",
   /* Who did what, under the pointer on a heading: who wrote a panel (said
      outright where it was not the reader's choice), who named the language
      and matched the words, who explained and placed a section's rows. Put
@@ -318,7 +361,7 @@ export default {
   credits: {
     verbs: { translated: "traduzido", explained: "explicado", assigned: "associado", detected: "idioma detectado", words: "palavras associadas", recognized: "texto reconhecido" },
     and: "e",
-    by: ({ kind, name }) => ({ device: ["pela", "Apple (no dispositivo)"], triglosa: ["pelo", "Triglosa"], triglosaDevice: ["pelo", "Triglosa (no dispositivo)"] })[kind] || (name ? ["por", name] : ["pelo", "modelo de IA"]),
+    by: ({ kind, name }) => ({ device: ["pela", "Apple (neste dispositivo)"], triglosa: ["pelo", "Triglosa"], triglosaDevice: ["pelo", "Triglosa (neste dispositivo)"] })[kind] || (name ? ["por", name] : ["pelo", "modelo de IA"]),
     line: (verbs, who) => `${verbs} ${who}`,
     chosen: "Idioma escolhido por você",
   },
@@ -328,7 +371,7 @@ export default {
   moreWorking: "Explicando em mais detalhe…",
   addExample: "Adicionar uma frase de exemplo",
   exampleWorking: "Escrevendo uma frase de exemplo…",
-  devicePairs: "A tradução da Apple no dispositivo",
+  devicePairs: "A tradução da Apple neste dispositivo",
   pairsChecking: "Verificando…",
   pairsAllInstalled: "Todos os pacotes de idioma para os seus idiomas estão baixados.",
   pairsNoDevice:
@@ -450,8 +493,6 @@ export default {
   dropImage: "Solte a imagem aqui para traduzi-la",
   /* Under a new translation's field on a computer, where a phone has its
      camera, photos and clipboard. */
-  dropHint: "Arraste uma imagem para a janela para traduzi-la.",
-  dropNeedsPin: (name, pin) => ["Para isso, “", name, "” ", pin, " precisa estar ativado."],
   screenNoAnswer: "O reconhecimento de texto não respondeu. Tente de novo.",
   screenAbsent: "O reconhecimento de texto falta nesta instalação. Reinstale o Triglosa.",
   screenPermission: "O Triglosa não pode gravar a tela. Permita isso nos Ajustes do Sistema, em “Gravação de Tela e Áudio do Sistema”.",
@@ -463,8 +504,11 @@ export default {
      clipboard (the buttons under a new translation); a picture's text. */
   pictureCamera: "Câmera",
   pictureLibrary: "Fotos",
-  clipboard: "Área de transferência",
+  pictureFiles: "Imagem dos Arquivos",
+  clipboard: "Área de transfe\u00ADrência",
   pictureNothing: "Nenhum texto reconhecido na imagem. Tente outra imagem.",
+  /* The frame a picture is cut with: the way out without reading it. */
+  cancel: "Cancelar",
   trayShow: "Mostrar janela",
   trayUpdates: "Procurar atualizações",
   trayHelp: "Ajuda",
@@ -482,12 +526,13 @@ export default {
     "O Triglosa funciona em segundo plano. Você encontra o símbolo dele, um livro, no canto superior direito, na barra de menus.",
   welcomeModel: "Um modelo de IA traduz com mais precisão e explica termos, verbos e cada palavra em que você clica, de acordo com o seu nível. Conecte um nos ajustes, em “Modelo de IA”.",
   statsSetting: "Estatísticas de uso anônimas",
-  statsHint: "Envia no máximo uma vez por dia que o Triglosa foi usado: a versão, o sistema e o tipo de modelo de IA (OpenRouter, LM Studio ou outro). Se algo der errado, só o tipo de erro. Nunca os seus textos nem nada que identifique você.",
+  statsHint: "Envia no máximo uma vez por dia que o Triglosa foi usado: a versão, o sistema, se o seu modelo de IA roda localmente ou online ou se nenhum está configurado, e se é um dos predefinidos, mas nunca qual. Se algo der errado, só o tipo de erro. Nunca os seus textos nem nada que identifique você.",
   statsThanks: "Muito obrigado.",
+  statsPrivacy: (link) => ["Mais detalhes na ", link("política de privacidade"), "."],
   welcome: {
     heading: "Boas-vindas ao Triglosa",
     steps: "Primeiros passos",
-    exampleHint: "Um exemplo. Aponte para uma palavra com o mouse para ver em que ela se transformou no seu idioma.",
+    exampleHint: "Um exemplo. Aponte para uma palavra com o mouse para ver em que ela se transformou no seu idioma. Clique em uma palavra em espanhol para ver a explicação.",
     example: {
       source: "es",
       text: "Aunque llovía a cántaros, salimos a pasear por el casco antiguo.",
@@ -502,7 +547,17 @@ export default {
       verbs: [
         { form: "salimos", infinitive: "salir", tense: "Indefinido", meaning: "sair", person: "1ª pessoa do plural", in: ["saímos", "went out"] },
       ],
-      glance: "Aunque | Embora | Although\nllovía | chovesse | it was raining\na cántaros | a cântaros | cats and dogs\nsalimos | saímos | we went out\na pasear | para passear | for a walk\npor el | pelo | in the\ncasco antiguo | centro histórico | old town",
+      /* What a word of the original says when it is picked. */
+      picks: [
+        { text: "Aunque", meaning: "embora", note: "Introduz um contraste que não muda o que vem depois.", wordClass: { kind: "conjunction" }, synonyms: ["si bien", "aun cuando"], in: ["Embora", "Although"] },
+        { text: "llovía a cántaros", infinitive: "llover a cántaros", meaning: "chover a cântaros", note: "Chover muito forte, na linguagem informal.", person: "3ª pessoa do singular", tense: "Imperfecto", synonyms: ["diluviar", "llover a mares"], in: ["chovesse a cântaros", "raining cats and dogs"] },
+        { text: "salimos", infinitive: "salir", meaning: "sair", note: "Deixar um lugar, aqui para ir passear.", person: "1ª pessoa do plural", tense: "Indefinido", synonyms: ["irse", "marcharse"], in: ["saímos", "went out"] },
+        { text: "a", meaning: "a", note: "Depois de um verbo de movimento, indica o que se vai fazer.", wordClass: { kind: "preposition" }, in: ["para", "for"] },
+        { text: "pasear", infinitive: "pasear", meaning: "passear", note: "Andar a pé, sem pressa e por prazer.", synonyms: ["caminar", "andar"], in: ["passear", "walk"] },
+        { text: "por", meaning: "por", note: "Indica o espaço por onde alguém se desloca.", wordClass: { kind: "preposition" }, synonyms: ["a través de"], in: ["pelo", "in"] },
+        { text: "el", meaning: "o", note: "Artigo definido antes de um substantivo masculino.", wordClass: { kind: "article", number: "singular", gender: "masculine" }, in: ["", "the"] },
+        { text: "casco antiguo", meaning: "centro histórico", note: "A parte histórica de uma cidade.", wordClass: { kind: "noun", number: "singular", gender: "masculine" }, synonyms: ["centro histórico", "ciudad vieja"], in: ["centro histórico", "old town"] },
+      ],
     },
     languages: "Escolha nos ajustes, em “Idiomas”, a sua língua e os idiomas que você está aprendendo.",
     start: {
@@ -518,7 +573,12 @@ export default {
       body: "Com a permissão do macOS “Controle do Dispositivo e Acesso a Dados” (“Acessibilidade” até o macOS 26), o Triglosa lê o texto selecionado sem copiar e insere traduções em outros programas. Você a concede nos ajustes, em “Outros programas”.",
     },
     stats: {
-      off: "Você pode desativar isso a qualquer momento nos ajustes.",
+      question: "O Triglosa pode contar de forma anônima?",
+      yes: "Sim",
+      no: "Não",
+      change: "Você pode mudar isso a qualquer momento nos ajustes, em “Sobre o Triglosa”.",
+      yesDone: "Obrigado! Você pode mudar isso nos ajustes, em “Sobre o Triglosa”.",
+      noDone: "Nada é contado. Você pode mudar isso nos ajustes, em “Sobre o Triglosa”.",
     },
     more: (link) => ["Todas as informações sobre o Triglosa estão no ", link("README"), " no GitHub."],
     hide: "Não mostrar novamente",
@@ -537,13 +597,14 @@ export const windows = {
   modelIntro:
     "O Triglosa traduz e explica com um modelo de IA: traduções, termos, verbos, explicações e outras funções. Ele não traz nenhum próprio.",
   lockedHow:
-    "Conecte um modelo de IA nos ajustes para traduções, termos, verbos, explicações e outras funções.",
+    "Conecte um modelo de IA nos ajustes para traduções, termos, verbos e explicações de cada palavra.",
+  lockedHowShort:
+    "Conecte um modelo de IA nos ajustes para traduções, significados e explicações.",
   apiKeyHints: {
     online: "A chave do OpenRouter (passo 3). Vai para o Gerenciador de Credenciais do Windows, nunca para o arquivo de ajustes.",
     own: "Vai para o Gerenciador de Credenciais do Windows, nunca para o arquivo de ajustes. Um modelo local normalmente não precisa de uma.",
   },
   endpointHints: {
-    online: "O endereço do OpenRouter. Para outro provedor, escolha “Inserir você mesmo” acima.",
     own: "Qualquer endereço com uma interface compatível com a OpenAI — na nuvem ou local.",
   },
   hotkeyLead:
@@ -560,11 +621,12 @@ export const windows = {
 };
 
 export const phone = {
+  groupReadingEntry: "Texto de outros apps",
+  groupReading: "Texto de outros apps",
   translateClipboard: "Traduzir a área de transferência",
   /* Before a text goes to an AI model, once for each address (App Review
      5.1.2(i)): asked in a sheet at the first reading, changed in the
      settings. */
-  lockedBy: "Por enquanto a tradução vem da Apple (no seu iPhone).",
   pasteSetting: "Colar sem perguntar",
   pasteHint: "Se o iOS perguntar sempre que você colar, ajuste “Colar de Outros Apps” para “Permitir” no Triglosa, nos ajustes do iPhone.",
   pasteLater: "Depois",
@@ -583,13 +645,14 @@ export const phone = {
     setup: "Configuração",
     start: "Começar uma tradução",
     done: "Começar",
-    exampleHint: "Um exemplo: uma frase, as suas duas traduções e as palavras que vale a pena aprender, marcadas.",
+    exampleHint: "Um exemplo: uma frase, as suas duas traduções e as palavras que vale a pena aprender, marcadas. Toque em uma palavra em espanhol para ver a explicação.",
     paste: (button) => ["Copie um texto em qualquer app e toque em ", button, " na barra abaixo: o Triglosa traduz o que você copiou."],
-    share: "Ou selecione um texto em qualquer app, toque em “Compartilhar” e escolha o Triglosa.",
-    plus: (button) => ["Ou toque em ", button, " para digitar ou colar um novo texto, ou fotografá-lo."],
+    share: "Selecione um texto em qualquer app, toque em “Compartilhar” e escolha o Triglosa.",
+    plus: (button) => ["Toque em ", button, " para digitar ou colar um novo texto, ou fotografá-lo."],
+    /* The Control Center's controls, in iOS's own word, which the reader adds there. */
+    control: "Adicione os controles do Triglosa à Central de Controle para abri-lo de qualquer lugar.",
     languages: "Escolha nos ajustes, em “Idiomas”, a sua língua e as que você está aprendendo.",
     model: "Um modelo de IA traduz com mais precisão e explica termos, verbos e cada palavra que você toca, de acordo com o seu nível. Conecte um nos ajustes, em “Modelo de IA”. Sem ele, a Apple traduz neste iPhone.",
-    card: (button) => ["Toque numa palavra para consultá-la. ", button, " cria um cartão, que você pode enviar direto para o Anki."],
   },
   /* The phone runs no model of its own: one way is prepared there. */
   ankiEnabledHint: (_code) => "Precisa do app AnkiMobile.",

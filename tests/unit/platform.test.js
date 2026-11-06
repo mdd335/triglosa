@@ -48,7 +48,7 @@ import {
 import { onCapture, onCardCapture, registerShortcuts } from "../../src/platform/shortcut.js";
 import { detectByStopwords, detectLanguage } from "../../src/detect.js";
 import { SUPPORTED as SUPPORTED_CODES } from "../../src/languages/index.js";
-import { SEARCH_URLS, searchLink, searchUrlFor } from "../../src/platform/search.js";
+import { SEARCH_URLS, searchLink, searchNameFor, searchUrlFor } from "../../src/platform/search.js";
 import { createAnkiBackend, readAddResult } from "../../src/platform/anki.js";
 import { languagesFromReport } from "../../src/platform/env.js";
 
@@ -930,7 +930,16 @@ test("a text handed over in the app's own address is taken, and nothing else is"
   assert.deepStrictEqual(textHandedOver("triglosa://card?text=a%26b%3Dc%0Ad"), { what: "card", text: "a&b=c\nd" });
   assert.strictEqual(textHandedOver("triglosa://anki/added"), null);
   assert.strictEqual(textHandedOver("https://read?text=x"), null);
-  assert.strictEqual(textHandedOver("triglosa://read"), null);
+  /* The Control Center's buttons: what was copied, a photograph, a blank sheet or card. */
+  assert.deepStrictEqual(textHandedOver("triglosa://read"), { what: "read", blank: true });
+  assert.deepStrictEqual(textHandedOver("triglosa://card"), { what: "card", blank: true });
+  assert.deepStrictEqual(textHandedOver("triglosa://read?from=clipboard"), { what: "read", from: "clipboard" });
+  assert.deepStrictEqual(textHandedOver("triglosa://card?from=clipboard"), { what: "card", from: "clipboard" });
+  assert.deepStrictEqual(textHandedOver("triglosa://read?from=camera"), { what: "read", from: "camera" });
+  assert.strictEqual(textHandedOver("triglosa://card?from=camera"), null);
+  assert.strictEqual(textHandedOver("triglosa://read?from=elsewhere"), null);
+  assert.strictEqual(textHandedOver("triglosa://read?text=%20"), null, "an empty text is not a blank sheet");
+  assert.strictEqual(textHandedOver("triglosa://open"), null);
   assert.strictEqual(textHandedOver(""), null);
   /* A picture shared: the lines recognised in it, put in order by the window. */
   const lines = "10 20 200 40\tDas Ziel ist es,\t\n10 50 180 70\tdie Lücke zu füllen.\t";
@@ -960,12 +969,17 @@ test("on a phone a picture's text is asked of the app itself, and a cancelled pi
       { lines: [{ t: "Hola mundo", b: [10, 20, 200, 40], c: [] }], by: "device" });
     assert.deepStrictEqual(asked.at(-1), { command: "apple_translation", route: "/recognize?from=picked&langs=de,es", body: "" });
     assert.strictEqual(asked.at(-2).route, "/pick?from=camera", "the system's sheet first");
+    await readPicture("files", ["de"], () => chosen++, { cancel: "Abbrechen", done: "Übersetzen" });
+    assert.strictEqual(asked.at(-2).route, "/pick?from=files&cancel=Abbrechen&done=%C3%9Cbersetzen",
+      "the frame's buttons in the interface's language");
+    chosen--;
     assert.strictEqual(chosen, 1);
     answer = { status: 404, text: "no picture" };
     assert.deepStrictEqual(await readPicture("library", [], () => chosen++), { none: true });
     assert.strictEqual(chosen, 1, "nothing being recognised while nothing was chosen");
     answer = { status: 500, text: "recognition failed" };
     assert.deepStrictEqual(await readPicture("pasteboard"), { failed: "helper" });
+    assert.strictEqual(asked.at(-1).route, "/pick?from=pasteboard", "a copied picture is cut like a chosen one");
     answer = new Error("no shell");
     assert.deepStrictEqual(await readPicture("camera"), { failed: "helper" });
 
@@ -998,4 +1012,10 @@ test("a helper that quit in the meantime is asked after again", async () => {
   backend.forget();
   await backend.running();
   assert.strictEqual(asked, 2);
+});
+
+test("the search's service is named as the settings name it, and a phone's is not", () => {
+  assert.strictEqual(searchNameFor(SEARCH_URLS.google), "Google");
+  assert.strictEqual(searchNameFor(SEARCH_URLS.brave), "Brave Search");
+  assert.strictEqual(searchNameFor("x-web-search://?"), "");
 });

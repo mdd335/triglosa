@@ -48,7 +48,9 @@ export default {
      meaning worth highlighting on their own. */
   functionWords:
     "il lo la i gli le un uno una e ed o ma non anche gia dopo con di del al dal nel " +
-    "per in che si questo questa questi queste suo sua loro piu molto sul della delle",
+    "per in che si questo questa questi queste suo sua loro piu molto sul della delle " +
+    "nella nelle negli nei nello degli dello dei alla allo agli dalla dalle dagli sulla sulle sugli sui " +
+    "tra fra quello quella quelli quelle cui",
   /* Forms of to be, to have and the modals. Frequent enough to matter for
      detection, but never bycatch: in a copula sentence the auxiliary is the
      only right spot to highlight. */

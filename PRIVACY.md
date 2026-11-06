@@ -14,11 +14,11 @@ Triglosa runs on your computer and your iPhone. It has no account, shows no adve
 
 ## Anonymous usage statistics, only if you allow it
 
-The first steps on a computer offer a box for counting anonymously, not ticked. Left that way, nothing is counted. If you tick it, here or in the settings, Triglosa sends at most once a day:
+The first steps on a computer ask whether Triglosa may count anonymously. If you say no or leave the question unanswered, nothing is counted. If you say yes, there or in the settings, Triglosa sends at most once a day:
 
 - that it was used, and whether a text was read that day,
 - its version and the system (Windows or Mac),
-- the kind of AI model: online, on this computer, entered yourself, or none,
+- whether your AI model runs on your computer or your own network, or online, and online whether it is one of the two the settings offer (DeepSeek V4.1 Flash, or Gemma 4 26B for free), or whether none is set up,
 - the day it was first counted and the number of weeks since, so that the counter can tell how many people still use Triglosa after a week or a month,
 - when something goes wrong, only the kind of error, such as "no connection" or "the key was refused".
 
@@ -31,7 +31,7 @@ You can switch this on or off at any time in the settings under *About Triglosa*
 - Your readings are kept in memory while the app runs and are not written to any file.
 - Your settings are kept in a file on your device. Your API key is kept in the Windows Credential Manager or the Apple keychain.
 - Text to speech runs on your device, and so does Apple's translation on a Mac and an iPhone.
-- Text from a screenshot, a picture or the screen under the pointer is recognised on your computer. Only the recognised text goes to the AI model, never the picture.
+- Text from a screenshot, a picture or the screen under the pointer is recognized on your computer. Only the recognized text goes to the AI model, never the picture.
 - Flashcards go to Anki on your device, if you switch that on.
 
 ## Other connections

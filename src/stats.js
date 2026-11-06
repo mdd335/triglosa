@@ -4,7 +4,8 @@
    and with no number that tells one installation from another. At most once
    a day an installation says that it was used ("seen": started, or its
    window shown) and that a text was read ("read"); each time with its
-   version, its system and the kind of AI model, and
+   version, its system and the kind of AI model (local, a preset online,
+   online, none), and
    with two things that let the counter work out who comes back without
    knowing who anyone is: the day it was first counted (`since`) and whether
    this is its first report in the current week since then (`first`). The
@@ -20,11 +21,17 @@
    beside the settings. */
 
 import { FAULTS } from "./faults.js";
-import { WAYS } from "./setup.js";
+import { ONLINE } from "./setup.js";
 
 export const COUNTED_EVENTS = ["seen", "read"];
 export const COUNTED_SYSTEMS = ["mac", "windows"];
-export const MODEL_KINDS = ["online", "local", "own", "none"];
+/* Where the AI model runs and whether it is one the settings fill in:
+   on this computer or the reader's own network, online as one of the
+   settings' presets, online otherwise, or none. Version 0.7.0 sent the way
+   the reader took instead (`online`, `own`, and LM Studio's address as
+   `local`); the counter still takes those. */
+export const MODEL_KINDS = ["local", "preset", "online", "none"];
+export const EARLIER_MODEL_KINDS = ["online", "local", "own", "none"];
 
 /* The day, as the counter counts it: in UTC, so an installation crossing
    time zones does not count one day twice. */
@@ -38,17 +45,38 @@ export function daysBetween(from, to) {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
 }
 
-/* Which kind of AI model, and nothing about which one: LM Studio by its
-   address, otherwise the way the reader set it up, or none. */
-const LM_STUDIO = /^http:\/\/(127\.0\.0\.1|localhost):1234(\/|$)/;
-
-export function modelKind(settings) {
-  if (!settings?.endpoint) return "none";
-  if (LM_STUDIO.test(settings.endpoint)) return "local";
-  return WAYS.includes(settings.way) ? settings.way : "own";
+/* This machine, or a network the reader's router or VPN hands out — the
+   same test the shell makes before it lets plain http through (model.rs). */
+export function inOwnNetwork(host) {
+  const name = String(host || "").replace(/^\[|\]$/g, "").replace(/\.$/, "").toLowerCase();
+  if (!name) return false;
+  const v4 = name.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    return a === 127 || a === 10 || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168)
+      || (a === 169 && b === 254) || (a === 100 && b >= 64 && b < 128);
+  }
+  if (name.includes(":")) return name === "::1" || /^f[cd]/.test(name) || /^fe[89ab]/.test(name);
+  return !name.includes(".") || [".local", ".lan", ".home.arpa", ".internal", ".localhost"].some((end) => name.endsWith(end));
 }
 
-/* What the file held, in a shape that can be relied on. */
+/* Which kind of AI model, and nothing about which one: where it runs, and
+   online whether it is one of the two the settings fill in. */
+export function modelKind(settings) {
+  const endpoint = String(settings?.endpoint || "").trim();
+  if (!endpoint) return "none";
+  let host;
+  try {
+    host = new URL(endpoint).hostname;
+  } catch {
+    return "online";
+  }
+  if (inOwnNetwork(host)) return "local";
+  const presets = [ONLINE.model, ONLINE.free.model];
+  const atPreset = endpoint.replace(/\/+$/, "") === ONLINE.endpoint;
+  return atPreset && presets.includes(String(settings.model || "").trim()) ? "preset" : "online";
+}
+
 export function normalizeCounted(raw) {
   const value = raw && typeof raw === "object" ? raw : {};
   const days = {};

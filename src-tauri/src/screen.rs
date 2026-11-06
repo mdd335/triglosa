@@ -71,7 +71,11 @@ fn chosen(app: &AppHandle) {
         purpose: *PURPOSE.lock().unwrap(),
         shown: *WAS_SHOWN.lock().unwrap(),
     };
-    let _ = app.emit_to("main", "screen-chosen", payload);
+    let _ = app.emit_to(
+        crate::desktop::reading_label().as_str(),
+        "screen-chosen",
+        payload,
+    );
 }
 /// While a frame is being drawn.
 static PICKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -161,12 +165,12 @@ pub fn start(app: &AppHandle, from_menu: bool, purpose: Purpose) {
             return;
         }
         let shown = app
-            .get_webview_window("main")
+            .get_webview_window(&crate::desktop::reading_label())
             .map(|window| window.is_visible().unwrap_or(false))
             .unwrap_or(false);
         *WAS_SHOWN.lock().unwrap() = shown;
         if shown {
-            if let Some(window) = app.get_webview_window("main") {
+            if let Some(window) = app.get_webview_window(&crate::desktop::reading_label()) {
                 crate::desktop::put_away(&window);
                 /* Gone from the screen before it is photographed. */
                 std::thread::sleep(std::time::Duration::from_millis(250));
@@ -274,13 +278,17 @@ pub fn under_pointer(app: &AppHandle, sentence: bool) {
     match piece {
         Ok((at, size)) => {
             let _ = app.emit_to(
-                "main",
+                crate::desktop::reading_label().as_str(),
                 "pointer-screen",
                 PointerScreen { sentence, at, size },
             );
         }
         Err(reason) => {
-            let _ = app.emit_to("main", "pointer-failed", reason);
+            let _ = app.emit_to(
+                crate::desktop::reading_label().as_str(),
+                "pointer-failed",
+                reason,
+            );
         }
     }
 }
@@ -449,12 +457,16 @@ struct Failed<'a> {
 
 fn fail(app: &AppHandle, reason: &str) {
     let purpose = *PURPOSE.lock().unwrap();
-    let _ = app.emit_to("main", "screen-failed", Failed { reason, purpose });
+    let _ = app.emit_to(
+        crate::desktop::reading_label().as_str(),
+        "screen-failed",
+        Failed { reason, purpose },
+    );
     if purpose != Purpose::Read {
         return;
     }
     let hidden = app
-        .get_webview_window("main")
+        .get_webview_window(&crate::desktop::reading_label())
         .map(|window| !window.is_visible().unwrap_or(true))
         .unwrap_or(false);
     if hidden {

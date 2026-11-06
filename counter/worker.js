@@ -20,7 +20,7 @@
                     (?key=…, &format=json for the numbers alone) */
 
 import { FAULTS } from "../src/faults.js";
-import { COUNTED_EVENTS, COUNTED_SYSTEMS, MODEL_KINDS, dayOf, daysBetween } from "../src/stats.js";
+import { COUNTED_EVENTS, COUNTED_SYSTEMS, EARLIER_MODEL_KINDS, MODEL_KINDS, dayOf, daysBetween } from "../src/stats.js";
 
 const MOST_BYTES = 2000;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -43,7 +43,7 @@ export function readReport(body, today) {
   const age = daysBetween(since, today);
   if (age < -1 || age > 3650) return null;
   if (!Number.isInteger(week) || week < 0 || week > 600 || typeof first !== "boolean") return null;
-  if (!MODEL_KINDS.includes(model)) return null;
+  if (!MODEL_KINDS.includes(model) && !EARLIER_MODEL_KINDS.includes(model)) return null;
   return { day: today, event, since, week, first: first ? 1 : 0, version, system, model, kind: "" };
 }
 

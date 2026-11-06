@@ -55,9 +55,14 @@ export function pane({ title, status, body, rows, muted, plain, bare, name }) {
 
 /* The one line under the panels where there is no model, saying what one
    would add. The sections a model fills are not drawn at all then: a row of
-   empty areas says three times over what one sentence says once. */
-export function lockedNote(text) {
-  return element("p", "hint locked-note", [text.lockedBy, text.lockedHow].filter(Boolean).join(" "));
+   empty areas says three times over what one sentence says once.
+
+   `device` where Apple translated what stands there: the note says so
+   first, in the one wording every such note has, and then what a model
+   adds at this place — a reading, or a word looked up (`short`) (author
+   2026-11-05). */
+export function lockedNote(text, { device = false, short = false } = {}) {
+  return element("p", "hint locked-note", [device ? text.byApple : "", short ? text.lockedHowShort : text.lockedHow].filter(Boolean).join(" "));
 }
 
 /* A heading inside the settings, above the rows it belongs to. Nine rows in

@@ -193,8 +193,17 @@ fn owners(offsets: &[(usize, usize)], words: &[[usize; 2]]) -> Vec<Option<usize>
         .collect()
 }
 
+/// A word the threshold left without any partner takes its best one where
+/// that one holds on to it too — each is the other's first choice — or
+/// where the pair clears this lower bar. Without it a word the encoder
+/// spreads thin ("save", "sous", "socios") stands alone with nothing over
+/// it (`tests/align-hover.mjs`, run sixty-eight).
+const RESCUE: f32 = 1e-4;
+
 /// The pairs of words, from the pieces' vectors: `a` holds `rows` vectors of
-/// `width` numbers, `b` holds `cols`.
+/// `width` numbers, `b` holds `cols`. Per pair of words, the best over their
+/// pieces of the share along the row, of the share down the column, and of
+/// the smaller of the two, which is what the threshold is held against.
 fn links(
     a: &[f32],
     b: &[f32],
@@ -233,18 +242,81 @@ fn links(
         .map(|c| share(&mut (0..rows.len()).map(|r| alike[r * cols.len() + c])))
         .collect();
 
-    let mut found: Vec<[usize; 2]> = Vec::new();
-    for r in 0..rows.len() {
-        for c in 0..cols.len() {
+    let words_a = rows
+        .iter()
+        .filter_map(|&i| a_owner[i])
+        .max()
+        .map_or(0, |n| n + 1);
+    let words_b = cols
+        .iter()
+        .filter_map(|&j| b_owner[j])
+        .max()
+        .map_or(0, |n| n + 1);
+    let mut both = vec![0f32; words_a * words_b];
+    let mut across = vec![0f32; words_a * words_b];
+    let mut down = vec![0f32; words_a * words_b];
+    for (r, &i) in rows.iter().enumerate() {
+        for (c, &j) in cols.iter().enumerate() {
             let value = alike[r * cols.len() + c];
-            let across = (value - by_row[r].0).exp() / by_row[r].1;
-            let down = (value - by_col[c].0).exp() / by_col[c].1;
-            if across > THRESHOLD && down > THRESHOLD {
-                let pair = [a_owner[rows[r]].unwrap_or(0), b_owner[cols[c]].unwrap_or(0)];
-                if !found.contains(&pair) {
-                    found.push(pair);
-                }
+            let along = (value - by_row[r].0).exp() / by_row[r].1;
+            let downward = (value - by_col[c].0).exp() / by_col[c].1;
+            let at = a_owner[i].unwrap_or(0) * words_b + b_owner[j].unwrap_or(0);
+            both[at] = both[at].max(along.min(downward));
+            across[at] = across[at].max(along);
+            down[at] = down[at].max(downward);
+        }
+    }
+    word_links(&both, &across, &down, words_a, words_b)
+}
+
+/// The links between words, from what each pair of them holds: every pair
+/// over the threshold, then a word on either side that has none takes its
+/// best partner where the two choose each other or the pair clears RESCUE.
+fn word_links(
+    both: &[f32],
+    across: &[f32],
+    down: &[f32],
+    words_a: usize,
+    words_b: usize,
+) -> Vec<[usize; 2]> {
+    let at = |x: usize, y: usize| x * words_b + y;
+    let mut found: Vec<[usize; 2]> = Vec::new();
+    for x in 0..words_a {
+        for y in 0..words_b {
+            if both[at(x, y)] > THRESHOLD {
+                found.push([x, y]);
             }
+        }
+    }
+    let best = |count: usize, value: &dyn Fn(usize) -> f32| -> usize {
+        (1..count).fold(0, |top, k| if value(k) > value(top) { k } else { top })
+    };
+    let has_a: Vec<bool> = (0..words_a)
+        .map(|x| found.iter().any(|l| l[0] == x))
+        .collect();
+    let has_b: Vec<bool> = (0..words_b)
+        .map(|y| found.iter().any(|l| l[1] == y))
+        .collect();
+    let mut rescued = Vec::new();
+    if words_b > 0 {
+        for x in (0..words_a).filter(|&x| !has_a[x]) {
+            let y = best(words_b, &|k| across[at(x, k)]);
+            if best(words_a, &|k| down[at(k, y)]) == x || both[at(x, y)] > RESCUE {
+                rescued.push([x, y]);
+            }
+        }
+    }
+    if words_a > 0 {
+        for y in (0..words_b).filter(|&y| !has_b[y]) {
+            let x = best(words_a, &|k| down[at(k, y)]);
+            if best(words_b, &|k| across[at(x, k)]) == y || both[at(x, y)] > RESCUE {
+                rescued.push([x, y]);
+            }
+        }
+    }
+    for pair in rescued {
+        if !found.contains(&pair) {
+            found.push(pair);
         }
     }
     found.sort();
@@ -351,6 +423,25 @@ mod tests {
     }
 
     #[test]
+    fn a_word_left_alone_takes_the_partner_that_chooses_it_too() {
+        /* Word 0 of each side holds on to the other strongly; word 1 of the
+        first side spreads thin over both, leaning to word 1, which leans
+        back: below the threshold, and still the pair. */
+        let both = [0.9, 0.0, 0.0, 0.0005];
+        let across = [0.9, 0.1, 0.45, 0.55];
+        let down = [0.9, 0.3, 0.1, 0.0005];
+        assert_eq!(
+            word_links(&both, &across, &down, 2, 2),
+            vec![[0, 0], [1, 1]]
+        );
+        /* Where word 1's best partner leans to another word and the pair is
+        below the lower bar too, it stays alone. */
+        let down = [0.9, 0.9, 0.1, 0.00005];
+        let both = [0.9, 0.0, 0.0, 0.00005];
+        assert_eq!(word_links(&both, &across, &down, 2, 2), vec![[0, 0]]);
+    }
+
+    #[test]
     fn nothing_to_link_is_no_link() {
         assert!(links(&[], &[1.0, 0.0], 2, &[], &[Some(0)]).is_empty());
         assert!(links(&[1.0, 0.0], &[1.0, 0.0], 2, &[None], &[Some(0)]).is_empty());
@@ -376,6 +467,77 @@ mod tests {
         std::fs::write(
             env("TRIGLOSA_ANSWERS"),
             serde_json::to_string(&found).unwrap(),
+        )
+        .unwrap();
+    }
+
+    /// How strongly every word of a pair holds on to every word of the
+    /// other side, for a measurement that tries thresholds and fallbacks
+    /// without building the app again (`tests/align-hover.mjs`): per word
+    /// pair the best over their pieces of the smaller of the two shares
+    /// (`both`, what `links` compares with its threshold), of the share
+    /// along the row (`across`) and down the column (`down`). Wants the
+    /// model, so it runs only when asked: TRIGLOSA_ALIGNER=<the folder>
+    /// TRIGLOSA_ITEMS=<pairs.json> TRIGLOSA_ANSWERS=<file to write>
+    /// cargo test -- --ignored the_pairs_are_scored
+    #[test]
+    #[ignore]
+    fn the_pairs_are_scored() {
+        let env = |name: &str| std::env::var(name).expect(name);
+        let pairs: Vec<Pair> =
+            serde_json::from_str(&std::fs::read_to_string(env("TRIGLOSA_ITEMS")).unwrap()).unwrap();
+        let mut loaded = load_from(PathBuf::from(env("TRIGLOSA_ALIGNER"))).unwrap();
+        let mut all = Vec::new();
+        for pair in &pairs {
+            let (a, width, a_owner) =
+                encode(&mut loaded, &pair.source, &pair.source_words).unwrap();
+            let (b, _, b_owner) = encode(&mut loaded, &pair.target, &pair.target_words).unwrap();
+            let (n, m) = (pair.source_words.len(), pair.target_words.len());
+            let rows: Vec<usize> = (0..a_owner.len())
+                .filter(|&i| a_owner[i].is_some())
+                .collect();
+            let cols: Vec<usize> = (0..b_owner.len())
+                .filter(|&j| b_owner[j].is_some())
+                .collect();
+            let mut both = vec![vec![0f32; m]; n];
+            let mut across = vec![vec![0f32; m]; n];
+            let mut down = vec![vec![0f32; m]; n];
+            if !rows.is_empty() && !cols.is_empty() {
+                let dot = |i: usize, j: usize| -> f32 {
+                    a[i * width..(i + 1) * width]
+                        .iter()
+                        .zip(&b[j * width..(j + 1) * width])
+                        .map(|(x, y)| x * y)
+                        .sum()
+                };
+                let alike: Vec<Vec<f32>> = rows
+                    .iter()
+                    .map(|&i| cols.iter().map(|&j| dot(i, j)).collect())
+                    .collect();
+                let soft = |values: Vec<f32>| -> Vec<f32> {
+                    let top = values.iter().cloned().fold(f32::MIN, f32::max);
+                    let sum: f32 = values.iter().map(|v| (v - top).exp()).sum();
+                    values.iter().map(|v| (v - top).exp() / sum).collect()
+                };
+                let by_row: Vec<Vec<f32>> = alike.iter().map(|row| soft(row.clone())).collect();
+                let by_col: Vec<Vec<f32>> = (0..cols.len())
+                    .map(|c| soft(alike.iter().map(|row| row[c]).collect()))
+                    .collect();
+                for (r, &i) in rows.iter().enumerate() {
+                    for (c, &j) in cols.iter().enumerate() {
+                        let (x, y) = (a_owner[i].unwrap(), b_owner[j].unwrap());
+                        let (along, downward) = (by_row[r][c], by_col[c][r]);
+                        both[x][y] = both[x][y].max(along.min(downward));
+                        across[x][y] = across[x][y].max(along);
+                        down[x][y] = down[x][y].max(downward);
+                    }
+                }
+            }
+            all.push(serde_json::json!({ "both": both, "across": across, "down": down }));
+        }
+        std::fs::write(
+            env("TRIGLOSA_ANSWERS"),
+            serde_json::to_string(&all).unwrap(),
         )
         .unwrap();
     }

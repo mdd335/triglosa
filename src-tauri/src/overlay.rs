@@ -112,6 +112,54 @@ mod platform {
         }
     }
 
+    /* Whether the window server has this window on the screen: the Space the
+    reader is on, ordered in. Asked of the window server rather than of
+    AppKit, which went on counting a window as shown that stood nowhere. */
+    pub fn on_screen(ns_window: *mut c_void) -> Option<bool> {
+        use std::ffi::c_void as Object;
+        type CFTypeRef = *const Object;
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFTypeRef;
+            static kCGWindowIsOnscreen: CFTypeRef;
+        }
+        #[link(name = "CoreFoundation", kind = "framework")]
+        extern "C" {
+            fn CFArrayGetCount(array: CFTypeRef) -> isize;
+            fn CFArrayGetValueAtIndex(array: CFTypeRef, index: isize) -> CFTypeRef;
+            fn CFDictionaryGetValue(dictionary: CFTypeRef, key: CFTypeRef) -> CFTypeRef;
+            fn CFBooleanGetValue(boolean: CFTypeRef) -> bool;
+            fn CFRelease(object: CFTypeRef);
+        }
+        const INCLUDING_WINDOW: u32 = 1 << 3;
+
+        if ns_window.is_null() {
+            return None;
+        }
+        let send = objc_msgSend as *const ();
+        let number: extern "C" fn(*mut c_void, *const c_void) -> isize =
+            unsafe { std::mem::transmute(send) };
+        let id = number(ns_window, selector("windowNumber"));
+        /* No window of the window server's behind it at all. */
+        if id <= 0 {
+            return Some(false);
+        }
+        let list = unsafe { CGWindowListCopyWindowInfo(INCLUDING_WINDOW, id as u32) };
+        if list.is_null() {
+            return None;
+        }
+        let mut standing = false;
+        if unsafe { CFArrayGetCount(list) } > 0 {
+            /* The key is left out where the window is not on the screen. */
+            let value = unsafe {
+                CFDictionaryGetValue(CFArrayGetValueAtIndex(list, 0), kCGWindowIsOnscreen)
+            };
+            standing = !value.is_null() && unsafe { CFBooleanGetValue(value) };
+        }
+        unsafe { CFRelease(list) };
+        Some(standing)
+    }
+
     /* What the menu bar symbol's menu is given once it opens: the title of
     one of its entries that tells it from every other menu, and the key
     equivalents with the titles of the entries they go beside. */
@@ -825,6 +873,21 @@ pub fn as_panel(window: &tauri::WebviewWindow) {
     }
     #[cfg(not(target_os = "macos"))]
     let _ = window;
+}
+
+/* Whether the window server has the window on the screen; `None` where that
+cannot be asked (on Windows, or without a window behind it). Must be called
+on the main thread. */
+pub fn stands_on_screen(window: &tauri::WebviewWindow) -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        window.ns_window().ok().and_then(platform::on_screen)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        None
+    }
 }
 
 /* The reading window's keys handed back to the program under it, the window

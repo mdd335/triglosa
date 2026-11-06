@@ -49,7 +49,8 @@ export default {
      meaning worth highlighting on their own. */
   functionWords:
     "o a os as um uma uns umas e ou mas nao tambem ja depois com de do da no na por " +
-    "para que se este esta isso seu sua seus suas mais muito pelo pela dos das",
+    "para que se este esta isso seu sua seus suas mais muito pelo pela dos das " +
+    "em ao aos nas num numa pelos pelas ele ela eles elas lhe neste nesta nesse nessa deste desta desse dessa",
   /* Forms of to be, to have and the modals. Frequent enough to matter for
      detection, but never bycatch: in a copula sentence the auxiliary is the
      only right spot to highlight. */

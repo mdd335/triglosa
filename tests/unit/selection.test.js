@@ -91,3 +91,30 @@ test("on a computer the system's selection offers nothing: words are dragged acr
   assert.strictEqual(button()?.hidden ?? true, before);
   box.remove();
 });
+
+test("a click on a word inside a coloured term picks that word, and a drag across the term picks the term", () => {
+  /* author 2026-11-05: the term has its row; the word is what is asked. */
+  const box = panel("salimos al casco antiguo hoy");
+  const words = [...box.querySelectorAll(".w")];
+  const mark = document.createElement("span");
+  mark.className = "mark wmark0";
+  mark.dataset.markFrom = "11";
+  mark.dataset.markTo = "24";
+  words[2].before(mark);
+  mark.append(words[2], " ", words[3]);
+  const picks = [];
+  watchSelection(box, 0, (choice) => picks.push(choice));
+  const click = (word) => {
+    word.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    word.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  };
+  click(words[3]);
+  assert.deepStrictEqual(picks.at(-1), { panel: 0, start: 17, end: 24 });
+  assert.deepStrictEqual(picks.find((pick) => pick.dragging), { panel: 0, start: 17, end: 24, dragging: true },
+    "the frame stands on the word from the press on");
+  words[2].dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  words[3].dispatchEvent(new dom.window.MouseEvent("mousemove", { bubbles: true }));
+  words[3].dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  assert.deepStrictEqual(picks.at(-1), { panel: 0, start: 11, end: 24 });
+  box.remove();
+});

@@ -164,3 +164,21 @@ test("parts placed together take the place the aligner found, before the place t
   assert.ok(second.every((mark) => mark.start >= text.indexOf("Dann")));
 });
 
+
+test("a term that is the whole text is marked nowhere, its row kept", () => {
+  /* A line under every word says nothing (author 2026-11-05), as a lookup's
+     term naming the looked-up words is not marked in short mode. */
+  const whole = {
+    ...state,
+    text: "Tomar el pelo a alguien.",
+    panels: [{ code: "es" }, { code: "de" }, { code: "en" }],
+    words: [{ text: "tomar el pelo a alguien", spot: "" }, { text: "fármaco", spot: "" }],
+  };
+  assert.deepStrictEqual(fragmentsForPanel(whole, 0).words, [[], ["fármaco"]]);
+  assert.deepStrictEqual(fragmentsForPanel(whole, 1).words, [[], ["Arzneimittel"]]);
+  assert.deepStrictEqual(fragmentsForPanel(whole, 2).words, [[], ["drug"]]);
+  /* A part of the text is marked as ever. */
+  const part = { ...whole, words: [{ text: "tomar el pelo", spot: "" }, whole.words[1]] };
+  assert.deepStrictEqual(fragmentsForPanel(part, 0).words[0], ["tomar el pelo"]);
+  assert.deepStrictEqual(fragmentsForPanel(part, 1).words[0], ["klinischen", "Studie"]);
+});

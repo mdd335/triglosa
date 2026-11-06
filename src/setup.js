@@ -33,15 +33,6 @@ export function presetOf(way) {
   return { endpoint: "", model: "" };
 }
 
-/* Whether an address is the one a way fills in, give or take a slash at its
-   end. */
-export function holdsPreset(way, endpoint) {
-  const preset = presetOf(way).endpoint;
-  if (!preset) return true;
-  const typed = String(endpoint || "").trim().replace(/\/+$/, "");
-  return typed === preset;
-}
-
 /* The entry in the system's store a way's key lives under; a hand-typed
    address with no way chosen counts as the reader's own provider. */
 export function keyAccount(settings) {

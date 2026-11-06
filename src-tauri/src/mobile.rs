@@ -18,6 +18,8 @@ extern "C" {
     fn objc_msgSend();
     fn objc_autoreleasePoolPush() -> *mut c_void;
     fn objc_autoreleasePoolPop(pool: *mut c_void);
+    fn class_getInstanceMethod(class: *mut c_void, name: *const c_void) -> *mut c_void;
+    fn method_setImplementation(method: *mut c_void, imp: *const c_void) -> *const c_void;
 }
 
 /* What was copied last, as text; empty where it is something else or the
@@ -270,9 +272,101 @@ fn take_opened() -> String {
         .unwrap_or_default()
 }
 
+/* An app started by an address is handed it with its first scene, and the
+windowing library reads it only from a scene already there (tao#1248): a text
+shared while the app was not running, or after iOS ended it in the
+background, was lost, and only the second try read. The scene delegate's
+answer to a scene connecting is wrapped once, before the app starts, so the
+address is kept for the page first; the library's own answer then runs as
+it did. A library that one day reads the address itself keeps the same one,
+and one that names its delegate otherwise leaves this undone. */
+static CONNECTING: std::sync::atomic::AtomicPtr<c_void> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+extern "C" fn scene_connecting(
+    delegate: *mut c_void,
+    name: *const c_void,
+    scene: *mut c_void,
+    session: *mut c_void,
+    options: *mut c_void,
+) {
+    unsafe {
+        keep_addresses(options);
+        let original: extern "C" fn(
+            *mut c_void,
+            *const c_void,
+            *mut c_void,
+            *mut c_void,
+            *mut c_void,
+        ) = std::mem::transmute(CONNECTING.load(std::sync::atomic::Ordering::SeqCst));
+        original(delegate, name, scene, session, options);
+    }
+}
+
+/* The addresses among a connecting scene's options, kept as `Opened` keeps
+them. */
+unsafe fn keep_addresses(options: *mut c_void) {
+    if options.is_null() {
+        return;
+    }
+    let send = objc_msgSend as *const ();
+    let object: extern "C" fn(*mut c_void, *const c_void) -> *mut c_void =
+        std::mem::transmute(send);
+    let count: extern "C" fn(*mut c_void, *const c_void) -> usize = std::mem::transmute(send);
+    let at: extern "C" fn(*mut c_void, *const c_void, usize) -> *mut c_void =
+        std::mem::transmute(send);
+    let characters: extern "C" fn(*mut c_void, *const c_void) -> *const c_char =
+        std::mem::transmute(send);
+    let contexts = object(options, sel_registerName(c"URLContexts".as_ptr()));
+    if contexts.is_null() {
+        return;
+    }
+    let all = object(contexts, sel_registerName(c"allObjects".as_ptr()));
+    for index in 0..count(all, sel_registerName(c"count".as_ptr())) {
+        let context = at(all, sel_registerName(c"objectAtIndex:".as_ptr()), index);
+        let link = object(context, sel_registerName(c"URL".as_ptr()));
+        let text = if link.is_null() {
+            link
+        } else {
+            object(link, sel_registerName(c"absoluteString".as_ptr()))
+        };
+        if text.is_null() {
+            continue;
+        }
+        let bytes = characters(text, sel_registerName(c"UTF8String".as_ptr()));
+        if bytes.is_null() {
+            continue;
+        }
+        let address = CStr::from_ptr(bytes).to_string_lossy().into_owned();
+        if !address.starts_with("triglosa://anki/") {
+            if let Ok(mut held) = OPENED.lock() {
+                *held = Some(address);
+            }
+        }
+    }
+}
+
+fn keep_addresses_of_a_start() {
+    unsafe {
+        let class = objc_getClass(c"TaoSceneDelegate".as_ptr());
+        if class.is_null() {
+            return;
+        }
+        let method = class_getInstanceMethod(
+            class,
+            sel_registerName(c"scene:willConnectToSession:options:".as_ptr()),
+        );
+        if method.is_null() {
+            return;
+        }
+        let original = method_setImplementation(method, scene_connecting as *const c_void);
+        CONNECTING.store(original as *mut c_void, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 #[tauri::mobile_entry_point]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -294,25 +388,28 @@ pub fn run() {
             take_opened,
         ])
         .build(tauri::generate_context!())
-        .expect("the app could not be built")
-        /* Another app sending the reader back here names an address of this
-        app's own; the page hears which, and that the app is in front again. */
-        .run(|app, event| match event {
-            tauri::RunEvent::Opened { urls } => {
-                for url in urls {
-                    /* Anki's way back is only heard; an address that
-                    brings a text is kept for the page to take. */
-                    if !url.as_str().starts_with("triglosa://anki/") {
-                        if let Ok(mut held) = OPENED.lock() {
-                            *held = Some(url.to_string());
-                        }
+        .expect("the app could not be built");
+    /* The library's delegates exist once the app is built, and no scene
+    connects before it runs. */
+    keep_addresses_of_a_start();
+    /* Another app sending the reader back here names an address of this
+    app's own; the page hears which, and that the app is in front again. */
+    app.run(|app, event| match event {
+        tauri::RunEvent::Opened { urls } => {
+            for url in urls {
+                /* Anki's way back is only heard; an address that
+                brings a text is kept for the page to take. */
+                if !url.as_str().starts_with("triglosa://anki/") {
+                    if let Ok(mut held) = OPENED.lock() {
+                        *held = Some(url.to_string());
                     }
-                    let _ = app.emit("opened", url.to_string());
                 }
+                let _ = app.emit("opened", url.to_string());
             }
-            tauri::RunEvent::Resumed => {
-                let _ = app.emit("resumed", ());
-            }
-            _ => {}
-        });
+        }
+        tauri::RunEvent::Resumed => {
+            let _ = app.emit("resumed", ());
+        }
+        _ => {}
+    });
 }

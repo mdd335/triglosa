@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import { CHECK_WAIT_MS, runText, sentenceFor } from "../../src/run.js";
+import { glanceAt } from "../../src/glance.js";
 
 /* A German reader learning English and Spanish. */
 const SETTINGS = {
@@ -151,6 +152,15 @@ test("without an endpoint a refused pair stays the device's own gap", async () =
   }
 });
 
+test("without an endpoint a pair Apple cannot do at all is not a missing pack", async () => {
+  /* Sending the reader after a pack that does not exist was the old way. */
+  const device = { ...noDevice, detect: async () => "ru", pairStatus: async () => "unsupported" };
+  const { state } = await run({ settings: SETTINGS, translation: device, llm: null });
+  for (const panel of state.panels.slice(1)) {
+    assert.strictEqual(panel.status, "unsupported");
+  }
+});
+
 test("a dictionary entry the model did not give is translated by the device", async () => {
   /* No internet: the model fails, and a word is still worth a plain
      translation. The panel says who made it, because the reader chose the
@@ -174,6 +184,57 @@ test("a dictionary entry the model did not give is translated by the device", as
     assert.strictEqual(panel.text, `${panel.code}:meter la pata`);
     assert.strictEqual(panel.fallback, true);
   }
+});
+
+test("Apple's word alone is written as a dictionary writes it, as the model's lines are", async () => {
+  /* author 2026-11-05: "Rug" for "tapis", "To improve" for "mejorar". */
+  const device = { ...noDevice, detect: async () => "es", translate: async (from, to) => ({ de: "Gelangweilt", en: "To get bored" })[to] };
+  const state = await runText("aburrirse", { settings: { ...SETTINGS, endpoint: "" }, translation: device, llm: null, language: "es", onChange: () => {} });
+  const text = (code) => state.panels.find((panel) => panel.code === code).text;
+  assert.strictEqual(text("en"), "to get bored");
+  assert.strictEqual(text("de"), "Gelangweilt", "German writes its nouns with a capital: the pack keeps what came");
+  const named = await runText("Madrid", { settings: { ...SETTINGS, endpoint: "" }, translation: { ...device, translate: async () => "Madrid" }, llm: null, language: "es", onChange: () => {} });
+  assert.strictEqual(named.panels.find((panel) => panel.code === "en").text, "Madrid", "a capital looked up stays one");
+});
+
+test("looked up in its sentence without a model, the word there stands first and the word alone under it", async () => {
+  /* author 2026-11-05: "Betrieben" alone is "Operated", in its sentence
+     "businesses" — two words of which one may be wrong over one. */
+  const sentence = "Wir finden Personen, die bei 3 Betrieben eingetragen sind.";
+  const start = sentence.indexOf("Betrieben");
+  const device = {
+    ...noDevice,
+    detect: async () => "de",
+    translate: async (from, to, text) => (text === "Betrieben"
+      ? { en: "Operated", es: "operado" }[to]
+      : { en: "We find people who are registered with 3 businesses.", es: "Encontramos personas registradas en 3 empresas." }[to]),
+  };
+  /* The aligner puts "Betrieben" (word 6) on "businesses" (word 8) and on
+     "empresas" (word 5). */
+  const aligner = { ready: async () => true, align: async (pairs) => pairs.map(({ target }) => (target.startsWith("We") ? [[6, 8]] : [[6, 5]])) };
+  const settings = { ...SETTINGS, languages: ["es", "de", "en"], endpoint: "" };
+  const state = await runText("Betrieben", { settings, translation: device, llm: null, aligner, language: "de",
+    sentence: { text: sentence, start, end: start + "Betrieben".length }, onChange: () => {} });
+  const panel = (code) => state.panels.find((entry) => entry.code === code);
+  assert.deepStrictEqual(panel("en").alternatives.map((line) => line.text), ["businesses", "operated"],
+    "the German noun's capital says nothing about the English word: written as the sentence's word is");
+  assert.strictEqual(panel("en").status, "alternatives");
+  assert.strictEqual(panel("en").engine, "device");
+  /* Where the two agree, one line, as before. */
+  assert.deepStrictEqual(panel("es").alternatives.map((line) => line.text), ["empresas", "operado"]);
+  const agreeing = await runText("Betrieben", { settings, translation: { ...device, translate: async (from, to, text) => (text === "Betrieben" ? "businesses" : "We find people who are registered with 3 businesses.") },
+    llm: null, aligner, language: "de", sentence: { text: sentence, start, end: start + "Betrieben".length }, onChange: () => {} });
+  assert.strictEqual(agreeing.panels.find((entry) => entry.code === "en").text, "businesses");
+  assert.strictEqual(agreeing.panels.find((entry) => entry.code === "en").alternatives, undefined);
+  /* The same word, written as the sentence has it. */
+  const saving = await runText("save", { settings: { ...settings, languages: ["de", "en", "es"] }, language: "en", llm: null, aligner: { ready: async () => true, align: async (pairs) => pairs.map(() => [[3, 3]]) },
+    translation: { ...device, detect: async () => "en", translate: async (from, to, text) => (text === "save" ? { de: "Sparen", es: "ahorrar" }[to] : { de: "Wir müssen Geld sparen.", es: "Tenemos que ahorrar dinero." }[to]) },
+    sentence: { text: "We need to save money.", start: 11, end: 15 }, onChange: () => {} });
+  assert.strictEqual(saving.panels.find((entry) => entry.code === "de").text, "sparen");
+  /* No aligner (the phone): the word alone, as before. */
+  const phone = await runText("Betrieben", { settings, translation: device, llm: null, language: "de",
+    sentence: { text: sentence, start, end: start + "Betrieben".length }, onChange: () => {} });
+  assert.strictEqual(phone.panels.find((entry) => entry.code === "en").text, "Operated");
 });
 
 test("a dictionary entry without a model is the device's translation, not a stand-in", async () => {
@@ -390,35 +451,6 @@ function aligning(answer = (user) => {
   };
 }
 
-test("the hover's alignment is asked sentence by sentence, after everything else", async () => {
-  const llm = aligning();
-  const seen = [];
-  const state = await runText(TWO_SENTENCES, {
-    settings: { ...SETTINGS, show: QUIET },
-    translation: TWO_TRANSLATED,
-    llm,
-    onChange: (s) => seen.push(s.glance && (s.glance.pending ? "pending" : s.glance.sentences.map((x) => x.status).join())),
-  });
-  assert.ok(seen.indexOf("pending") < seen.findIndex((entry) => entry && entry !== "pending"),
-    "said to be coming before any sentence is asked");
-  assert.strictEqual(llm.asked.filter((call) => call.system.includes("hovering")).length, 2);
-  assert.deepStrictEqual(state.glance.panels, [1, 2], "the reader's own panel first, the other beside it");
-  assert.strictEqual(state.glance.reader, 1);
-  const units = state.glance.sentences.flatMap((sentence) => sentence.units);
-  const cat = units.find((unit) => TWO_SENTENCES.slice(unit.start, unit.end) === "Кошка");
-  assert.strictEqual(cat.gloss, "Die Katze");
-  assert.strictEqual(state.panels[1].text.slice(cat.to[0].start, cat.to[0].end), "Die Katze");
-  assert.strictEqual(state.fault, null);
-
-  /* The third panel comes in the same question, so that both hold the same
-     words together, and the sign over either says the reader's language. */
-  assert.strictEqual(cat.second.gloss, "The cat");
-  assert.strictEqual(state.panels[2].text.slice(cat.second.to[0].start, cat.second.to[0].end), "The cat");
-  assert.ok(llm.asked.some((call) => call.system.includes("two translations")));
-  assert.strictEqual(llm.asked.filter((call) => call.system.includes("hovering")).length, 2,
-    "one question per sentence, not one per panel");
-});
-
 /* The word aligner in the shell, as the run sees it: every word linked to
    the word in the same place, which is right for these two sentences. */
 function aligner({ ready = true, fail = false } = {}) {
@@ -446,16 +478,26 @@ test("with the word aligner the hover asks the model nothing, and does not wait 
   });
   assert.strictEqual(llm.asked.filter((call) => call.system.includes("hovering")).length, 0);
   assert.strictEqual(words.asked.length, 1, "every sentence in one go");
-  assert.strictEqual(words.asked[0].length, 4, "two sentences, each against both translations");
+  assert.strictEqual(words.asked[0].length, 6, "two sentences, each against both translations, and the other one against the reader's");
+  assert.deepStrictEqual(words.asked[0][2], { source: "He came home.", target: "Er kam nach Hause." });
   assert.deepStrictEqual(state.glance.panels, [1, 2]);
   const cat = state.glance.sentences.flatMap((sentence) => sentence.units)
     .find((unit) => TWO_SENTENCES.slice(unit.start, unit.end) === "Кошка");
   assert.strictEqual(cat.gloss, "Die Katze");
   assert.strictEqual(cat.second.gloss, "The cat");
   assert.strictEqual(state.panels[1].text.slice(cat.to[0].start, cat.to[0].end), "Die Katze");
+  /* Over the third panel, its own words grouped and laid over the reader's
+     straight, with the words of the source text it renders. */
+  const english = state.panels[2].text;
+  const over = glanceAt(state.glance, "second", english.indexOf("came"));
+  assert.ok(over.third);
+  assert.strictEqual(over.gloss, "Er kam");
+  assert.strictEqual(english.slice(over.start, over.end), "He came");
+  assert.deepStrictEqual(over.source.map((range) => TWO_SENTENCES.slice(range.start, range.end)), ["Он пришёл"]);
 });
 
-test("an aligner without its model, or one that fails, leaves the hover to the AI model", async () => {
+test("an aligner without its model, or one that fails, leaves no hover, and the model is not asked about it", async () => {
+  /* author 2026-11-05: the hover is the aligner's alone. */
   for (const words of [aligner({ ready: false }), aligner({ fail: true })]) {
     const llm = aligning();
     const state = await runText(TWO_SENTENCES, {
@@ -465,9 +507,11 @@ test("an aligner without its model, or one that fails, leaves the hover to the A
       aligner: words,
       onChange: () => {},
     });
-    assert.strictEqual(llm.asked.filter((call) => call.system.includes("hovering")).length, 2);
-    assert.ok(state.glance.sentences.every((sentence) => sentence.units));
+    assert.strictEqual(llm.asked.filter((call) => call.system.includes("hovering")).length, 0);
+    assert.strictEqual(state.glance, null);
   }
+  const without = await runText(TWO_SENTENCES, { settings: { ...SETTINGS, show: QUIET }, translation: TWO_TRANSLATED, llm: aligning(), onChange: () => {} });
+  assert.strictEqual(without.glance, null, "no aligner at all, as on a phone");
 });
 
 test("with the word aligner the hover works without an AI model, and is not promised where it fails", async () => {
@@ -574,92 +618,53 @@ test("without an aligner, or where it found no place, every term goes to the mod
   }
 });
 
-test("a sentence whose alignment fails leaves the others and blames nobody", async () => {
-  const llm = aligning((user) => {
-    if (user.includes("Он пришёл")) throw new Error("the endpoint answered 429");
-    return "Кошка | Die Katze\nспала | schlief";
-  });
-  const state = await runText(TWO_SENTENCES, {
-    settings: { ...SETTINGS, show: QUIET },
-    translation: TWO_TRANSLATED,
-    llm,
-    onChange: () => {},
-  });
-  assert.strictEqual(state.glance.sentences[0].units, null);
-  assert.strictEqual(state.glance.sentences[0].status, "done");
-  assert.strictEqual(state.glance.sentences[1].units.length, 2);
-  assert.strictEqual(state.fault, null, "nothing the reader asked for failed");
-});
-
 test("the hover's alignment is not asked where it has nothing to say", async () => {
   const hovering = async (settings, translation, text = TWO_SENTENCES) => {
-    const llm = aligning();
-    const state = await runText(text, { settings, translation, llm, onChange: () => {} });
-    return { state, asked: llm.asked.filter((call) => call.system.includes("hovering")).length };
+    const words = aligner();
+    const state = await runText(text, { settings, translation, llm: aligning(), aligner: words, onChange: () => {} });
+    return { state, asked: words.asked.length };
   };
   const off = await hovering({ ...SETTINGS, show: QUIET, glance: false }, TWO_TRANSLATED);
-  assert.deepStrictEqual([off.state.glance, off.asked], [null, 0], "switched off");
-
-
+  assert.strictEqual(off.state.glance, null, "switched off");
   const short = await hovering({ ...SETTINGS, show: QUIET }, TWO_TRANSLATED, "Кошка");
   assert.deepStrictEqual([short.state.glance, short.asked], [null, 0], "a single word");
 });
 
-test("the hover's alignment waits its turn behind a clicked word", async () => {
-  const llm = aligning();
-  let open = null;
-  const turn = new Promise((resolve) => { open = resolve; });
-  let asked = 0;
-  const running = runText(TWO_SENTENCES, {
-    settings: { ...SETTINGS, show: QUIET },
-    translation: TWO_TRANSLATED,
-    llm,
-    onChange: () => { asked = llm.asked.filter((call) => call.system.includes("hovering")).length; },
-    waitTurn: () => turn,
-  });
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.strictEqual(asked, 0);
-  open();
-  const state = await running;
-  assert.ok(state.glance.sentences.every((sentence) => sentence.units));
-});
-
 test("a third panel that cannot be paired sentence by sentence is left out", async () => {
-  const llm = aligning((user) => (user.includes("Он пришёл")
-    ? "Он | Er\nпришёл | kam\nдомой | nach Hause"
-    : "Кошка | Die Katze\nспала | schlief"));
+  const words = aligner();
   const state = await runText(TWO_SENTENCES, {
     settings: { ...SETTINGS, show: QUIET },
     translation: ONE_SENTENCE_ENGLISH,
-    llm,
+    llm: aligning(),
+    aligner: words,
     onChange: () => {},
   });
   assert.deepStrictEqual(state.glance.panels, [1]);
-  assert.ok(llm.asked.every((call) => !call.system.includes("two translations")));
+  assert.strictEqual(words.asked[0].length, 2, "each sentence against the reader's panel alone");
   assert.ok(state.glance.sentences.every((sentence) => sentence.units.length));
 });
 
 /* A text in the reader's own language: their language is the original, both
    panels are foreign, and the sign over either is the source text's own words. */
 test("a text in the reader's own language is aligned with both translations", async () => {
-  const llm = aligning((user) => (user.includes("Er kam")
-    ? "Er | He | Он\nkam | came | пришёл\nnach Hause | home | домой"
-    : "Die Katze | The cat | Кошка\nschlief | slept | спала"));
   const german = {
     ...noDevice,
     detect: async () => "de",
     translate: async (from, to) => (to === "en" ? "He came home. The cat slept." : "Он пришёл домой. Кошка спала."),
   };
+  const words = aligner();
   const state = await runText("Er kam nach Hause. Die Katze schlief.", {
     settings: { ...SETTINGS, show: QUIET, languages: ["de", "en", "ru"] },
     translation: german,
-    llm,
+    llm: aligning(),
+    aligner: words,
     onChange: () => {},
   });
   assert.strictEqual(state.glance.reader, 0, "the original itself holds the reader's language");
   assert.deepStrictEqual(state.glance.panels, [1, 2]);
+  assert.strictEqual(words.asked[0].length, 4, "no third panel of its own: both are laid over the source text");
   const cat = state.glance.sentences[1].units.find((unit) => unit.gloss === "The cat");
-  assert.strictEqual(state.panels[2].text.slice(cat.second.to[0].start, cat.second.to[0].end), "Кошка");
+  assert.ok(cat?.second?.to.length);
 });
 
 test("a language the reader chose is not detected again, and the questions name it", async () => {
@@ -820,6 +825,9 @@ test("a dictionary entry asks for one term, after the upper panel and beside the
   assert.ok(term.system.includes("At most 1 item"));
   assert.ok(term.user.startsWith("Text (Spanish): zascandil"), "without a sentence the text is the word");
   assert.ok(!term.user.includes("Looked up"));
+  assert.ok(term.user.endsWith(`\nShown: ${state.panels[1].alternatives.map((line) => (line.note ? `${line.text} (${line.note})` : line.text)).join("; ")}`),
+    "the entry in the reader's language goes along, as it stands (run 76)");
+  assert.ok(term.system.includes('given as "Shown"'));
   assert.deepStrictEqual(state.words.map((word) => [word.text, word.meaning]), [["zascandil", "Wichtigtuer"]]);
   assert.strictEqual(state.status.words, "");
 });
@@ -1106,4 +1114,47 @@ test("where the checker cannot tell in time, or not at all, every line stays", a
   assert.strictEqual(none.panels.find((panel) => panel.code === "es").alternatives.length, 3);
   const without = await runText("lauter", { settings: KEEP_QUIET, translation: noDevice, llm: lauterModel(), onChange: () => {} });
   assert.strictEqual(without.panels.find((panel) => panel.code === "es").alternatives.length, 3);
+});
+
+test("verbs and terms folded away are asked for once they are opened, and the rest does not wait for them", async () => {
+  /* author 2026-11-05: a folded section is loaded when it is opened. */
+  const asked = [];
+  const llm = {
+    async chat({ system, maxTokens }) {
+      asked.push(system);
+      if (maxTokens <= 12) return "ru";
+      if (system.includes("You extract verb forms")) return "пришёл\nспала";
+      if (system.includes("hovering")) return "";
+      return "übersetzt";
+    },
+  };
+  let open;
+  const opened = new Promise((resolve) => { open = resolve; });
+  const seen = [];
+  const state = await runText(TWO_SENTENCES, {
+    settings: { ...SETTINGS, show: { verbs: "foreign", terms: "never" }, glance: false },
+    translation: TWO_TRANSLATED,
+    llm,
+    later: { folded: (key) => key === "verbs", unfolded: (key) => (key === "verbs" ? opened : new Promise(() => {})) },
+    onChange: (s) => seen.push({ ...s, status: { ...s.status } }),
+  });
+  assert.strictEqual(state.busy, false, "the reading is done without them");
+  assert.strictEqual(state.status.verbs, "later");
+  assert.ok(!asked.some((system) => system.includes("You extract verb forms")), "not asked while folded");
+  open();
+  for (let i = 0; i < 20 && !seen.at(-1).verbs; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(asked.some((system) => system.includes("You extract verb forms")), "asked once opened");
+  assert.ok(seen.some((s) => s.status.verbs === "working"), "said to be on its way");
+  assert.ok(Array.isArray(seen.at(-1).verbs));
+
+  /* A lookup's term is never held back: its card depends on it. */
+  const short = [];
+  await runText("Кошка", {
+    settings: { ...SETTINGS, show: { verbs: "foreign", terms: "foreign" }, glance: false },
+    translation: TWO_TRANSLATED,
+    llm: { async chat({ system, maxTokens }) { short.push(system); return maxTokens <= 12 ? "ru" : "Кошка | Katze"; } },
+    later: { folded: () => true, unfolded: () => new Promise(() => {}) },
+    onChange: () => {},
+  });
+  assert.ok(short.length > 2, "asked as ever");
 });

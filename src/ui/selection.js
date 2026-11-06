@@ -14,27 +14,17 @@ const wordSpan = (node) => {
   return null;
 };
 
-const markSpan = (node) => {
-  while (node && node !== document) {
-    if (node.nodeType === 1 && node.classList?.contains("mark")) return node;
-    node = node.parentNode;
-  }
-  return null;
-};
-
 const spanOf = (element) => ({
   start: Number(element.dataset.from),
   end: Number(element.dataset.to),
 });
 
-/* A click inside a coloured mark takes the whole term, not the one word under
-   the pointer: the colour says the term belongs together, and taking half of
-   it back would contradict what the reader just saw. */
+/* A click takes the word under the pointer, inside a coloured term too
+   (author 2026-11-05, reversing the whole term): the term has its row
+   already, and one of its words is what a reader clicking it wants to know
+   about. Several words are picked by dragging across them, or on a phone
+   with the system's handles. */
 function fromClick(target) {
-  const mark = markSpan(target);
-  if (mark) {
-    return { start: Number(mark.dataset.markFrom), end: Number(mark.dataset.markTo) };
-  }
   const word = wordSpan(target);
   return word ? spanOf(word) : null;
 }
@@ -143,8 +133,7 @@ export function watchSelection(box, panel, onPick) {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", up);
       const word = wordSpan(released.target);
-      /* Released on the word it started on: that is a click, and a click
-         inside a mark takes the whole term. */
+      /* Released on the word it started on: that is a click. */
       const range = word && word !== box && anchor.start === spanOf(word).start
         ? fromClick(released.target)
         : null;

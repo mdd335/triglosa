@@ -13,7 +13,7 @@ import { SUPPORTED, WITHOUT_PACK, isChoosable, isSupported } from "./languages/i
 import { defaultHotkey, isHotkey } from "./hotkey.js";
 import { SEARCH_URLS, SYSTEM_SEARCH } from "./platform/search.js";
 import { languageNamedIn } from "./card.js";
-import { WAYS, setupOf } from "./setup.js";
+import { WAYS, presetOf, setupOf } from "./setup.js";
 
 /* The languages explanations can be written in, and so the interface: each
    needs a table of its own in src/ui/labels/ and words for the parsers in
@@ -227,17 +227,20 @@ const isPlainObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
    break the app. */
 /* The address and model in use, the way they belong to, and what the other
    ways hold. The address and model in use are what the file says at the
-   top; the way that holds them is told them again, so the two never part. */
+   top; the way that holds them is told them again, so the two never part.
+   Online's address is OpenRouter's whatever the file says: the reader has no
+   field for it, and an update that changes it reaches everyone. */
 function normalizeWays(raw) {
   const text = (value) => (typeof value === "string" ? value.trim() : "");
-  const endpoint = text(raw.endpoint);
   const model = text(raw.model);
-  const way = WAYS.includes(raw.way) ? raw.way : setupOf({ endpoint });
+  const way = WAYS.includes(raw.way) ? raw.way : setupOf({ endpoint: text(raw.endpoint) });
+  const fixed = (name, endpoint) => presetOf(name).endpoint || endpoint;
+  const endpoint = fixed(way, text(raw.endpoint));
   const stored = isPlainObject(raw.ways) ? raw.ways : {};
   const ways = {};
   for (const name of WAYS) {
     const entry = isPlainObject(stored[name]) ? stored[name] : null;
-    if (entry) ways[name] = { endpoint: text(entry.endpoint), model: text(entry.model) };
+    if (entry) ways[name] = { endpoint: fixed(name, text(entry.endpoint)), model: text(entry.model) };
   }
   if (way) ways[way] = { endpoint, model };
   return { endpoint, model, way, ways };

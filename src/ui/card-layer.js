@@ -50,6 +50,13 @@ export async function updateCardLayer(card) {
   return true;
 }
 
+/* A reading handed over from outside (the share menu, a Control Center
+   button, an address) is shown at once: a card standing over it goes,
+   unsaved (author 2026-11-06). */
+export function closeCardLayer() {
+  open?.close();
+}
+
 export async function openCardLayer(first, { fromCopied } = {}) {
   let card = first;
   open?.close();

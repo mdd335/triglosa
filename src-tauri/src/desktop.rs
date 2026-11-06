@@ -135,9 +135,25 @@ fn is_pinned(app: &tauri::AppHandle) -> bool {
 
 /* Whether a window stays above every other program's. All of them do while
 the reading window is pinned, but for the first steps, which never stand in
-front of a reading (author 2026-11-01). */
-fn stays_above(label: &str, pinned: bool) -> bool {
-    pinned && label != "welcome"
+front of a reading (author 2026-11-01) — and the settings while the first
+steps are open, which would otherwise stand over them (author 2026-11-06). */
+fn stays_above(label: &str, pinned: bool, welcome_open: bool) -> bool {
+    match label {
+        "welcome" => false,
+        "settings" => pinned && !welcome_open,
+        _ => pinned,
+    }
+}
+
+fn welcome_open(app: &tauri::AppHandle) -> bool {
+    app.get_webview_window("welcome").is_some()
+}
+
+/* The settings' level again, once the first steps came or went. */
+fn restack_settings(app: &tauri::AppHandle, welcome_open: bool) {
+    if let Some(settings) = app.get_webview_window("settings") {
+        let _ = settings.set_always_on_top(stays_above("settings", is_pinned(app), welcome_open));
+    }
 }
 
 fn apply_presence_to(app: &tauri::AppHandle, pinned: bool, icon: &str) {
@@ -151,8 +167,9 @@ fn apply_presence_to(app: &tauri::AppHandle, pinned: bool, icon: &str) {
     /* Every window this app has, not only the reading one: the settings and
     a card are opened from a pinned window, and at the ordinary level they
     would open underneath it. */
+    let welcome = welcome_open(app);
     for (label, window) in app.webview_windows().iter() {
-        let _ = window.set_always_on_top(stays_above(label, pinned));
+        let _ = window.set_always_on_top(stays_above(label, pinned, welcome));
     }
     /* A Dock icon means an ordinary app, a menu bar symbol alone an accessory
     one — the policy is what puts the icon in the Dock. */
@@ -168,7 +185,7 @@ fn apply_presence_to(app: &tauri::AppHandle, pinned: bool, icon: &str) {
     "both", as the Dock is on a Mac. Windows shows it only while the window
     is visible, which is the ordinary way a program sits in the taskbar. */
     #[cfg(target_os = "windows")]
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(&reading_label()) {
         let _ = window.set_skip_taskbar(icon == "menubar");
     }
     if let Some(tray) = app.tray_by_id("main") {
@@ -648,7 +665,7 @@ async fn read_selection() -> Result<capture::Selection, String> {
 async fn insert_text(app: tauri::AppHandle, source: i32, text: String) -> Result<(), String> {
     /* A pinned window still standing has the keys, and the paste would land
     in it. */
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(&reading_label()) {
         let target = window.clone();
         main_thread_answer(&window, move || {
             overlay::give_up_keys(&target);
@@ -726,7 +743,7 @@ fn open_accessibility_settings() -> Result<(), String> {
 the shortcut has to go on working, and a program that has to be running
 before its global shortcut does is not a global shortcut. */
 pub(crate) fn show_window(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(&reading_label()) {
         let _ = window.unminimize();
         fit_on_screen(&window);
         journal::note(&format!("window shown {}", where_it_stands(&window)));
@@ -752,7 +769,234 @@ pub(crate) fn show_window(app: &tauri::AppHandle) {
         it learns that a session has come back — and the translation
         helper may have idled out in between. */
         let _ = window.emit("shown", ());
+        see_that_it_stands(app);
     }
+}
+
+/* Whether the reading window macOS was told to show is on the screen.
+
+After a night's sleep the window has been found shown by AppKit's count and
+nowhere at all by the window server's: on no Space, not ordered in, and
+every later order to show it lost — hiding it and showing it again, moving
+it to the active Space, making it a panel, none of it brought it back, and
+a window built anew in the same app (the settings) came at once. Why the
+long-lived window goes that way is not known. So the window server is
+asked, a moment after the window was shown, and a window it does not have
+on the screen is built anew (rebuild_reading_window). Not more than once a
+minute, so that a question answered wrongly cannot rebuild it in a loop.
+On Windows the question is not asked. */
+fn see_that_it_stands(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+            let Some(window) = app.get_webview_window(&reading_label()) else {
+                return;
+            };
+            if !window.is_visible().unwrap_or(false) {
+                return;
+            }
+            /* For trying the rebuild in a test machine (scripts/mac-vm/): the
+            first window shown with TRIGLOSA_REBUILD set counts as unseen. */
+            static FEIGNED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            let feigned = std::env::var_os("TRIGLOSA_REBUILD").is_some()
+                && !FEIGNED.swap(true, std::sync::atomic::Ordering::Relaxed);
+            let target = window.clone();
+            let unseen = feigned
+                || main_thread_answer(&window, move || {
+                    overlay::stands_on_screen(&target) == Some(false)
+                });
+            if unseen {
+                rebuild_reading_window(&app);
+            }
+        });
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
+/* The last rebuild and how many there were, so that there is never a second
+one within a minute, and each new window has a label of its own. */
+static REBUILT_AT: Mutex<Option<(std::time::Instant, usize)>> = Mutex::new(None);
+
+/* The reading window's label: "main" as the configuration builds it, and
+"main-1", "main-2", … for one built in its place (rebuild_reading_window). */
+static READING_LABEL: Mutex<Option<String>> = Mutex::new(None);
+
+pub(crate) fn reading_label() -> String {
+    READING_LABEL
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .unwrap_or_else(|| "main".into())
+}
+
+/* What the page that was taken down left for the one built in its place:
+the readings it kept, written by the old page (hand_over) and taken once by
+the new one (taken_over). `Some` from the moment a rebuild begins, empty
+where the old page did not answer in time. */
+static HANDED_OVER: Mutex<Option<String>> = Mutex::new(None);
+
+#[tauri::command]
+fn hand_over(readings: String) {
+    *HANDED_OVER.lock().unwrap_or_else(|e| e.into_inner()) = Some(readings);
+}
+
+/* Taken once: a page started any other way gets nothing, and knows by that
+that it is the app's first. */
+#[tauri::command]
+fn taken_over() -> Option<String> {
+    HANDED_OVER.lock().unwrap_or_else(|e| e.into_inner()).take()
+}
+
+/* The reading window built again from the configuration, as it is at the
+start, under a label of its own. The old page is asked for its readings
+first and the new one takes them; the new page shows the window itself once
+it is ready (`taken_over` tells it so). The old window is not destroyed:
+taken out of the panel library's hands it crashed the app or upset AppKit's
+memory, measured in the test machine. It is emptied instead — a blank page,
+none of whose answers to the shortcut or the menu can run any more — and
+left where it stands, which is nowhere. Off the main thread: the window is
+built and waited for here. */
+fn rebuild_reading_window(app: &tauri::AppHandle) {
+    let number = {
+        let mut last = REBUILT_AT.lock().unwrap_or_else(|e| e.into_inner());
+        if last.is_some_and(|(at, _)| at.elapsed() < std::time::Duration::from_secs(60)) {
+            journal::note("window not on the screen, rebuilt a minute ago already");
+            return;
+        }
+        let number = last.map_or(1, |(_, number)| number + 1);
+        *last = Some((std::time::Instant::now(), number));
+        number
+    };
+    journal::note("window not on the screen; built anew");
+    let Some(old) = app.get_webview_window(&reading_label()) else {
+        return;
+    };
+
+    *HANDED_OVER.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    let _ = app.emit_to(old.label(), "hand-over", ());
+    let asked = std::time::Instant::now();
+    while asked.elapsed() < std::time::Duration::from_millis(1500) {
+        if HANDED_OVER
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    HANDED_OVER
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(|| "{}".into());
+
+    remember_place(&old);
+    let _ = old.hide();
+    if let Ok(blank) = "about:blank".parse() {
+        let _ = old.navigate(blank);
+    }
+
+    let Some(mut config) = app.config().app.windows.first().cloned() else {
+        return;
+    };
+    config.label = format!("main-{number}");
+    match tauri::WebviewWindowBuilder::from_config(app, &config).and_then(|b| b.build()) {
+        Ok(window) => {
+            *READING_LABEL.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some(window.label().to_string());
+            prepare_reading_window(&window);
+        }
+        Err(error) => journal::note(&format!("the window could not be built: {error}")),
+    }
+}
+
+/* The reading window made what it is: a panel over every Space, without the
+system's buttons, at the size and the place the reader left it, put away
+when it is closed or the reader reaches for something else. At the start,
+and again for a window built anew (rebuild_reading_window). */
+fn prepare_reading_window(window: &tauri::WebviewWindow) {
+    overlay::as_panel(&window);
+    overlay::over_full_screen(&window, overlay::Spaces::All);
+    overlay::without_window_buttons(&window);
+    /* On Windows the system's title bar would stand above the
+    page's own line with its three buttons: the frame goes and
+    the page's line is the title bar. Whether it has a taskbar
+    button is the reader's choice (apply_presence_to). */
+    #[cfg(target_os = "windows")]
+    {
+        let _ = window.set_decorations(false);
+        let _ = window.set_shadow(true);
+    }
+    /* The size and the place the reader left it at. Set before
+    the window is ever looked at, so it does not open at one
+    size and jump to another. */
+    if let Some(place) = remembered_place(window.app_handle()) {
+        let _ = window.set_size(tauri::LogicalSize::new(place.width, place.height));
+        if let (Some(x), Some(y)) = (place.x, place.y) {
+            if is_on_a_screen(&window, x, y) {
+                let _ = window.set_position(tauri::LogicalPosition::new(x, y));
+            }
+        }
+    }
+    fit_on_screen(&window);
+    if let (Ok(outer), Some(height)) = (window.outer_size(), window.try_state::<ReadingHeight>()) {
+        *height.0.lock().unwrap() = f64::from(outer.height) / window.scale_factor().unwrap_or(1.0);
+    }
+    let handle = window.clone();
+    window.on_window_event(move |event| match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            put_away(&handle);
+        }
+        /* Reaching for something else puts the window away, the
+        way a menu closes on a focus change. It
+        lies over another program's full screen, and something
+        lying there that only goes when it is dismissed is in
+        the way rather than at hand. Hiding takes nothing with
+        it: a reading that is still being worked out goes on,
+        and the window comes back to it.
+
+        Asked a moment later, and of every window this app has:
+        opening the settings takes the focus off this one, and
+        macOS reports the loss before it reports the gain. */
+        WindowEvent::Focused(false) => {
+            if is_pinned(handle.app_handle()) {
+                return;
+            }
+            let window = handle.clone();
+            let left = std::sync::Arc::new(overlay::focus_left());
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                /* A panel floating over the program the reader
+                is in — Spotlight opened for its clipboard
+                history — is not reaching for something else.
+                The window waits until either one of ours has
+                the focus again or another program has been
+                reached (overlay::reached_elsewhere). */
+                loop {
+                    let ours = window
+                        .app_handle()
+                        .webview_windows()
+                        .values()
+                        .any(|window| window.is_focused().unwrap_or(false));
+                    if ours || !window.is_visible().unwrap_or(false) {
+                        return;
+                    }
+                    let left = left.clone();
+                    if main_thread_answer(&window, move || overlay::reached_elsewhere(&left)) {
+                        put_away(&window);
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                }
+            });
+        }
+        _ => {}
+    });
 }
 
 /* The height to set, or none for leaving it alone. A pixel or two either way
@@ -779,7 +1023,7 @@ first, while nobody can see that, and then shows it — the same way the
 shortcut does. Shown from here after a moment all the same, in case the
 page never answers. */
 fn ask_to_show(app: &tauri::AppHandle, fresh: bool) {
-    let Some(window) = app.get_webview_window("main") else {
+    let Some(window) = app.get_webview_window(&reading_label()) else {
         journal::note("window asked for, but there is none");
         return;
     };
@@ -800,7 +1044,7 @@ fn ask_to_show(app: &tauri::AppHandle, fresh: bool) {
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(600));
         let hidden = app
-            .get_webview_window("main")
+            .get_webview_window(&reading_label())
             .map(|window| !window.is_visible().unwrap_or(true))
             .unwrap_or(false);
         if hidden {
@@ -812,7 +1056,7 @@ fn ask_to_show(app: &tauri::AppHandle, fresh: bool) {
 
 #[tauri::command]
 async fn fit_reading_window(app: tauri::AppHandle, height: f64, grow: bool) -> bool {
-    let Some(window) = app.get_webview_window("main") else {
+    let Some(window) = app.get_webview_window(&reading_label()) else {
         return false;
     };
     /* Answers whether the height changes, so the page can wait for it: a
@@ -885,7 +1129,7 @@ page never says so. */
 #[tauri::command]
 fn show_main_window(app: tauri::AppHandle, veiled: Option<bool>) {
     let veiled = veiled.unwrap_or(false);
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(&reading_label()) {
         let target = window.clone();
         let _ = window.run_on_main_thread(move || overlay::set_veiled(&target, veiled));
     }
@@ -900,7 +1144,7 @@ fn show_main_window(app: tauri::AppHandle, veiled: Option<bool>) {
 }
 
 fn unveil(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(&reading_label()) {
         let target = window.clone();
         let _ = window.run_on_main_thread(move || overlay::set_veiled(&target, false));
     }
@@ -913,7 +1157,7 @@ fn unveil_main_window(app: tauri::AppHandle) {
 
 #[tauri::command]
 fn hide_main_window(app: tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(&reading_label()) {
         put_away(&window);
     }
 }
@@ -961,7 +1205,7 @@ fn settings_window(app: &tauri::AppHandle, page: Option<&str>) -> Result<(), Str
     .inner_size(840.0, 640.0)
     .min_inner_size(780.0, 380.0)
     .resizable(true)
-    .always_on_top(stays_above("settings", is_pinned(app)))
+    .always_on_top(stays_above("settings", is_pinned(app), welcome_open(app)))
     /* Built hidden and then brought forward, the way an existing one is.
     Shown as it was built, from the menu bar, the window stood behind the
     program in front — an accessory app is not active — and was found
@@ -989,6 +1233,7 @@ the one thing on the screen that says the app runs. Opened rather than
 toggled, as the settings are. */
 fn welcome_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("welcome") {
+        restack_settings(app, true);
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -1010,6 +1255,13 @@ fn welcome_window(app: &tauri::AppHandle, title: String) -> Result<(), String> {
     .visible(false)
     .build()
     .map_err(|error| error.to_string())?;
+    restack_settings(app, true);
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::Destroyed = event {
+            restack_settings(&handle, false);
+        }
+    });
     overlay::over_full_screen(&window, overlay::Spaces::Active);
     let _ = window.show();
     let target = window.clone();
@@ -1396,7 +1648,7 @@ fn deliver(app: &tauri::AppHandle, found: Result<capture::Selection, String>) {
     }
     std::thread::sleep(std::time::Duration::from_millis(600));
     let hidden = app
-        .get_webview_window("main")
+        .get_webview_window(&reading_label())
         .map(|window| !window.is_visible().unwrap_or(true))
         .unwrap_or(false);
     if hidden {
@@ -1465,8 +1717,8 @@ fn capture_for_card(app: &tauri::AppHandle, from_menu: bool) {
     std::thread::spawn(move || {
         let found = selection_for(from_menu);
         let _ = match found {
-            Ok(selection) => app.emit_to("main", "capture-card", selection),
-            Err(reason) => app.emit_to("main", "capture-card-failed", reason),
+            Ok(selection) => app.emit_to(reading_label().as_str(), "capture-card", selection),
+            Err(reason) => app.emit_to(reading_label().as_str(), "capture-card-failed", reason),
         };
     });
 }
@@ -1649,7 +1901,7 @@ fn apply_tray(app: tauri::AppHandle, words: TrayWords, shortcuts: Shortcuts) -> 
             "fresh" => ask_to_show(app, true),
             "card" => capture_for_card(app, true),
             "blank-card" => {
-                let _ = app.emit_to("main", "card-blank", ());
+                let _ = app.emit_to(reading_label().as_str(), "card-blank", ());
             }
             "settings" | "updates" => {
                 /* After the menu has closed: while it is still tracking, the
@@ -1755,6 +2007,8 @@ pub fn run() {
             request_accessibility,
             open_accessibility_settings,
             show_main_window,
+            hand_over,
+            taken_over,
             fit_reading_window,
             unveil_main_window,
             hide_main_window,
@@ -1808,90 +2062,8 @@ pub fn run() {
             the menu bar symbol is the way back — see apply_tray, which the
             window builds as soon as it knows which language to name it
             in. */
-            if let Some(window) = app.get_webview_window("main") {
-                overlay::as_panel(&window);
-                overlay::over_full_screen(&window, overlay::Spaces::All);
-                overlay::without_window_buttons(&window);
-                /* On Windows the system's title bar would stand above the
-                page's own line with its three buttons: the frame goes and
-                the page's line is the title bar. Whether it has a taskbar
-                button is the reader's choice (apply_presence_to). */
-                #[cfg(target_os = "windows")]
-                {
-                    let _ = window.set_decorations(false);
-                    let _ = window.set_shadow(true);
-                }
-                /* The size and the place the reader left it at. Set before
-                the window is ever looked at, so it does not open at one
-                size and jump to another. */
-                if let Some(place) = remembered_place(app.handle()) {
-                    let _ = window.set_size(tauri::LogicalSize::new(place.width, place.height));
-                    if let (Some(x), Some(y)) = (place.x, place.y) {
-                        if is_on_a_screen(&window, x, y) {
-                            let _ = window.set_position(tauri::LogicalPosition::new(x, y));
-                        }
-                    }
-                }
-                fit_on_screen(&window);
-                if let (Ok(outer), Some(height)) =
-                    (window.outer_size(), window.try_state::<ReadingHeight>())
-                {
-                    *height.0.lock().unwrap() =
-                        f64::from(outer.height) / window.scale_factor().unwrap_or(1.0);
-                }
-                let handle = window.clone();
-                window.on_window_event(move |event| match event {
-                    WindowEvent::CloseRequested { api, .. } => {
-                        api.prevent_close();
-                        put_away(&handle);
-                    }
-                    /* Reaching for something else puts the window away, the
-                    way a menu closes on a focus change. It
-                    lies over another program's full screen, and something
-                    lying there that only goes when it is dismissed is in
-                    the way rather than at hand. Hiding takes nothing with
-                    it: a reading that is still being worked out goes on,
-                    and the window comes back to it.
-
-                    Asked a moment later, and of every window this app has:
-                    opening the settings takes the focus off this one, and
-                    macOS reports the loss before it reports the gain. */
-                    WindowEvent::Focused(false) => {
-                        if is_pinned(handle.app_handle()) {
-                            return;
-                        }
-                        let window = handle.clone();
-                        let left = std::sync::Arc::new(overlay::focus_left());
-                        std::thread::spawn(move || {
-                            std::thread::sleep(std::time::Duration::from_millis(200));
-                            /* A panel floating over the program the reader
-                            is in — Spotlight opened for its clipboard
-                            history — is not reaching for something else.
-                            The window waits until either one of ours has
-                            the focus again or another program has been
-                            reached (overlay::reached_elsewhere). */
-                            loop {
-                                let ours = window
-                                    .app_handle()
-                                    .webview_windows()
-                                    .values()
-                                    .any(|window| window.is_focused().unwrap_or(false));
-                                if ours || !window.is_visible().unwrap_or(false) {
-                                    return;
-                                }
-                                let left = left.clone();
-                                if main_thread_answer(&window, move || {
-                                    overlay::reached_elsewhere(&left)
-                                }) {
-                                    put_away(&window);
-                                    return;
-                                }
-                                std::thread::sleep(std::time::Duration::from_millis(250));
-                            }
-                        });
-                    }
-                    _ => {}
-                });
+            if let Some(window) = app.get_webview_window(&reading_label()) {
+                prepare_reading_window(&window);
             }
             Ok(())
         })
@@ -1905,7 +2077,7 @@ pub fn run() {
                 journal::note("quit");
                 /* Quitting from the menu bar is the one way out that does not
                 go through put_away. */
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = app.get_webview_window(&reading_label()) {
                     remember_place(&window);
                 }
                 stop_helper(app);
@@ -1946,6 +2118,21 @@ mod tests {
         assert_eq!(fitted_height(301.5, 300.0, 900.0, 188.0, false), None);
         assert_eq!(fitted_height(250.0, 300.0, 900.0, 188.0, true), None);
         assert_eq!(fitted_height(350.0, 300.0, 900.0, 188.0, true), Some(350.0));
+    }
+
+    #[test]
+    fn pinned_windows_stay_above_but_the_first_steps_and_the_settings_under_them() {
+        use super::stays_above;
+        assert!(stays_above("main", true, false));
+        assert!(stays_above("card-1", true, true));
+        assert!(stays_above("settings", true, false));
+        assert!(
+            !stays_above("settings", true, true),
+            "the first steps open: the settings under them"
+        );
+        assert!(!stays_above("welcome", true, false));
+        assert!(!stays_above("main", false, false));
+        assert!(!stays_above("settings", false, false));
     }
 
     #[test]

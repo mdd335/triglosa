@@ -34,6 +34,9 @@ const PATHS = {
      flashcard is and what the layer it opens shows. It may not look like the
      copy symbol, which stands in the same row. */
   card: '<rect x="2.2" y="4" width="11.6" height="8" rx="1.6"/><path d="M2.2 8h11.6"/>',
+  /* A phone's blank card: the card symbol, smaller, with the plus of "one
+     more" at its corner. */
+  newCard: '<path d="M3.3 3h6.4a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5H3.3a1.5 1.5 0 0 1-1.5-1.5v-4A1.5 1.5 0 0 1 3.3 3zM1.8 6.4h9.4M13.2 10.6v4M11.2 12.6h4"/>',
   /* The two chevrons the title bar steps through the kept readings with, and
      a look-up through the words one synonym led to another. */
   previous: '<path d="M10 3.5 5.5 8l4.5 4.5"/>',
@@ -74,6 +77,8 @@ const PATHS = {
   camera: '<path d="M2.5 5.5h2.6l1.2-1.8h3.4l1.2 1.8h2.6v7.2h-11z"/><circle cx="8" cy="9" r="2.3"/>',
   /* A picture with a hill and a sun: one from the photo library. */
   photos: '<rect x="2.2" y="3" width="11.6" height="10" rx="1.6"/><path d="m2.6 11.4 3.4-3.4 2.6 2.6 1.6-1.6 3.2 3.2"/><circle cx="10.6" cy="6" r="1"/>',
+  /* A folder: a picture from the Files app. */
+  files: '<path d="M2 4.6c0-.7.5-1.2 1.2-1.2h3l1.4 1.6h5.2c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H3.2c-.7 0-1.2-.5-1.2-1.2z"/>',
   /* A card with a star on it, as Anki's own symbol has one: the card into
      its deck, or the deck to choose. */
   anki: '<rect x="2" y="2" width="12" height="12" rx="2.6"/><path d="M8.00 4.35L9.03 7.03 11.90 7.18 9.66 8.99 10.41 11.77 8.00 10.20 5.59 11.77 6.34 8.99 4.10 7.18 6.97 7.03z"/>',

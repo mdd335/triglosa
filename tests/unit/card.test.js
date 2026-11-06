@@ -8,6 +8,7 @@ import {
   cardLine,
   entryCard,
   guessFieldMap,
+  bothSides,
   hasCard,
   markedCard,
   noteFields,
@@ -36,7 +37,7 @@ test("a verb goes into the deck in its base form", () => {
      the row's two buttons look up the base form. */
   assert.strictEqual(card.term, "andar");
   assert.strictEqual(card.termLanguage, "es");
-  assert.strictEqual(card.meaning, "gehen, laufen");
+  assert.strictEqual(card.meaning, "gehen;\nlaufen", "two meanings one under the other");
   assert.strictEqual(card.meaningLanguage, "de");
   /* The form is not lost: it stands in the explanation with its person and
      tense, which is what makes the card about this reading. */
@@ -120,6 +121,13 @@ test("a word with no equivalent puts its explanation on the back once", () => {
   assert.ok(card.note.includes("Anduvo por el parque toda la tarde. (Er ging den ganzen Nachmittag durch den Park.)"));
 });
 
+test("a picked word's and a term's two meanings stand one under the other, an explanation in their place as written", () => {
+  const context = { wordLanguage: "es", reader: "de", sentence: SOURCE, translation: TARGET };
+  assert.strictEqual(markedCard({ text: "parque", meaning: "Park, Grünanlage" }, context).meaning, "Park;\nGrünanlage");
+  assert.strictEqual(markedCard({ text: "parque", note: "Eine Grünfläche, mit Bäumen." }, context).meaning, "Eine Grünfläche, mit Bäumen.");
+  assert.strictEqual(termCard({ text: "parque", meaning: "Park, Grünanlage" }, { sourceLanguage: "es", reader: "de", sentence: SOURCE, translation: TARGET }).meaning, "Park;\nGrünanlage");
+});
+
 test("a word reached through a synonym gets no example sentence", () => {
   const context = { text: de, wordLanguage: "es", reader: "de", sentence: SOURCE, translation: TARGET };
   /* The marked word finds the other sentence by its equivalent, which is the
@@ -168,9 +176,11 @@ test("a dictionary line of a word in a third language puts the reader's own word
       readerAlternatives: [{ text: "Kasse" }, { text: "bezahlen" }],
     },
   );
-  assert.strictEqual(card.meaning, "Kasse, bezahlen");
+  assert.strictEqual(card.meaning, "Kasse;\nbezahlen", "one under the other, as an improved card has two senses");
   assert.strictEqual(card.meaningLanguage, "de");
-  assert.strictEqual(card.note, "regional\ncheckout");
+  /* The English reading stays off the card: nobody here learns it
+     (author 2026-11-05, "lavado" in the notes). */
+  assert.strictEqual(card.note, "regional");
 });
 
 test("the copied line is one line, whatever the fields hold", () => {
@@ -186,6 +196,9 @@ test("an empty word is not a card", () => {
   assert.strictEqual(hasCard({ term: "andar" }), true);
   assert.strictEqual(hasCard({ term: "  ", meaning: "gehen" }), false);
   assert.strictEqual(hasCard(null), false);
+  assert.strictEqual(bothSides({ term: "andar" }), false, "half a card");
+  assert.strictEqual(bothSides({ term: "andar", meaning: " " }), false);
+  assert.strictEqual(bothSides({ term: "andar", meaning: "gehen" }), true);
 });
 
 /* ---- which field of a note type takes which line ---- */
@@ -309,7 +322,7 @@ test("the reading itself makes a card, with the entry on its back", () => {
   /* The translations are the back, and the ones carrying a note are named
      again underneath — which of three words to use is the question the entry
      answers. */
-  assert.strictEqual(card.meaning, "parken, abstellen, einparken");
+  assert.strictEqual(card.meaning, "parken;\nabstellen;\neinparken");
   assert.strictEqual(card.note, "abstellen — eher schriftlich\neinparken — in eine Lücke");
 });
 

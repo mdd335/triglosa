@@ -369,6 +369,27 @@ test("the wand rewrites the card, and the same place then takes it back", async 
   assert.strictEqual(wand().dataset.icon, "improve");
 });
 
+test("the wand tells the model which lines of the note the app or the model wrote", async () => {
+  const seen = [];
+  const { host, boxes } = show(
+    { term: "brazos", termLanguage: "es", meaning: "Arme", meaningLanguage: "de", note: "alt" },
+    { improve: async (card) => { seen.push(card.given); return { term: "el brazo", meaning: "der Arm", note: "vom Modell" }; } });
+  const wand = () => host.querySelector(".card-improve button");
+  const type = (box, value) => { box.value = value; box.dispatchEvent(new window.Event("input")); };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+  wand().click();
+  await settle();
+  type(boxes[2], "vom Modell\nTengo el brazo roto.");
+  wand().click();
+  await settle();
+  assert.deepStrictEqual(seen, ["alt", "vom Modell"], "as it arrived, then as the model left it");
+  wand().click();
+  type(boxes[2], "alt\nmeins");
+  wand().click();
+  await settle();
+  assert.strictEqual(seen.at(-1), "vom Modell", "undone, what the model had been given counts again");
+});
+
 test("the way back stands only while the card reads as the model wrote it", async () => {
   let asked = 0;
   const { host, boxes } = show(
@@ -481,6 +502,83 @@ test("without a model there is no wand", () => {
   renderCard(host, { term: "caja", termLanguage: "es", meaning: "Kasse", meaningLanguage: "de" },
     { text: de, reader: "de", copy: async () => {}, anki: null });
   assert.strictEqual(host.querySelector(".card-improve"), null);
+});
+
+test("without a model Apple writes the missing side, says so and what a model adds, and nothing else", async () => {
+  /* author 2026-11-05: a new card without a model, with Apple. */
+  const host = document.createElement("div");
+  document.body.append(host);
+  let asked = 0;
+  const complete = async (card) => { asked += 1; return { ...card, meaning: "Besserwisser" }; };
+  complete.by = "device";
+  complete.ready = (card) => !!card.term && !card.meaning;
+  renderCard(host,
+    { term: "smart aleck", termLanguage: "en", meaning: "", meaningLanguage: "de", note: "", choices: ["en"], free: true },
+    { text: de, reader: "de", copy: async () => {}, anki: null, improveNow: true, improve: complete });
+  const wand = () => host.querySelector(".card-improve button");
+  assert.strictEqual(host.querySelector(".card-status").textContent, de.cardCompleting);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(asked, 1);
+  assert.deepStrictEqual([...host.querySelectorAll(".card-box")].map((box) => box.value), ["smart aleck", "Besserwisser", ""]);
+  assert.strictEqual(host.querySelector(".card-status").textContent,
+    "Übersetzt von Apple (auf diesem Gerät). Verbinde in den Einstellungen ein KI-Modell für eine genauere Übersetzung, eine Erklärung und Beispielsätze.");
+  assert.strictEqual(wand().getAttribute("aria-label"), de.cardCompleteUndo);
+  wand().click();
+  /* Both sides written: nothing left for Apple. */
+  const full = document.createElement("div");
+  renderCard(full, { term: "caja", termLanguage: "es", meaning: "Kasse", meaningLanguage: "de" },
+    { text: de, reader: "de", copy: async () => {}, anki: null, improve: complete });
+  assert.ok(full.querySelector(".card-improve button").disabled);
+  assert.ok(full.querySelector(".card-improve button").getAttribute("aria-label").startsWith(de.cardComplete));
+});
+
+test("Apple translates the sentence a looked-up word brought, once, and writes a word as a dictionary does", async () => {
+  /* author 2026-11-05: the card's sentence translated without a model too. */
+  const { deviceCompleter } = await import("../../src/ui/card-improver.js");
+  const asked = [];
+  const backend = { running: async () => true, translate: async (from, to, text) => { asked.push(text); return text === "ranger" ? "Aufräumen" : "Du musst dein Zimmer aufräumen."; } };
+  const card = { term: "ranger", termLanguage: "fr", meaning: "", meaningLanguage: "de", note: "Tu dois ranger ta chambre.",
+    context: { sentence: "Tu dois ranger ta chambre.", translation: "" } };
+  const complete = deviceCompleter(card, { reader: "de", backend });
+  assert.ok(complete.ready(card));
+  const done = await complete(card);
+  assert.strictEqual(done.meaning, "Aufräumen", "German keeps what Apple wrote: the pack cannot tell a noun");
+  assert.strictEqual(done.note, "Tu dois ranger ta chambre. (Du musst dein Zimmer aufräumen.)");
+  /* Both sides written and the sentence behind its translation: nothing left. */
+  assert.ok(!complete.ready({ ...done, context: card.context }));
+  const english = deviceCompleter({ ...card, meaningLanguage: "en" }, { reader: "de", backend: { ...backend, translate: async () => "To tidy up" } });
+  assert.strictEqual((await english({ ...card, meaningLanguage: "en", note: "" })).meaning, "to tidy up");
+});
+
+test("Apple without the pack names it and where to load it, a pair it cannot do as the panel does", async () => {
+  const { deviceCompleter } = await import("../../src/ui/card-improver.js");
+  const backend = { translate: async () => "", pairStatus: async () => "supported", running: async () => true };
+  const complete = deviceCompleter({ termLanguage: "en", meaningLanguage: "de" }, { reader: "de", backend });
+  await assert.rejects(complete({ term: "smart aleck", termLanguage: "en", meaning: "", meaningLanguage: "de" }),
+    { message: de.packMissing("Englisch", "Deutsch") });
+  /* A pair Apple cannot do: said as the reading's panel says it. */
+  const never = deviceCompleter({ termLanguage: "en", meaningLanguage: "de" },
+    { reader: "de", backend: { ...backend, pairStatus: async () => "unsupported" } });
+  await assert.rejects(never({ term: "smart aleck", termLanguage: "en", meaning: "", meaningLanguage: "de" }),
+    { message: de.pairUnsupported("Englisch", "Deutsch") });
+  /* Nothing known about the pair: the usual "nothing came". */
+  const unknown = deviceCompleter({ termLanguage: "en", meaningLanguage: "de" },
+    { reader: "de", backend: { ...backend, pairStatus: async () => "" } });
+  assert.strictEqual(await unknown({ term: "smart aleck", termLanguage: "en", meaning: "", meaningLanguage: "de" }), null);
+});
+
+test("a phone's reader who has a model and kept the text from it is not told to connect one", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const complete = async (card) => ({ ...card, meaning: "Besserwisser" });
+  complete.by = "device";
+  complete.declined = true;
+  complete.ready = (card) => !!card.term && !card.meaning;
+  renderCard(host,
+    { term: "smart aleck", termLanguage: "en", meaning: "", meaningLanguage: "de", note: "", choices: ["en"], free: true },
+    { text: de, reader: "de", copy: async () => {}, anki: null, improveNow: true, improve: complete });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.strictEqual(host.querySelector(".card-status").textContent, de.byApple);
 });
 
 test("the wand stands in the title line where the window gives it one", () => {
@@ -614,7 +712,7 @@ test("Tab goes to the next field and Shift-Tab to the one before", () => {
   assert.strictEqual(document.activeElement, boxes[2]);
 });
 
-/* The two ways out wait for the word, like a field's own buttons. */
+/* The two ways out wait for both words, like a field's own buttons. */
 test("the ways out stand side by side across the card, each with its symbol", () => {
   const { host } = show(CARD, { anki: { ...CONFIGURED, add: async () => ({ kind: "saved" }), start: async () => true } });
   const feet = [...host.querySelectorAll(".card-actions.button-row > .row-button")];
@@ -623,18 +721,25 @@ test("the ways out stand side by side across the card, each with its symbol", ()
   assert.ok(feet.every((node) => node.querySelector("svg")));
 });
 
-test("copying the card and sending it to Anki wait for the word", () => {
+test("copying the card and sending it to Anki wait for the word and its meaning", () => {
   const anki = { enabled: true, configured: true, fields: { note: "Back" } };
-  const { host, boxes } = show({ ...CARD, term: "", free: true }, { anki });
+  const { host, boxes } = show({ ...CARD, term: "", meaning: "", free: true }, { anki });
   const feet = () => [...host.querySelectorAll(".card-actions > button")];
+  const type = (box, value) => {
+    box.value = value;
+    box.dispatchEvent(new window.Event("input"));
+  };
   assert.strictEqual(feet().length, 2);
   assert.ok(feet().every((node) => node.disabled), "nothing to copy or to file yet");
-  boxes[0].value = "andar";
-  boxes[0].dispatchEvent(new window.Event("input"));
+  type(boxes[0], "andar");
+  assert.ok(feet().every((node) => node.disabled), "the front alone is half a card");
+  type(boxes[1], "gehen");
   assert.ok(feet().every((node) => !node.disabled));
-  boxes[0].value = " ";
-  boxes[0].dispatchEvent(new window.Event("input"));
-  assert.ok(feet().every((node) => node.disabled));
+  type(boxes[1], " ");
+  assert.ok(feet().every((node) => node.disabled), "blanks are nothing");
+  type(boxes[1], "gehen");
+  type(boxes[0], "");
+  assert.ok(feet().every((node) => node.disabled), "nor the back alone");
 });
 
 test("⌘/Ctrl+Enter improves the card the way the wand does, and names itself on it", async () => {
@@ -659,4 +764,31 @@ test("⌘/Ctrl+Enter improves the card the way the wand does, and names itself o
   drawn.improve();
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.strictEqual(asked, 1, "the wand is the way back now, and the key leaves it alone");
+});
+
+test("without a model the wand is Apple's on a computer and a phone, and there is none on Windows", async () => {
+  const { improverFor } = await import("../../src/ui/card-improver.js");
+  const card = { term: "smart aleck", termLanguage: "en", meaning: "", meaningLanguage: "de" };
+  const settings = { endpoint: "", languages: ["de", "en"], levels: {} };
+  const mac = await improverFor(settings, card);
+  assert.strictEqual(mac.by, "device");
+  assert.ok(mac.ready(card));
+  assert.ok(!mac.ready({ ...card, meaning: "Besserwisser" }), "both sides written");
+  assert.ok(mac.ready({ ...card, term: "", meaning: "Besserwisser" }), "the word for a meaning");
+  assert.strictEqual(await improverFor(settings, { ...card, meaningLanguage: "en" }), null, "one language on both sides");
+  assert.ok(!mac.declined, "no model to connect: the note says to connect one");
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  try {
+    const kept = await improverFor({ ...settings, endpoint: "https://openrouter.ai/api/v1", modelConsent: { host: "openrouter.ai", allowed: false } }, card);
+    assert.strictEqual(kept.by, "device", "a phone whose reader kept the text from the model");
+    assert.ok(kept.declined);
+  } finally {
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
+  globalThis.TRIGLOSA_SYSTEM = "windows";
+  try {
+    assert.strictEqual(await improverFor(settings, card), null);
+  } finally {
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
 });

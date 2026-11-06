@@ -8,6 +8,7 @@
    model, no shell. */
 
 import { toTokens } from "../text.js";
+import { isFunctionWord } from "../vocabulary.js";
 
 const wordsIn = (text, range) => toTokens(text.slice(range.start, range.end))
   .filter((token) => token.isWord)
@@ -42,10 +43,26 @@ export function rangesAcross(links, texts, from, range, to) {
       ? original
       : (sentence.links[toColumn] || []).filter(([word]) => original.includes(word)).map(([, word]) => word);
     const words = wordsIn(texts[to], there);
+    /* A gap of one or two small words of the panel's language that nobody
+       took is no gap: "chatbot de IA" for "KI-Chatbot", where the aligner
+       links the two words carrying meaning and leaves "de" to nobody. */
+    const code = links.codes?.[to];
+    const taken = new Set(toColumn === -1
+      ? (sentence.links || []).flatMap((column) => (column || []).map(([word]) => word))
+      : (sentence.links[toColumn] || []).map(([, word]) => word));
+    const bridged = (from, until) => {
+      if (!code || until - from > 2) return false;
+      for (let at = from; at < until; at++) {
+        const word = texts[to].slice(words[at].start, words[at].end);
+        if (taken.has(at) || !isFunctionWord(word, [code])) return false;
+      }
+      return true;
+    };
     for (const index of [...new Set(landed)].sort((x, y) => x - y)) {
       if (!words[index]) continue;
       const last = found[found.length - 1];
-      if (last && last.index === index - 1 && /^[\s'’-]*$/.test(texts[to].slice(last.end, words[index].start))) {
+      const apart = last && last.index < index - 1 && bridged(last.index + 1, index);
+      if (last && (last.index === index - 1 || apart) && /^[\s\p{L}\p{N}'’-]*$/u.test(texts[to].slice(last.end, words[index].start))) {
         last.end = words[index].end;
         last.index = index;
       } else {

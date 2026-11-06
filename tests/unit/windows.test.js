@@ -22,7 +22,7 @@ test("on Windows the device translation answers like a helper that is not there"
 test("the Windows wording names no Mac and no Apple", () => {
   for (const code of ["de", "en"]) {
     const text = labels(code, "windows");
-    for (const key of ["noDevice", "onlyKnownLanguages", "modelIntro", "lockedHow", "apiKeyHints", "endpointHints", "hotkeyLead",
+    for (const key of ["noDevice", "onlyKnownLanguages", "modelIntro", "lockedHow", "lockedHowShort", "apiKeyHints", "endpointHints", "hotkeyLead",
       "hotkeyTakenSystem", "enterKey"]) {
       assert.doesNotMatch(JSON.stringify(text[key]), /Apple|macOS|⌘|Schlüsselbund|keychain/i, `${code}.${key}`);
     }

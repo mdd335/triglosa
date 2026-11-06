@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.8.0
+
+The license is now AGPL-3.0: a copy built on Triglosa has to stay open, also one offered as a web service. Version 0.7.0 stays under GPL-3.0, versions up to 0.6.0 under MIT.
+
+### New
+- iPhone: buttons for the Control Center, the Lock Screen and the Action button open Triglosa, translate what you copied, start a new translation, make a flashcard or translate a photo. Crop a picture before its text is read, also one you share, and read pictures from the Files app.
+- Without an AI model, click a word to see what it became in the translations, with Apple's translation of the word beside it where the two differ; hear it, search for it and put it on a flashcard. Mac and iPhone: Apple also writes a flashcard's missing side.
+- ⌘← and ⌘→ on the Mac, Alt+← and Alt+→ on Windows step to the previous and the next translation.
+- In the first steps' example, click or tap a word of the original to have it explained.
+
+### Changed
+- Improving a flashcard with AI adds a few checked notes on how the word is used, where it is said differently, where it comes from or what it is easily confused with, and keeps what you wrote.
+- Connecting an AI model: the two ways are now called *OpenRouter* and *Any provider*. If you get stuck, copy a prompt for an AI chatbot you trust that walks you through the steps.
+- What a word became, under the pointer, is worked out on your computer alone, and more precisely; no AI model is asked for it any more.
+- A click inside a marked term picks the word you clicked. Terms and verbs folded away are only asked for once you open them.
+- The first steps ask each time whether Triglosa may count anonymously; the count says only whether the AI model runs locally or online.
+
+### Fixed
+- iPhone: a text shared to Triglosa while it was closed arrives on the first try, and is no longer hidden under an open flashcard or the settings.
+- Mac: the window no longer stays out of sight after the Mac has slept for a long time.
+- A word clicked while the AI model cannot be reached is still answered as far as possible, and the explanation under a looked-up word explains one of the translations shown above it.
+- Portuguese and Italian texts are recognized more reliably, and text typed for a new translation is no longer lost when you step back.
+
 ## 0.7.0
 
 ### New

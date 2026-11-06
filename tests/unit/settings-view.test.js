@@ -18,6 +18,7 @@ globalThis.fetch = async () => { throw new TypeError("fetch failed"); };
 const { backToList, onPageList, openPage, settingsView } = await import("../../src/ui/settings-view.js");
 const { normalizeSettings } = await import("../../src/settings.js");
 const { labels } = await import("../../src/ui/labels.js");
+const { ONLINE } = await import("../../src/setup.js");
 
 /* The fields a settings view draws, found by their heading. */
 const fieldNamed = (view, name) => [...view.querySelectorAll(".field")]
@@ -510,22 +511,50 @@ test("the terms come before the verbs, as on the sheet", () => {
 });
 
 for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
-  test(`the way to the project is a sentence with three links, the diagnostics under it (${code})`, () => {
+  test(`the way to the project, then a box named help and one named feedback (${code})`, () => {
     const text = labels(code);
     const view = settingsView({ settings: normalizeSettings({ languages: [code, code === "en" ? "es" : "en"] }), apiKey: "" },
       { onChange: () => {}, onKeyChange: () => {} });
-    const sentence = view.querySelector(".about-links");
-    const links = [...sentence.querySelectorAll("a")];
-    assert.deepStrictEqual(links.map((link) => link.href), [
-      "https://github.com/mdd335/triglosa",
-      "https://github.com/mdd335/triglosa#readme",
-      "https://github.com/mdd335/triglosa/issues",
-    ]);
-    assert.strictEqual(sentence.querySelectorAll("button").length, 0);
-    const diagnostics = [...view.querySelectorAll("button")].find((node) => node.textContent === text.diagnosticsCopy);
-    assert.ok(sentence.compareDocumentPosition(diagnostics) & window.Node.DOCUMENT_POSITION_FOLLOWING, "under it");
+    const about = view.querySelector('.settings-page[data-page="about"]');
+    assert.deepStrictEqual([...about.querySelectorAll("h2.group")].map((node) => node.textContent), [text.groupAbout],
+      "no heading inside the page: the boxes carry the names");
+    const links = (node) => [...node.querySelectorAll("a")].map((link) => link.href);
+    const help = about.querySelector(".about-help");
+    const feedback = about.querySelector(".about-feedback");
+    assert.strictEqual(help.firstElementChild.textContent, text.groupHelp);
+    assert.strictEqual(feedback.firstElementChild.textContent, text.groupFeedback);
+
+    const project = help.previousElementSibling;
+    assert.ok(links(project).includes("https://github.com/mdd335/triglosa"), "the project above the help");
+
+    const again = help.querySelector(".welcome-again");
+    const readme = [...help.querySelectorAll(".about-links")].at(-1);
+    assert.strictEqual(again.textContent, text.welcome.open);
+    assert.deepStrictEqual(links(readme), ["https://github.com/mdd335/triglosa#readme"]);
+    assert.ok(again.compareDocumentPosition(readme) & window.Node.DOCUMENT_POSITION_FOLLOWING, "the first steps, the README under them");
+
+    assert.strictEqual(help.nextElementSibling, feedback);
+    assert.strictEqual(feedback, about.lastElementChild, "feedback last");
+    const issues = feedback.querySelector(".about-links");
+    assert.deepStrictEqual(links(issues), ["https://github.com/mdd335/triglosa/issues"]);
+    assert.strictEqual(issues.querySelectorAll("button").length, 0);
+    const diagnostics = [...feedback.querySelectorAll("button")].find((node) => node.textContent === text.diagnosticsCopy);
+    assert.ok(issues.compareDocumentPosition(diagnostics) & window.Node.DOCUMENT_POSITION_FOLLOWING, "the diagnostics under the issues");
   });
 }
+
+test("with Apple first and a model set, the settings say a looked-up word still goes to the model", async () => {
+  /* author 2026-11-05: short mode asks the model first whatever the choice. */
+  const text = labels("de");
+  const shown = (extra) => {
+    const view = settingsView({ settings: normalizeSettings({ languages: ["de", "es"], ...extra }), apiKey: "" },
+      { onChange: () => {}, onKeyChange: () => {} });
+    return view.textContent.includes(text.translatorShort);
+  };
+  assert.ok(shown({ translator: "device", endpoint: "https://openrouter.ai/api/v1" }));
+  assert.ok(!shown({ translator: "model", endpoint: "https://openrouter.ai/api/v1" }), "the model first: nothing to say");
+  assert.ok(!shown({ translator: "device", endpoint: "" }), "no model: Apple does it all");
+});
 
 /* A phone has one page under a finger: no window to fit, no shortcut, no
    other program to read from, no pointer to hover with, and nothing to
@@ -551,9 +580,16 @@ for (const code of ["de", "en", "fr"]) {
       const groups = [...view.querySelectorAll("h2, h3, .group")].map((node) => node.textContent);
       assert.ok(groups.includes(text.groupLanguages) && groups.includes(text.groupAbout));
       assert.ok(groups.includes(text.groupCards));
-      for (const absent of [text.groupWindow, text.groupShortcuts, text.groupReading]) {
+      for (const absent of [text.groupWindow, text.groupShortcuts]) {
         assert.ok(!groups.includes(absent), `no group ${absent}`);
       }
+      /* Another app's text comes copied or shared: its page holds how iOS
+         stops asking at every paste, and nothing else. */
+      assert.strictEqual(text.groupReading, labels(code, "ios").groupReading);
+      assert.notStrictEqual(text.groupReading, labels(code, "mac").groupReading, "apps, not programs");
+      const reading = view.querySelector('.settings-page[data-page="reading"]');
+      assert.deepStrictEqual([...reading.querySelectorAll(".field > label")].map((node) => node.textContent), [text.pasteSetting]);
+      assert.ok(!view.querySelector('.settings-page[data-page="translation"]').textContent.includes(text.pasteHint));
       assert.ok(view.textContent.includes(text.modelIntro));
       assert.ok(!view.querySelector(".update-check"), "nothing to install from here");
       const offered = [...view.querySelectorAll(".setup-choice b")].map((node) => node.textContent);
@@ -745,8 +781,7 @@ test("the settings lead back to the first steps, on a phone too", () => {
   const again = view.querySelector(".welcome-again");
   assert.strictEqual(again.textContent, labels("en").welcome.open);
   assert.strictEqual(again.tagName, "BUTTON", "it opens a window of the app, so it is a button and no link");
-  const about = view.querySelector('.settings-page[data-page="about"]');
-  assert.strictEqual(about.lastElementChild, again.parentElement, "last, under the links");
+  assert.ok(again.closest(".about-help"), "under the help");
   globalThis.TRIGLOSA_SYSTEM = "ios";
   try {
     const phone = settingsView({ settings: normalizeSettings({}), apiKey: "" }, {});
@@ -857,11 +892,12 @@ test("each group is a page of its own, one shown at a time, chosen in the list b
   const pages = () => [...view.querySelectorAll(".settings-page")];
   assert.deepStrictEqual(entries().map((node) => node.textContent), [
     text.groupLanguages, text.groupModel, text.groupTranslation, text.groupSections, text.groupWindow,
-    text.groupShortcuts, text.groupReading, text.groupCards, text.groupAbout,
+    text.groupShortcuts, text.groupReadingEntry, text.groupCards, text.groupAbout,
   ]);
   assert.ok(entries().every((node) => node.querySelector("svg")), "each with its symbol");
   assert.deepStrictEqual(pages().map((node) => node.querySelector("h2.group").textContent),
-    entries().map((node) => node.textContent), "each page under its own name");
+    entries().map((node) => node.textContent).map((name) => (name === text.groupReadingEntry ? text.groupReading : name)),
+    "each page under its own name, the list naming one shorter");
   const showing = () => pages().filter((node) => !node.hidden).map((node) => node.dataset.page);
   assert.deepStrictEqual(showing(), ["languages"]);
   assert.strictEqual(entries()[0].getAttribute("aria-current"), "page");
@@ -980,6 +1016,17 @@ test("the switch that improves cards says a card can always be improved on its b
   assert.strictEqual(text.cardsEnabled, "Knopf für Lernkarten anzeigen", "worded so");
 });
 
+test("the card button's setting says what copying a card gives, naming the button by its own label", () => {
+  for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
+    const text = labels(code);
+    const view = settingsView({ settings: normalizeSettings({ languages: [code, code === "es" ? "en" : "es"] }), apiKey: "" },
+      { onChange: () => {}, onKeyChange: () => {} });
+    const row = fieldNamed(view, text.cardsEnabled);
+    assert.ok(row.textContent.includes(text.cardsEnabledHint), code);
+    assert.ok(text.cardsEnabledHint.includes(text.cardCopyAll), `${code}: the button as it is called`);
+  }
+});
+
 /* On a phone the list of pages is a screen of its own, as in the system's
    settings: an entry leads on to its page, the way back leads to the list,
    and the place survives the redraw every change causes. */
@@ -1050,25 +1097,41 @@ for (const code of ["de", "en"]) {
     for (const [way, endpoint] of [["online", "https://openrouter.ai/api/v1"], ["own", "https://api.mistral.ai/v1"]]) {
       const view = settingsView({ settings: normalizeSettings({ languages: [code, "es"], way, endpoint }), apiKey: "" },
         { onChange: () => {}, onKeyChange: () => {} });
-      assert.strictEqual(hints(view, text.endpoint), text.endpointHints[way], way);
+      if (way === "own") assert.strictEqual(hints(view, text.endpoint), text.endpointHints.own, way);
       assert.strictEqual(hints(view, text.model), text.modelHints[way], way);
       assert.strictEqual(hints(view, text.apiKey), text.apiKeyHints[way], way);
     }
-    assert.ok(text.endpointHints.online.includes(text.setupOwn), "pointing at the way for another provider by its name");
   });
 
-  test(`an address of a way changed by mistake is put back with a button (${code})`, () => {
+  test(`Online has no address to change: it is OpenRouter's (${code})`, () => {
     const text = labels(code);
-    const draw = (way, endpoint) => {
-      const changes = [];
-      const view = settingsView({ settings: normalizeSettings({ languages: [code, "es"], way, endpoint }), apiKey: "" },
-        { onChange: (next) => changes.push(next), onKeyChange: () => {} });
-      return { button: fieldNamed(view, text.endpoint).querySelector("button"), changes };
-    };
-    assert.strictEqual(draw("online", "https://openrouter.ai/api/v1/").button, null, "a slash at the end is the same address");
-    const { button, changes } = draw("online", "https://openrouter.ai/api/v");
-    assert.strictEqual(button.textContent, text.endpointPreset("OpenRouter"));
-    button.click();
-    assert.strictEqual(changes.at(-1).endpoint, "https://openrouter.ai/api/v1");
+    const settings = normalizeSettings({ languages: [code, "es"], way: "online", endpoint: "https://openrouter.ai/api/v" });
+    assert.strictEqual(settings.endpoint, ONLINE.endpoint, "whatever the file says");
+    const view = settingsView({ settings, apiKey: "" }, { onChange: () => {}, onKeyChange: () => {} });
+    assert.strictEqual(fieldNamed(view, text.endpoint), undefined, "no field for it");
+  });
+}
+
+/* About names the two other systems, Windows first, and leads to where the
+   README says how to install there. */
+for (const [system, others] of [["mac", ["Windows", "iPhone"]], ["windows", ["Mac", "iPhone"]], ["ios", ["Windows", "Mac"]]]) {
+  test(`About names where else Triglosa runs (${system})`, () => {
+    globalThis.TRIGLOSA_SYSTEM = system;
+    try {
+      for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
+        const text = labels(code);
+        const view = settingsView({ settings: normalizeSettings({ languages: [code, "es"] }), apiKey: "" },
+          { onChange: () => {}, onKeyChange: () => {} });
+        const about = view.querySelector('.settings-page[data-page="about"]');
+        const link = [...about.querySelectorAll("a")].find((node) => node.href.endsWith("#installing"));
+        assert.ok(link, `${code} ${system}: a link to the README's installing`);
+        const at = others.map((name) => link.textContent.indexOf(name));
+        assert.ok(at[0] >= 0 && at[1] > at[0], `${code} ${system}: ${link.textContent}`);
+        assert.ok(!link.textContent.includes(system === "mac" ? "Mac" : system === "windows" ? "Windows" : "iPhone"));
+        assert.ok(text.aboutElsewhere);
+      }
+    } finally {
+      delete globalThis.TRIGLOSA_SYSTEM;
+    }
   });
 }

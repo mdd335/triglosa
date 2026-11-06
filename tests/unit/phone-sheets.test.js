@@ -25,11 +25,15 @@ test("the phone's first steps show the example and say what the bar's button doe
     const view = phoneWelcomeView(text, code);
     const steps = [...view.querySelectorAll(".welcome-steps li")];
     assert.strictEqual(steps.length, 6, code);
+    assert.strictEqual(view.querySelectorAll("ol.welcome-steps li").length, 2, `${code}: languages and model, nothing more to set up`);
     assert.deepStrictEqual([...view.querySelectorAll(".label")].slice(0, 2).map((node) => node.textContent),
       [text.welcomePhone.setup, text.welcomePhone.start], `${code}: setting up first`);
     assert.ok(view.querySelector("ol li").textContent.includes(text.groupLanguages), `${code}: the languages' page`);
     assert.ok(steps[1].textContent.includes(text.groupModel), `${code}: the model's page`);
-    assert.strictEqual(view.querySelectorAll("ul.welcome-steps li").length, 3, `${code}: the ways in, unnumbered`);
+    const ways = [...view.querySelectorAll("ul.welcome-steps li")];
+    assert.strictEqual(ways.length, 4, `${code}: the ways in, unnumbered`);
+    assert.strictEqual(ways.at(-1).textContent, text.welcomePhone.control, `${code}: the Control Center last`);
+    assert.doesNotMatch(ways.map((node) => node.textContent).join("\n"), /^(Oder|Or|O|Ou|Oppure|Или) /m, `${code}: each way stands alone`);
     assert.ok(view.querySelector("ul li").querySelector(".inline-icon svg"), `${code}: the paste button drawn in its sentence`);
     assert.ok(!view.textContent.includes(text.pasteHint), `${code}: not before iOS has asked at all`);
     assert.ok(view.querySelector(".welcome-example .words"), `${code}: the example`);
@@ -102,4 +106,33 @@ test("an answer about the model given while the settings stand open is not undon
   assert.strictEqual(after.underline, false, "the change made in the sheet");
   assert.strictEqual(modelConsentFor(after), true, "the answer still there");
   sheet.querySelector(".settings-sheet-bar button:last-child").click();
+});
+
+test("a reading handed over from outside puts a standing card and the settings away", async () => {
+  /* The share menu or a Control Center button hands a text over while a card
+     or the settings lie over the reading; the reading would stand unseen. */
+  const { openSettingsSheet, closeSettingsSheet } = await import("../../src/ui/settings-sheet.js");
+  const { openCardLayer, closeCardLayer } = await import("../../src/ui/card-layer.js");
+  await saveSettings(normalizeSettings({ languages: ["de", "en"] }));
+  await openSettingsSheet();
+  assert.ok(document.querySelector(".settings-sheet:not(.phone-sheet):not(.card-layer)"), "the settings");
+  closeSettingsSheet();
+  assert.strictEqual(document.querySelector(".settings-sheet:not(.phone-sheet):not(.card-layer)"), null, "the settings gone");
+  closeSettingsSheet();
+
+  await openCardLayer({ id: "a", free: true, termLanguage: "en", term: "", meaning: "", explanation: "", choices: ["en"], reader: "de" });
+  assert.ok(document.querySelector(".card-layer"), "the card");
+  closeCardLayer();
+  assert.strictEqual(document.querySelector(".card-layer"), null, "the card gone");
+  closeCardLayer();
+  await openSettingsSheet();
+  assert.ok(document.querySelector(".settings-sheet:not(.phone-sheet):not(.card-layer)"), "the settings open again");
+  closeSettingsSheet();
+});
+
+test("on a phone the settings' list names the other apps' page in full, there being room", () => {
+  for (const code of INTERFACE_LANGUAGES) {
+    const text = labels(code, "ios");
+    assert.strictEqual(text.groupReadingEntry, text.groupReading, code);
+  }
 });

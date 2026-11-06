@@ -1,169 +1,22 @@
-/* Reading back what a sentence's units became in its translation.
+/* What each word of a sentence became in its translation, for the hover:
+   the word aligner's links laid out as units — groups of words that belong
+   together, each with the stretch it became in every translation asked
+   about.
 
    Every position here is a position in the text handed in — the sentence and
    its translation — so the run only has to add where those stand.
 
    The promise is the same as everywhere a spot is found: no answer is better
    than the wrong one. A reader hovering over a word trusts what appears over
-   it, and an answer that has lost its place looks exactly as confident as one
-   that has not. So a sentence whose units cannot be laid over it one after
-   another is not read at all. */
+   it, and one that has lost its place looks exactly as confident as one that
+   has not. */
 
-import { cleanLine, isUnspaced, isWordChar, segmentBreak, stripDiacritics, stripQuotes, toTokens } from "../text.js";
-import { spotsFor } from "../match/positions.js";
+import { stripDiacritics, toTokens } from "../text.js";
 import { glossOf } from "../glance.js";
 import { isFunctionWord } from "../vocabulary.js";
 import { wordSet } from "../languages/index.js";
 
-/* How much of a sentence has to be laid out before the answer counts. Not
-   all of it: the model is told to leave out nothing and now and then leaves
-   out a word, which costs that word its answer and nothing else. */
-const COVERED = 0.85;
-const UNPLACED = 0.15;
-
-/* A letter or two a script writes onto the front of a word — the Arabic
-   conjunction and prepositions — which the model writes as a unit of its
-   own or leaves off the word. */
-const CLITIC = 2;
-
 const fold = (word) => stripDiacritics(word).toLowerCase();
-
-/* The unit and one field per translation. A line written as a table row
-   carries a pipe in front and one behind as well; a line whose last field is
-   empty carries one pipe fewer, and that pipe is a separator, not
-   decoration. */
-function lines(raw, columns) {
-  return String(raw || "")
-    .split(/\r?\n/)
-    .map((line) => cleanLine(line))
-    .map((line) => ((line.match(/\|/g) || []).length > columns + 1 ? line.replace(/^\|\s*|\s*\|$/g, "") : line))
-    .filter((line) => line.includes("|"))
-    .map((line) => {
-      const parts = line.split("|");
-      return {
-        unit: stripQuotes(parts[0]),
-        fields: Array.from({ length: columns }, (_, i) => String(parts[i + 1] || "").trim()),
-      };
-    });
-}
-
-const sameWord = (text, wanted, clitic) => {
-  const word = fold(text);
-  if (word === wanted) return true;
-  return clitic && word.endsWith(wanted) && word.length - wanted.length <= CLITIC;
-};
-
-/* Where a unit's words stand, at or after the word the previous unit ended
-   on. The units come in the order of the sentence, which is what lets a word
-   that occurs twice — an article, a preposition — be told apart.
-
-   Written onto the next word, the unit is looked for a second time, only
-   once it stands nowhere as a word of its own: "لا" is the end of "ولا", and
-   "la" would be the end of any Latin word before the "la" it is. */
-function place(words, unit, from) {
-  const wanted = toTokens(unit).filter((token) => token.isWord).map((token) => fold(token.text));
-  if (!wanted.length) return null;
-  if (isUnspaced(unit)) return placeUnspaced(words, wanted.join(""), from);
-  for (const clitic of [false, true]) {
-    for (let at = from; at + wanted.length <= words.length; at++) {
-      if (wanted.every((word, k) => sameWord(words[at + k].text, word, clitic))) {
-        return { first: at, last: at + wanted.length - 1 };
-      }
-    }
-  }
-  return null;
-}
-
-/* A unit in a script without spaces: cut into words on its own, it need not
-   come apart where the sentence does, so its letters are laid over whole
-   words of the sentence instead, one after another. */
-function placeUnspaced(words, wanted, from) {
-  for (let at = from; at < words.length; at++) {
-    let joined = "";
-    for (let last = at; last < words.length && joined.length < wanted.length; last++) {
-      joined += fold(words[last].text);
-      if (joined === wanted) return { first: at, last };
-    }
-  }
-  return null;
-}
-
-/* The clitic itself, written as a unit of its own in front of the word it
-   belongs to. Not a lost place: the word is there, and it gets its own unit. */
-function frontOf(words, unit, at) {
-  const wanted = fold(unit);
-  return !!words[at] && !isUnspaced(wanted) && wanted.length <= CLITIC && /^[\p{L}\p{M}]+$/u.test(wanted)
-    && fold(words[at].text).startsWith(wanted) && fold(words[at].text) !== wanted;
-}
-
-/* A spot grown to the whole word it stands in. The model copies a piece of
-   a compound — "Zins" out of "Zinserhöhungen" — and what the reader wants to
-   see over "rate" is the word the translation actually has. An apostrophe
-   between letters is inside a word: "I'll" is one. */
-function wholeWord(text, spot) {
-  const inside = (i) => isWordChar(text.charAt(i))
-    || (/['’]/.test(text.charAt(i)) && isWordChar(text.charAt(i - 1)) && isWordChar(text.charAt(i + 1)));
-  let { start, end } = spot;
-  while (start > 0 && inside(start - 1) && !segmentBreak(text, start)) start--;
-  while (end < text.length && inside(end) && !segmentBreak(text, end)) end++;
-  return { start, end };
-}
-
-/* Every place a piece could stand: verbatim, then as the front of a longer
-   word, which is how a compound's first half comes back. Three letters at the
-   least, or "in" would stand in front of every "Inflation". */
-function spotsOf(text, piece) {
-  const spots = spotsFor(text, piece);
-  if (spots.length || piece.length < 3) return spots;
-  const low = stripDiacritics(text).toLowerCase();
-  const needle = stripDiacritics(piece).toLowerCase();
-  const out = [];
-  for (let at = low.indexOf(needle); at !== -1; at = low.indexOf(needle, at + 1)) {
-    if (!isWordChar(text.charAt(at - 1)) || segmentBreak(text, at)) out.push({ start: at, end: at + needle.length });
-  }
-  return out;
-}
-
-const nearestTo = (spots, target) => spots.reduce((best, spot) =>
-  Math.abs(spot.start - target) < Math.abs(best.start - target) ? spot : best);
-
-/* The stretch in the translation, part by part. A part that stands more than
-   once takes the occurrence nearest to where the unit stands in the sentence,
-   scaled to the translation's length — a translation restructures, but rarely
-   moves a word from the start of a sentence to its end — and every further
-   part the one nearest to the first.
-
-   A part that does not stand there in one piece is looked for word by word:
-   the model is asked to join a split stretch with an ellipsis and writes
-   "hat gebilligt" for "hat in letzter Minute … gebilligt" as often as not.
-   Then every word carrying meaning has to be found, or none of it counts. */
-function stretchIn(translation, stretch, share, codes) {
-  const value = String(stretch || "").trim();
-  if (!value || value === "-") return [];
-  const found = [];
-  const add = (spot) => {
-    const whole = wholeWord(translation, spot);
-    if (!found.some((range) => range.start === whole.start)) found.push(whole);
-  };
-  const target = () => (found.length ? found[0].start : share * translation.length);
-
-  for (const piece of value.split(/\s*(?:\.{2,}|…|\+)\s*/)) {
-    /* "beschlossen," is the word; the comma is where the model stopped copying. */
-    const part = stripQuotes(piece).replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
-    if (!part) continue;
-    const spots = spotsOf(translation, part);
-    if (spots.length) {
-      add(nearestTo(spots, target()));
-      continue;
-    }
-    const pieces = part.split(/\s+/);
-    if (pieces.length < 2) continue;
-    const located = pieces.map((word) => ({ word, spots: spotsOf(translation, word) }));
-    if (located.some((entry) => !entry.spots.length && !isFunctionWord(entry.word, codes))) continue;
-    for (const entry of located) if (entry.spots.length) add(nearestTo(entry.spots, target()));
-  }
-  return found.sort((x, y) => x.start - y.start);
-}
 
 /* Ranges with nothing but a space between them are one range: "die" and
    "Regierung" are lit as "die Regierung", not as two boxes with a gap. */
@@ -177,10 +30,8 @@ function closed(text, ranges) {
   return out;
 }
 
-/* A group of words that belongs together is one unit, whatever the model cut:
-   the hover lights it as one and writes one sign over it. The prompt asks for
-   groups, and a model still hands back a word on its own often enough —
-   these two rules catch that without asking again.
+/* A group of words that belongs together is one unit, however the links cut
+   it: the hover lights it as one and writes one sign over it.
 
    Words that became the same word of the translation are one: "motor
    económico" is "Wirtschaftsmotor", "central bank" is "Zentralbank". And a
@@ -191,7 +42,7 @@ function closed(text, ranges) {
    gato" is the conjunction glued to a noun it has nothing to do with. */
 const AHEAD = 3;
 
-function joinUnits(units, sentence, translation, codes) {
+export function joinUnits(units, sentence, translation, codes) {
   const touching = (text, left, right) => /^[\s'’-]*$/.test(text.slice(left.end, right.start));
   const merge = (left, right) => ({
     start: left.start,
@@ -204,6 +55,7 @@ function joinUnits(units, sentence, translation, codes) {
     to: [...left.to, ...right.to]
       .filter((range, at, all) => all.findIndex((other) => other.start === range.start) === at)
       .sort((x, y) => x.start - y.start),
+    ...(left.words && right.words ? { words: [...left.words, ...right.words] } : {}),
   });
   const wordsOf = (unit) => toTokens(sentence.slice(unit.start, unit.end)).filter((token) => token.isWord);
   const bare = (unit) => wordsOf(unit).every((token) => isFunctionWord(token.text, codes.slice(0, 1)));
@@ -253,95 +105,53 @@ function joinUnits(units, sentence, translation, codes) {
   return together(out.map(({ led, ...unit }) => unit));
 }
 
-/* The answer laid over the sentence: the units in the order the sentence has
-   them, each with its ranges in every translation asked about. Null where the
-   answer cannot be trusted with this sentence.
-
-   `targets` is one entry per column, each { text, codes }. The first one is
-   the reader's own translation, and it decides: an answer that lost its place
-   there is no answer at all, and the grouping is worked out on it, so that
-   every panel holds the same words together. */
-function readUnits(raw, sentence, targets, codes) {
-  const words = toTokens(sentence).filter((token) => token.isWord);
-  const answer = lines(raw, targets.length);
-  if (!words.length || !answer.length) return null;
-
-  const units = [];
-  let cursor = 0;
-  let unplaced = 0;
-  let covered = 0;
-  for (const { unit, fields } of answer) {
-    /* A unit written as a hyphen is a word of the translation the model had
-       no word of the original left for — the one sign that it laid the two
-       sentences side by side word for word instead of by meaning. */
-    if (!unit || unit === "-") return null;
-    if (frontOf(words, unit, cursor)) continue;
-    const spot = place(words, unit, cursor);
-    if (!spot) {
-      unplaced++;
-      continue;
-    }
-    cursor = spot.last + 1;
-    covered += spot.last - spot.first + 1;
-    const start = words[spot.first].start;
-    const end = words[spot.last].end;
-    const share = (start + end) / 2 / sentence.length;
-    const columns = targets.map((target, i) => stretchIn(target.text, fields[i], share, target.codes));
-    units.push({ start, end, columns, to: columns[0], fields });
-  }
-  if (unplaced > answer.length * UNPLACED || covered < words.length * COVERED) return null;
-  /* The other sign of a lost place: the last unit left with nothing at all
-     — not a hyphen, which says the translation has nothing for it, but an
-     empty field. The translation ran out before the sentence did, because
-     every unit before it took the rendering of the one after it. */
-  const last = units[units.length - 1];
-  const bareLast = isFunctionWord(sentence.slice(last.start, last.end), codes);
-  const lost = targets.map((_, i) => !bareLast && !last.fields[i]);
-  if (lost[0]) return null;
-  return { units: joinUnits(units, sentence, targets[0].text, codes), lost };
-}
-
 /* One column of a group, as the window wants it: the ranges closed up where
    only a space parts them, and the words they cover. */
-const column = (group, at, text) => {
+export const column = (group, at, text) => {
   const to = closed(text, group.columns[at]);
   return { to, gloss: glossOf(text, to) };
 };
 
-/* Returns the units, each { start, end, to: [{ start, end }], gloss }, or null
-   where the answer cannot be trusted with this sentence. `to` is empty and
-   `gloss` blank for a unit the translation renders with nothing. `codes`
-   names the two languages, for telling a function word from a word that
-   carries meaning. */
-export function parseGlance(raw, sentence, translation, codes) {
-  const read = readUnits(raw, sentence, [{ text: translation, codes }], codes);
-  if (!read) return null;
-  return read.units.map((group) => ({
-    start: group.start,
-    end: group.end,
-    ...column(group, 0, translation),
-  }));
+/* The same filling on the sentence's own side: a function word or an
+   auxiliary of the sentence the aligner linked to nothing takes the links
+   of the word carrying meaning right after it — "de" and "la" in "de la
+   ciudad", "be" in "won't be able". Only from a word carrying meaning, or
+   a small word that took one's: "hat sich nach" is not "After". Back to
+   front, so that "de la" both reach "ciudad". A small word at a clause's
+   end takes nothing: there it is a verb's particle as often as not. */
+function filled(sentence, words, links, code) {
+  const helping = wordSet(code, "auxiliaries");
+  const joining = wordSet(code, "conjunctions");
+  const small = (word) => isFunctionWord(word.text, [code]) || helping.has(fold(word.text));
+  const own = words.map((_, at) => links.filter(([from]) => from === at).map(([, to]) => to));
+  const lent = words.map((word, at) => own[at].length && !small(word));
+  const touching = (left, right) => /^[\s'’]*$/.test(sentence.slice(words[left].end, words[right].start));
+  for (let at = words.length - 2; at >= 0; at--) {
+    const word = words[at];
+    if (own[at].length || !small(word) || joining.has(stripDiacritics(word.text).toLowerCase())) continue;
+    if (!lent[at + 1] || !touching(at, at + 1)) continue;
+    own[at] = [...own[at + 1]];
+    lent[at] = true;
+  }
+  /* A small word linked to nothing between two that render the same word
+     is theirs: "cats and dogs" is "in Strömen", "and" included. Not a word
+     carrying meaning: "the bill for" is not "на". */
+  for (let at = 1; at < words.length - 1; at++) {
+    const word = words[at];
+    if (own[at].length || !(small(word) || joining.has(stripDiacritics(word.text).toLowerCase()))) continue;
+    if (!touching(at - 1, at) || !touching(at, at + 1)) continue;
+    const shared = own[at - 1].filter((to) => own[at + 1].includes(to));
+    if (shared.length) own[at] = shared;
+  }
+  return own.flatMap((targets, from) => targets.map((to) => [from, to]));
 }
 
-/* The same for three panels. Every unit carries `second` besides `to`, and
-   `second` is null throughout where that column came to nothing — the
-   reader's own column stands on its own, and a panel with no answer simply
-   does not light up. */
-export function parseGlanceWide(raw, sentence, translation, second, codes) {
-  const [source, reader, other] = codes;
-  const read = readUnits(raw, sentence, [
-    { text: translation, codes: [source, reader] },
-    { text: second, codes: [source, other] },
-  ], [source, reader]);
-  if (!read) return null;
-  const empty = read.lost[1] || read.units.every((group) => !group.columns[1].length);
-  return read.units.map((group) => ({
-    start: group.start,
-    end: group.end,
-    ...column(group, 0, translation),
-    second: empty ? null : column(group, 1, second),
-  }));
-}
+/* How many small words of a translation in front of a linked word go to it
+   where that word is itself a small one: "to" goes with "an" (for "einem"),
+   but "it to an" in "send it to an AI chatbot" stops short of the object
+   pronoun. A word carrying meaning takes every small word in front of it:
+   "de la ciudad", "in a timely", "of the landlord" (run seventy-five). */
+const REACH = 1;
 
 /* The same units from a word aligner's links instead of a model's answer:
    `links` pairs a word of the sentence with a word of the translation, each
@@ -351,15 +161,17 @@ export function parseGlanceWide(raw, sentence, translation, second, codes) {
    An aligner links the words carrying meaning and leaves the small words of
    a translation to nobody — "Regierung" for "Die Regierung", "gebilligt" for
    "gebilligt hat". A function word or an auxiliary nobody took goes to the
-   linked word right after it, and one left at the end of a clause to the
-   word right before it. Two words of the sentence
+   linked word right after it, and an auxiliary left at the end of a clause
+   to the word right before it ("gebilligt hat"). Any other small word there
+   goes to nobody: it is a verb's particle as often as not — "die
+   Kontroversen an" — as on the sentence's own side (run seventy). Two words of the sentence
    with nothing but an apostrophe between them are one unit, as a model
    writes them. The grouping after that is the one every answer gets. */
-export function unitsFromLinks(sentence, translation, links, codes, other = null) {
+export function unitsFromLinks(sentence, translation, links, codes, other = null, { fill = false, reach = REACH } = {}) {
   const words = toTokens(sentence).filter((token) => token.isWord);
   if (!words.length) return null;
-  const targets = [{ text: translation, links, code: codes[1] }];
-  if (other) targets.push({ text: other.text, links: other.links, code: other.codes[1] });
+  const targets = [{ text: translation, links: fill ? filled(sentence, words, links, codes[0]) : links, code: codes[1] }];
+  if (other) targets.push({ text: other.text, links: fill ? filled(sentence, words, other.links, codes[0]) : other.links, code: other.codes[1] });
 
   const columns = targets.map((target) => {
     const into = toTokens(target.text).filter((token) => token.isWord);
@@ -378,7 +190,8 @@ export function unitsFromLinks(sentence, translation, links, codes, other = null
       const mine = [];
       /* An auxiliary only right in front of its verb: in "hat das Dekret"
          the article is the noun's and "hat" is not. */
-      for (let before = at - 1; before >= 0 && bare(before) && /^[\s'’]*$/.test(between(before, before + 1)); before--) {
+      const lends = isFunctionWord(into[at].text, [target.code]) || helps(at) ? reach : Infinity;
+      for (let before = at - 1; before >= 0 && at - before <= lends && bare(before) && /^[\s'’]*$/.test(between(before, before + 1)); before--) {
         if (helps(before) && before !== at - 1) break;
         mine.push(before);
       }
@@ -386,7 +199,7 @@ export function unitsFromLinks(sentence, translation, links, codes, other = null
     }
     for (let at = 1; at < into.length; at++) {
       const closes = at === into.length - 1 || /[^\s'’\p{L}\p{N}-]/u.test(between(at, at + 1));
-      if (bare(at) && closes && taken.has(at - 1) && /^\s*$/.test(between(at - 1, at))) give(at - 1, at);
+      if (bare(at) && helps(at) && closes && taken.has(at - 1) && /^\s*$/.test(between(at - 1, at))) give(at - 1, at);
     }
     return { into, all };
   });
@@ -398,7 +211,9 @@ export function unitsFromLinks(sentence, translation, links, codes, other = null
     const ranges = columns.map(({ into, all }) => [...new Set(all.filter(([from]) => from >= first && from <= last).map(([, to]) => to))]
       .sort((x, y) => x - y)
       .map((to) => ({ start: into[to].start, end: into[to].end })));
-    units.push({ start: words[first].start, end: words[last].end, columns: ranges, to: ranges[0] });
+    const start = words[first].start;
+    const end = words[last].end;
+    units.push({ start, end, columns: ranges, to: ranges[0], words: [{ start, end, columns: ranges }] });
     first = last;
   }
 
@@ -409,5 +224,39 @@ export function unitsFromLinks(sentence, translation, links, codes, other = null
     end: group.end,
     ...column(group, 0, translation),
     ...(other ? { second: empty ? null : column(group, 1, other.text) } : {}),
+    /* What each word of the group became on its own, for a mark that cuts
+       one of them out: its counterparts go with it. */
+    parts: group.words.map((word) => ({
+      start: word.start,
+      end: word.end,
+      to: word.columns[0],
+      ...(other && !empty ? { second: word.columns[1] } : {}),
+    })),
   }));
+}
+
+/* The hover over the third panel — a translation that is not the reader's
+   own, beside one that is: its words grouped in its own language and laid
+   over the reader's translation straight, not by way of the original. Its
+   links to the reader's are the aligner's between the two (`between`) and
+   those that lead through a word of the original (`own`, `other`: the
+   original's links to each); the two together leave far fewer words bare
+   than either (run sixty-eight). Each unit says where it stands in the
+   panel (`start`, `end`), what it became in the reader's (`to`, `gloss`)
+   and which words of the original it renders (`source`). */
+export function unitsOfThird({ original, own, other, links, codes, reach = REACH }) {
+  const [, ownCode, otherCode] = codes;
+  const through = links.other.flatMap(([from, to]) => links.own.filter(([at]) => at === from).map(([, mine]) => [to, mine]));
+  const seen = new Set();
+  const joined = [...links.between, ...through].filter((link) => !seen.has(link.join()) && seen.add(link.join()));
+  const units = unitsFromLinks(other, own, joined, [otherCode, ownCode], null, { fill: true, reach });
+  if (!units) return null;
+  const sentenceWords = toTokens(original).filter((token) => token.isWord);
+  const panelWords = toTokens(other).filter((token) => token.isWord);
+  return units.map((unit) => {
+    const mine = panelWords.map((word, at) => (word.start >= unit.start && word.end <= unit.end ? at : -1)).filter((at) => at !== -1);
+    const from = [...new Set(links.other.filter(([, to]) => mine.includes(to)).map(([at]) => at))].sort((x, y) => x - y);
+    const source = closed(original, from.map((at) => ({ start: sentenceWords[at].start, end: sentenceWords[at].end })));
+    return { ...unit, source };
+  });
 }

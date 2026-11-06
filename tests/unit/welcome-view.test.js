@@ -97,33 +97,47 @@ test("every step that leads to the settings names the page it is on, and the mod
       assert.ok(said[1].includes(text.groupLanguages), `${code} ${system}: languages`);
       assert.ok(said[2].includes(text.groupModel), `${code} ${system}: model`);
       assert.ok(said[3].includes(text.groupShortcuts), `${code} ${system}: shortcut`);
-      if (said[4]) assert.ok(said[4].includes(text.groupReading), `${code} ${system}: permission`);
+      if (said[4]) assert.ok(said[4].includes(text.groupReadingEntry), `${code} ${system}: permission`);
       assert.strictEqual(view.querySelectorAll(".welcome-steps a").length, 0, `${code} ${system}: no link in a step`);
     }
   }
 });
 
-test("the count is a box to tick, in the settings' words, and ticking it is the answer", () => {
+test("the window that asks puts the count as a question with two answers, and says the answer once", () => {
   const text = labels("en");
   const answers = [];
-  const view = draw("en", "mac", { consent: false }, { onConsent: (yes) => answers.push(yes) });
-  const box = view.querySelector(".welcome-consent");
-  const tick = box.querySelector("input[type=checkbox]");
-  assert.strictEqual(tick.checked, false);
-  assert.ok(box.textContent.includes(text.statsSetting));
-  assert.ok(box.textContent.includes(text.statsHint));
-  assert.ok(box.textContent.includes(text.welcome.stats.off));
-  assert.strictEqual(box.querySelector("button"), null);
-  for (const ticked of [true, false]) {
-    tick.checked = ticked;
-    tick.dispatchEvent(new tick.ownerDocument.defaultView.Event("change"));
-  }
+  const privacy = [];
+  const asked = draw("en", "mac", { consent: false, asking: true }, {
+    onConsent: (yes) => answers.push(yes), onPrivacy: () => privacy.push(true),
+  });
+  const box = asked.querySelector(".welcome-consent");
+  assert.ok(box.textContent.includes(text.welcome.stats.question));
+  assert.ok(box.textContent.includes(text.statsHint), "in the settings' words");
+  assert.ok(box.textContent.includes(text.welcome.stats.change));
+  assert.ok(box.querySelector(".welcome-consent-body").textContent.endsWith(text.statsThanks), "thanked last");
+  assert.strictEqual(box.querySelector("input"), null, "no box to tick");
+  const [no, yes] = box.querySelectorAll(".button-row button");
+  assert.deepStrictEqual([no.textContent, yes.textContent], [text.welcome.stats.no, text.welcome.stats.yes]);
+  assert.deepStrictEqual([no.dataset.icon, yes.dataset.icon], ["close", "done"]);
+  yes.click();
+  no.click();
   assert.deepStrictEqual(answers, [true, false]);
-  assert.strictEqual(draw("en", "mac", { consent: true }).querySelector(".welcome-consent input").checked, true);
-  assert.strictEqual(draw("en", "mac", { consent: null }).querySelector(".welcome-consent input").checked, false);
+  const linked = box.querySelector("a");
+  assert.strictEqual(linked.textContent, "privacy policy");
+  linked.click();
+  assert.strictEqual(privacy.length, 1);
+  assert.strictEqual(draw("en", "mac", { consent: true, asking: true, answered: true }).querySelector(".welcome-consent-done").textContent,
+    text.welcome.stats.yesDone);
+  assert.strictEqual(draw("en", "mac", { consent: false, asking: true, answered: true }).querySelector(".welcome-consent-done").textContent,
+    text.welcome.stats.noDone);
+  const later = draw("en", "mac", { consent: false });
+  assert.strictEqual(later.querySelector(".welcome-consent, .welcome-consent-done"), null, "asked before, asked no more");
   for (const code of INTERFACE_LANGUAGES) {
-    assert.ok(labels(code).welcome.stats.off, code);
-    assert.ok(labels(code).statsHint.includes("OpenRouter"), `${code}: the kinds of model named`);
+    const words = labels(code).welcome.stats;
+    for (const key of ["question", "yes", "no", "change", "yesDone", "noDone"]) assert.ok(words[key], `${code} ${key}`);
+    assert.ok(words.change.includes(labels(code).groupAbout), `${code}: where it is changed`);
+    assert.ok(words.yesDone.includes(labels(code).groupAbout), `${code}: where it is changed`);
+    assert.strictEqual(labels(code).statsPrivacy((word) => word).length, 3, `${code}: the privacy policy linked`);
   }
 });
 
@@ -134,9 +148,10 @@ test("the example is a reading: the original, the reader's own language and one 
     assert.notStrictEqual(example.source, code, `${code}: the original is foreign`);
     assert.strictEqual(state.panels[1].code, code, `${code}: the reader's own first`);
     assert.notStrictEqual(state.panels[2].code, code);
-    assert.ok(state.glance, `${code}: the hover's answer is read`);
-    const units = state.glance.sentences[0].units;
-    assert.ok(units.every((unit) => unit.gloss && unit.second?.gloss), `${code}: every unit has both translations`);
+    assert.ok(state.glance, `${code}: the aligner's links fit the example's texts (node scripts/example-links.mjs)`);
+    const [sentence] = state.glance.sentences;
+    assert.ok(sentence.units.every((unit) => unit.gloss), `${code}: every word of the original has the reader's words`);
+    assert.ok(sentence.third?.length, `${code}: the third panel has units of its own`);
     const node = exampleView(example, code);
     document.body.append(node);
     for (const panel of [0, 1, 2]) {
@@ -159,5 +174,70 @@ test("pointing at a word of the example says what it became in the reader's lang
   word.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
   await new Promise((resolve) => setTimeout(resolve, 400));
   assert.strictEqual(node.querySelector(".glance").textContent, "gingen");
+  node.remove();
+});
+
+test("on the phone a tap on a word of the example brings no hover", async () => {
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  try {
+    const node = exampleView(labels("de").welcome.example, "de");
+    document.body.append(node);
+    const word = [...node.querySelectorAll('.words[data-panel="0"] .w')].find((one) => one.textContent === "salimos");
+    word.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    assert.strictEqual(node.querySelector(".glance"), null);
+    node.remove();
+  } finally {
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
+});
+
+test("every word of the example's original can be picked: its entry, its synonyms and its spots in both translations", () => {
+  for (const code of INTERFACE_LANGUAGES) {
+    const example = labels(code).welcome.example;
+    const node = exampleView(example, code);
+    document.body.append(node);
+    const count = node.querySelectorAll('.words[data-panel="0"] .w').length;
+    assert.ok(count > 5, code);
+    for (let at = 0; at < count; at++) {
+      /* Each pick draws the sheet anew. */
+      const word = node.querySelectorAll('.words[data-panel="0"] .w')[at];
+      word.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      word.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+      const row = node.querySelector('.row[data-hl="sel"]');
+      assert.ok(row, `${code}: "${word.textContent}" picked`);
+      const lit = node.querySelectorAll('.words:not([data-panel="0"]) .sel');
+      const entry = example.picks.find((pick) => pick.text === row.querySelector(".term").textContent);
+      assert.ok(entry, `${code}: "${word.textContent}" has its entry`);
+      const wanted = entry.in.filter(Boolean).length;
+      assert.strictEqual(lit.length, wanted, `${code}: "${entry.text}" marked in ${wanted} translations`);
+      if (entry.synonyms?.length) assert.strictEqual(row.querySelectorAll(".synonym").length, entry.synonyms.length, `${code}: synonyms`);
+    }
+    node.remove();
+  }
+});
+
+test("a word of a translation in the example is not picked", () => {
+  const node = exampleView(labels("de").welcome.example, "de");
+  document.body.append(node);
+  const word = node.querySelector('.words[data-panel="1"] .w');
+  word.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  word.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  assert.strictEqual(node.querySelector('.row[data-hl="sel"]'), null);
+  node.remove();
+});
+
+test("a word that stands twice in a translation is marked where it belongs", () => {
+  const example = labels("de").welcome.example;
+  const node = exampleView(example, "de");
+  document.body.append(node);
+  const por = [...node.querySelectorAll('.words[data-panel="0"] .w')].find((word) => word.textContent === "por");
+  por.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  por.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  const lit = node.querySelector('.words[data-panel="1"] .sel');
+  assert.strictEqual(lit.textContent, "in");
+  const text = node.querySelector('.words[data-panel="1"]').textContent;
+  assert.strictEqual(text.indexOf("in der"), [...lit.parentNode.childNodes].slice(0, [...lit.parentNode.childNodes].indexOf(lit))
+    .reduce((n, child) => n + child.textContent.length, 0), "the second \"in\", before \"der\"");
   node.remove();
 });

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
-import { parseGlance, unitsFromLinks } from "../../src/parse/glance.js";
+import { unitsFromLinks } from "../../src/parse/glance.js";
+import { parseGlance, parseGlanceWide } from "../glance-answers.mjs";
 import { glanceAt, glancePairs, placeUnits, unitsOver } from "../../src/glance.js";
 
 const shown = (sentence, units) => units.map((unit) => `${sentence.slice(unit.start, unit.end)} → ${unit.gloss}`);
@@ -139,7 +140,6 @@ test("an article finds its noun across the words a translation puts between them
 });
 
 test("three panels are one question, one grouping, and each column its own places", async () => {
-  const { parseGlanceWide } = await import("../../src/parse/glance.js");
   const sentence = "El gobierno aprobó la ley";
   const german = "Die Regierung billigte das Gesetz";
   const english = "The government approved the law";
@@ -153,7 +153,6 @@ test("three panels are one question, one grouping, and each column its own place
 });
 
 test("a second column that came to nothing costs the reader's column nothing", async () => {
-  const { parseGlanceWide } = await import("../../src/parse/glance.js");
   const sentence = "El gobierno aprobó la ley";
   const german = "Die Regierung billigte das Gesetz";
   const units = parseGlanceWide(
@@ -186,11 +185,39 @@ test("links become units, and a small word nobody took goes to the word after it
   assert.strictEqual(translation.slice(units[0].to[0].start, units[0].to[0].end), "Die Regierung");
 });
 
-test("a small word left at the end of a clause goes to the word before it", () => {
+test("an auxiliary left at the end of a clause goes to the word before it", () => {
   const sentence = "porque me pilló";
   const translation = "weil mich die Arbeit erwischt hat.";
   const units = unitsFromLinks(sentence, translation, [[0, 0], [1, 1], [2, 4]], ["es", "de"]);
   assert.strictEqual(units.find((unit) => sentence.slice(unit.start, unit.end).endsWith("pilló")).gloss, "erwischt hat");
+});
+
+test("any other small word at the end of a clause goes to nobody: it is a verb's particle as often as not", () => {
+  /* Run seventy: "le polemiche" was "Kontroversen an". */
+  const sentence = "La crisi alimenta le polemiche";
+  const translation = "Die Krise heizt die Kontroversen an.";
+  const units = unitsFromLinks(sentence, translation, [[1, 1], [2, 2], [4, 4]], ["it", "de"]);
+  assert.deepStrictEqual(shown(sentence, units), ["La crisi → Die Krise", "alimenta → heizt", "le polemiche → die Kontroversen"]);
+});
+
+test("a Portuguese small word nobody linked takes the links of the word after it", () => {
+  /* Run seventy-one: "em" was missing from the pack's function words, and
+     stood bare between "teimava" and "cair". */
+  const sentence = "A chuva teimava em cair";
+  const translation = "The rain kept falling";
+  const units = unitsFromLinks(sentence, translation, [[1, 1], [2, 2], [4, 3]], ["pt", "en"], null, { fill: true });
+  assert.ok(shown(sentence, units).includes("em cair → falling"), shown(sentence, units).join(" ; "));
+});
+
+test("a small word of the translation that is linked takes only the one small word right in front of it", () => {
+  /* Run seventy-five: "send it to an AI chatbot" gave "it to an" for
+     "einem". A word carrying meaning still takes all of them. */
+  const sentence = "Schick ihn einem Freund";
+  const translation = "Send it to a friend";
+  const units = unitsFromLinks(sentence, translation, [[0, 0], [2, 3], [3, 4]], ["de", "en"], null, { fill: true });
+  assert.ok(shown(sentence, units).includes("einem Freund → to a friend"), shown(sentence, units).join(" ; "));
+  const city = unitsFromLinks("Vive cerca", "Er wohnt in der Nähe von der Stadt", [[0, 1], [1, 4]], ["es", "de"], null, { fill: true });
+  assert.ok(shown("Vive cerca", city).includes("cerca → in der Nähe"), shown("Vive cerca", city).join(" ; "));
 });
 
 test("two words with only an apostrophe between them are one unit", () => {

@@ -12,7 +12,7 @@ const wordsOf = (text) => toTokens(text).filter((token) => token.isWord).map((to
 export function createAligner(invoke) {
   return {
     /* Whether the model's files are on this machine. False rather than a
-       failure: without them the hover is asked of the AI model. */
+       failure: without them there is no hover. */
     ready: () => invoke("aligner_ready").then((answer) => !!answer, () => false),
 
     /* For every { source, target } the pairs [word of the source, word of

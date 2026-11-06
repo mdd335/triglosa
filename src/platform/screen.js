@@ -90,22 +90,22 @@ export async function onImageDropped({ onDrop, onOver = () => {} }) {
 
 /* A picture's text on the phone, by Apple's recognition inside the app
    (Recognition.swift): a photograph taken with the camera ("camera"), one
-   chosen in the photo library ("library"), or what was copied
-   ("pasteboard"). The lines and their boxes, as readScreen answers them;
-   `{ none: true }` where there was no picture — the reader cancelled — or
-   why there are none. */
-export async function readPicture(source, languages = [], onChosen = () => {}) {
+   chosen in the photo library ("library") or the Files app ("files"), or
+   what was copied ("pasteboard"). The lines and their boxes, as readScreen
+   answers them; `{ none: true }` where there was no picture — the reader
+   cancelled — or why there are none. `crop` names the two buttons of the
+   frame the picture is cut with first (Crop.swift), in the interface's
+   language; without it the picture is read whole. */
+export async function readPicture(source, languages = [], onChosen = () => {}, crop = null) {
   try {
-    let from = source;
-    /* The system's own sheet comes first: the reading begins once a picture
-       came of it, and `onChosen` says so. */
-    if (source !== "pasteboard") {
-      const picked = await shell("apple_translation", { route: `/pick?from=${source}`, body: "" });
-      if (picked?.status === 404) return { none: true };
-      from = "picked";
-    }
+    /* The system's own sheet comes first, then the frame: the reading
+       begins once a picture came of them, and `onChosen` says so. */
+    const words = crop ? `&cancel=${encodeURIComponent(crop.cancel)}&done=${encodeURIComponent(crop.done)}` : "";
+    const picked = await shell("apple_translation", { route: `/pick?from=${source}${words}`, body: "" });
+    if (picked?.status === 404) return { none: true };
+    if (picked?.status !== 200) return { failed: "helper" };
     onChosen();
-    const route = `/recognize?from=${from}&langs=${languages.join(",")}`;
+    const route = `/recognize?from=picked&langs=${languages.join(",")}`;
     const answer = await shell("apple_translation", { route, body: "" });
     if (answer?.status === 404) return { none: true };
     if (answer?.status !== 200) return { failed: "helper" };

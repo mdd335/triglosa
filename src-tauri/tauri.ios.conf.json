@@ -12,7 +12,7 @@
     },
     "iOS": {
       "minimumSystemVersion": "18.0",
-      "bundleVersion": "2"
+      "bundleVersion": "3"
     }
   }
 }

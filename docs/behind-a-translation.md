@@ -132,24 +132,26 @@ flowchart TD
   PV -->|no| Q9["Q9 · AI model places the verbs"]
   Q9 --> MV
 
-  AL --> HV{"Aligner answered?"}
-  HV -->|yes| HOV(["Hover ready"])
-  HV -->|no| Q10["Q10 · AI model, sentence by sentence"]
-  Q10 --> HOV
+  AL --> HOV(["Hover ready"])
 
   classDef model stroke:#18daf1,stroke-width:3px
   classDef own stroke-dasharray:6 4
-  class Q3,Q4,Q5,Q6,Q7,Q8,Q9,Q10 model
+  class Q3,Q4,Q5,Q6,Q7,Q8,Q9 model
   class AL own
 ```
 
-- Terms or verbs switched off in the settings are neither asked nor drawn.
+- Terms or verbs switched off in the settings are neither asked nor drawn;
+  folded away as a reading starts, they are asked for once opened.
 - Where Q8 or Q9 is asked, the aligner's places are kept for the single
   words, and it says which occurrence is meant where a word stands twice.
+- With three panels the aligner also lays the translation that is not in
+  the reader's own language over the one that is, so that the hover over it
+  says the reader's words for its own words.
 - The aligner cannot answer where a translation does not come apart into the
-  same sentences as the source text, or where its model is not there.
+  same sentences as the source text, or where its model is not there; that
+  panel then has no hover. The AI model is never asked about the hover.
 - The hover never asks while the pointer rests on a word: it is worked out
-  beforehand, and gives way to a word the reader clicks meanwhile.
+  as soon as the translations stand.
 
 ## 4 · Short mode: up to three words
 
@@ -173,7 +175,7 @@ flowchart TD
   SP -->|"…and no AI model"| OFFER(["Offered: Did you mean …?"])
   Q20 -->|"a correction"| MEANT(["Shown corrected; asked on about the word meant"])
   Q11 --> Q11B["Q11 · Dictionary entry, lower panel"]
-  Q11 --> Q3S["Q3 · Find the one term"]
+  Q11 -->|"its lines, where in the reader's language"| Q3S["Q3 · Find the one term"]
   Q11 --> WR["System · spelling checker: a line in another language than the panel's is left out"]
   Q11B --> WR
 
@@ -194,7 +196,8 @@ flowchart TD
 ```
 
 The lower panel's entry and the term are asked side by side, after the upper
-panel's entry has arrived. A word that may be misspelled is asked about
+panel's entry has arrived. Where that entry is in the reader's language, the
+term's question is given its lines, and the term explains one of them. A word that may be misspelled is asked about
 (Q20) first, and every entry and the term are then asked about the word
 meant; the reader can have the word looked up as typed. Where the spelling
 checker is slow to answer, the upper panel's entry goes ahead as typed and
@@ -273,10 +276,10 @@ flowchart LR
   CH["Another language for a translation"] --> NEW["Q2 · AI model translates (Q11 in short mode), or Apple"]
   NEW --> AL["Triglosa · the word aligner places single words again"]
   AL --> Q8["Q8 · Q9 · where terms and verbs of several words went"]
-  AL --> Q10["Q10 · the hover, where the aligner cannot answer"]
+  AL --> HOV(["The hover again"])
 
   classDef model stroke:#18daf1,stroke-width:3px
-  class NEW,Q8,Q10 model
+  class NEW,Q8 model
 ```
 
 ## Every request to the AI model
@@ -292,7 +295,6 @@ flowchart LR
 | Q7 | base form, meaning, person and tense of the hardest forms | Q6 found any | 1 | nobody |
 | Q8 | where the terms went in the translations | a term is several words, or the aligner has no place for it | 1 | the word aligner, for single words |
 | Q9 | where the verb forms went in the translations | a form is several words, or the aligner has no place for it | 1 | the word aligner, for single words |
-| Q10 | what each word of a sentence became, for the hover | the aligner could not answer | 1 per sentence, three at a time | the word aligner, as a rule |
 | Q11 | a dictionary entry: up to three translations with notes | short mode | 1 per panel; 1 for a panel put into another language | Apple's plain translation (Mac) |
 | Q12 | person and tense, or that it is no verb form | a picked word; a looked-up word without its sentence | 1 | nobody |
 | Q13 | meaning and note of a picked word | a word is picked, or a synonym clicked | 1; once more where the note came back in the wrong language | nobody |

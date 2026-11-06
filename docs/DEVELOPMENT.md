@@ -41,6 +41,7 @@ npm run bundle                # Mac: the signed Triglosa.app for this Mac's proc
 npm run bundle:intel          # Mac: the same for Intel, under target/x86_64-apple-darwin/
 npm run release               # Mac: helpers, signed apps and a DMG each for Apple silicon and Intel
 npm run ios                   # iPhone: build, sign with your own team, install on the connected phone (scripts/ios.mjs)
+node scripts/ios.mjs --simulator   # the same for the simulator that is running
 node scripts/shot.mjs out.png "some text"   # photograph the window's page (needs npm run dev)
 ```
 
@@ -179,6 +180,7 @@ src/
     phone-sheets.js     a phone's first steps, and its question before a text first goes to the AI model
     welcome-view.js, welcome-window.js     the first steps, shown at a start
     example-view.js the first steps' example: a reading made beforehand, drawn as one
+    example-links.js    its word aligner's links, written by scripts/example-links.mjs
     screen-window.js                       the frame drawn over a screen (Windows)
     note-window.js                         a note said without the reading window, which goes by itself
     elements.js, icons.js, preview.js      small shared pieces
@@ -202,11 +204,19 @@ src-tauri/
                   reads text off the screen with Apple's recognition
   ios/            Translation.swift, Apple's translation inside the iPhone's app,
                   and what was copied; Recognition.swift, the text in a picture
-                  (the app's and both share extensions');
+                  (the app's and both share extensions'); Crop.swift, the frame
+                  a picture is cut with before it is read; Keyboard.swift, the
+                  keyboard for a field focused without a tap;
                   Share/ShareViewController.swift, Triglosa in the share menu,
                   which reads, and once more as a flashcard (targets of their
                   own, added to the project by scripts/ios.mjs); ShareCard/ and ShareRead/,
-                  the two actions' names in each language and their symbols; Localized/, the
+                  the two actions' names in each language and their symbols;
+                  Controls/, the Control Center's buttons (a target of its own,
+                  their names in each language; their symbols drawn at every
+                  build by scripts/ios-symbols.mjs and ios-symbols.swift,
+                  which --preview draws beside the system's, and the share
+                  actions' icons from the same shapes) and ControlIntents.swift, what
+                  they do, run in the app; Localized/, the
                   app's words for the system (why the camera is asked for);
                   PrivacyInfo.xcprivacy, the privacy manifest the App Store asks for
   capabilities/   what each window may reach — every window label must be listed
@@ -226,6 +236,9 @@ tests/unit/       the tests; the ui tests draw into a jsdom document
 tests/fixtures/   data the tests read: untidy.json is text as programs really
                   give it (a list's line, a label), for the sentence a
                   looked-up word takes along
+tests/glance-answers.mjs
+                  a model's hover answer read back, for the tests that
+                  lay a hover over a reading from an answer written by hand
 ```
 
 ## Rules
@@ -297,6 +310,9 @@ that, so they are attachments of the release `aligner-1`, and `npm run app`,
 `npm run bundle` and the Windows workflow fetch them first
 (`scripts/aligner-fetch.mjs`, by checksum, once). That release must never be
 marked as the latest: the update check reads the latest release.
+`scripts/example-links.mjs` runs the aligner over the first steps' example in
+every interface language, so that its hover is the aligner's own; run it
+after changing an example's text (a test says so).
 
 Text read off the screen is recognised on the Mac by Apple's own
 recognition, in the helper. On Windows it is read by PaddleOCR's PP-OCRv5

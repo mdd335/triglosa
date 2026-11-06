@@ -26,8 +26,10 @@ const QUOTE = "[\"“”«»„‘’']";
    that has no capitals, where there is nothing to go by; not for a word
    written in capitals throughout, which is an abbreviation; and not in a
    target language that capitalises its nouns, where a capital may be the
-   correct spelling and the pack is the only one who could say. */
-function asHeadword(text, input, target) {
+   correct spelling and the pack is the only one who could say. Apple's
+   translation of a word alone does the same as the model, and gets the same
+   rule wherever it stands for a dictionary line (author 2026-11-05). */
+export function asHeadword(text, input, target) {
   if (languagePack(target).capitalisesNouns) return text;
   const first = String(input || "").trim().charAt(0);
   if (!first || first === first.toUpperCase() || first !== first.toLowerCase()) return text;
@@ -35,6 +37,19 @@ function asHeadword(text, input, target) {
   const next = text.charAt(1);
   if (next && next === next.toUpperCase() && next !== next.toLowerCase()) return text;
   return lead.toLowerCase() + text.slice(1);
+}
+
+/* Apple's word alone with a small first letter where the same reader's word
+   found in a sentence has one — "Betrieben" is capitalised as a German noun,
+   and that says nothing about "operated". Not in a language capitalising its
+   nouns, where another word may well be one. */
+export function casedLike(text, found, target) {
+  if (!text || !found || languagePack(target).capitalisesNouns) return text;
+  const first = found.charAt(0);
+  if (first === first.toUpperCase() || first !== first.toLowerCase()) return text;
+  const next = text.charAt(1);
+  if (next && next === next.toUpperCase() && next !== next.toLowerCase()) return text;
+  return text.charAt(0).toLowerCase() + text.slice(1);
 }
 
 function quotesBack(key, asked) {

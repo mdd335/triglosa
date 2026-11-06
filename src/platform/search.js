@@ -54,6 +54,14 @@ export function searchUrlFor(providerReport) {
   return DEFAULT_SEARCH;
 }
 
+/* The name of the service an address searches with, as the settings name
+   it: "" for one not among them — a phone's, which searches with whatever
+   Safari is set to. */
+export function searchNameFor(baseUrl) {
+  const found = Object.entries(SEARCH_URLS).find(([, url]) => url === baseUrl);
+  return found ? SEARCH_NAMES[found[0]] : "";
+}
+
 export function searchLink(baseUrl, term) {
   return baseUrl + encodeURIComponent(term);
 }

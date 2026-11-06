@@ -24,7 +24,7 @@ import {
   alignVerbsSinglePrompt,
   fieldName,
 } from "./prompts/verbs.js";
-import { lookupInput, wordsPrompt } from "./prompts/words.js";
+import { lookupInput, shownInput, wordsPrompt } from "./prompts/words.js";
 import { alignWordsPrompt, alignWordsSinglePrompt, alignWordsInput } from "./prompts/words-align.js";
 import {
   abbreviationPrompt,
@@ -54,12 +54,10 @@ import { parseAlternatives } from "./parse/alternatives.js";
 import { spellingPrompt } from "./prompts/spelling.js";
 import { wordLanguageInput, wordLanguagePrompt } from "./prompts/word-language.js";
 import { readSpelling, readWordLanguage } from "./spelling.js";
-import { explainCardInput, explainCardPrompt, headwordPrompt, improveCardPrompt, improveCardInput } from "./prompts/card.js";
-import { parseCardExplanation, parseImprovedCard } from "./parse/card.js";
+import { checkCardNotesInput, checkCardNotesPrompt, explainCardInput, explainCardPrompt, headwordPrompt, improveCardPrompt, improveCardInput } from "./prompts/card.js";
+import { parseCardExplanation, parseCardNotes, parseImprovedCard, parseNoteVerdicts, readerLines } from "./parse/card.js";
 import { parseHeadword } from "./parse/headword.js";
 import { parseExample, parseMore, readsAs } from "./parse/more.js";
-import { glanceInput, glancePrompt, glanceWideInput, glanceWidePrompt } from "./prompts/glance.js";
-import { parseGlance, parseGlanceWide } from "./parse/glance.js";
 import { faultForThrow } from "./faults.js";
 
 
@@ -364,19 +362,22 @@ export const knownToReader = (word, source, languages, lookup = null) =>
 
    A dictionary lookup asks for one term (`lookup`: the looked-up words and
    where they stand in `text`, which is their sentence where one came along
-   and the words themselves otherwise). A term from the sentence has to
-   cover one of them. */
+   and the words themselves otherwise; `shown`: the lines of the entry in
+   the reader's language, where it stands already). A term from the sentence
+   has to cover one of them. */
 export async function wordsFor(llm, { text, source, sourceName = "", languages, levels, retry, lookup = null, identifier = null }) {
   /* A language the app does not support has no pack and no English name; the
      name the detection found stands in for it. */
   const name = sourceName || englishName(source);
   const inSentence = !!lookup && lookup.words !== text;
+  const shown = (lookup?.shown || []).filter((line) => line?.text);
   const raw = await askedInReaderLanguage((again = {}) => llm.chat({
     temperature: again.temperature,
-    system: wordsPrompt({ code: source, name, languages, levels, retry, lookup: lookup && { inSentence } }),
+    system: wordsPrompt({ code: source, name, languages, levels, retry, lookup: lookup && { inSentence, shown: shown.length > 0 } }),
     user: [
       `Text (${name}): ${text}`,
       ...(inSentence ? [lookupInput(lookup.words)] : []),
+      ...(shown.length ? [shownInput(shown)] : []),
       ...(again.remind ? [writtenIn(englishName(languages[0]), "<meaning> and <note>")] : []),
     ].join("\n"),
     maxTokens: 800,
@@ -703,41 +704,6 @@ export async function alignWords(llm, { text, list, source, sourceName = "", a, 
   return parseAlign(raw, list.map((word) => word.text), "Word", [a, b].filter(Boolean), b ? 2 : 1);
 }
 
-/* One sentence of the original against the same sentence of its
-   translations, for the hover. The second panel comes in the same question
-   rather than one of its own: one list of units is one grouping for every
-   panel, and measured, two questions cost the local model seven sentences of
-   33. Null where the answer cannot be laid over the sentence — see
-   parse/glance.js. */
-export async function glanceSentence(llm, { sentence, translation, second, source, target, secondTarget }) {
-  if (!second) {
-    const raw = await llm.chat({
-      system: glancePrompt(),
-      user: glanceInput({
-        sourceName: englishName(source),
-        targetName: englishName(target),
-        sentence,
-        translation,
-      }),
-      maxTokens: 1200,
-    });
-    return parseGlance(raw, sentence, translation, [source, target]);
-  }
-  const raw = await llm.chat({
-    system: glanceWidePrompt(),
-    user: glanceWideInput({
-      sourceName: englishName(source),
-      aName: englishName(target),
-      bName: englishName(secondTarget),
-      sentence,
-      a: translation,
-      b: second,
-    }),
-    maxTokens: 1600,
-  });
-  return parseGlanceWide(raw, sentence, translation, second, [source, target, secondTarget]);
-}
-
 /* And the same for the verb forms. With two panels there is one translation
    instead of two, and the question has one column fewer.
 
@@ -826,8 +792,9 @@ export async function improveCard(llm, card, { level }) {
       readerCapitals: !!theirs.capitalisesNouns,
       hasSentence: !!card.context?.sentence,
       hasTranslation: !!card.context?.translation,
+      readerLines: readerLines(card).some((line) => line.untranslated),
     }),
-    user: improveCardInput({ term, reader, card }),
+    user: improveCardInput({ term, reader, card, readerLines: readerLines(card) }),
     maxTokens: 400,
   });
   const improved = parseImprovedCard(raw, card);
@@ -836,31 +803,67 @@ export async function improveCard(llm, card, { level }) {
   const withArticles = await headwordsFor(llm, { ...card, ...improved });
   const word = withArticles ? withArticles.term : improved.term;
   const meaning = withArticles ? withArticles.meaning : improved.meaning;
-  /* Asked once more where it failed or came back empty — the card is
-     otherwise left with its old note and no examples — but not after a
-     timeout: the reader has waited long enough. */
-  let explanation = "";
-  for (let attempt = 0; attempt < 2 && !explanation; attempt++) {
+  const explanation = await explainCard(llm, {
+    termLanguage: card.termLanguage,
+    meaningLanguage: card.meaningLanguage,
+    word,
+    meaning,
+    level,
+    sentences: [improved.sentence, ...improved.own],
+  });
+  /* The text's sentence first, then what the reader wrote, then the model's. */
+  const note = [improved.sentence, ...improved.own, explanation].filter(Boolean).join("\n\n");
+  return { term: word, meaning, note: note || String(card.note || "") };
+}
+
+/* An improved card's explanation, of the word and its meaning alone: the
+   notes the check kept, as one paragraph, then the examples, without one
+   that repeats a sentence already on the card. Asked once more where it
+   failed or came back empty — the card is otherwise left with its old note
+   and no examples — but not after a timeout: the reader has waited long
+   enough. A check that failed keeps no note: the examples stand alone. */
+export async function explainCard(llm, { termLanguage, meaningLanguage, word, meaning, level, sentences = [] }) {
+  const term = englishName(termLanguage);
+  const reader = englishName(meaningLanguage);
+  const articles = !!languagePack(termLanguage).definiteArticles;
+  const asked = { term, reader, word, meaning: String(meaning || "").replace(/\n/g, " ") };
+  let written = { notes: [], examples: [] };
+  for (let attempt = 0; attempt < 2 && !written.notes.length && !written.examples.length; attempt++) {
     try {
       const answer = await llm.chat({
         system: explainCardPrompt({
           term,
           reader,
           level,
-          spelling: readerSpelling(card.meaningLanguage),
-          articles: !!own.definiteArticles,
+          spelling: readerSpelling(meaningLanguage),
+          articles,
+          bothForms: articles && /\//.test(word),
         }),
-        user: explainCardInput({ term, reader, word, meaning: meaning.replace(/\n/g, " ") }),
+        user: explainCardInput(asked),
         maxTokens: 600,
       });
-      explanation = parseCardExplanation(answer, improved.sentence);
+      written = parseCardNotes(answer);
     } catch (error) {
-      /* No explanation: the card keeps its sentence. */
       if ((error?.fault || faultForThrow(error)).kind === "timeout") break;
     }
   }
-  const note = [improved.sentence, explanation].filter(Boolean).join("\n\n");
-  return { term: word, meaning, note: note || String(card.note || "") };
+  let notes = [];
+  if (written.notes.length) {
+    try {
+      const verdicts = await llm.chat({
+        system: checkCardNotesPrompt({ term, reader }),
+        user: checkCardNotesInput({ ...asked, notes: written.notes }),
+        maxTokens: 20 * written.notes.length,
+        temperature: 0,
+      });
+      const kept = parseNoteVerdicts(verdicts, written.notes.length);
+      notes = written.notes.filter((_, index) => kept[index]);
+    } catch {
+      /* Unchecked, no note is kept. */
+    }
+  }
+  const text = [notes.join(" "), ...written.examples].filter(Boolean).join("\n\n");
+  return parseCardExplanation(text, sentences[0] || "", sentences.slice(1));
 }
 
 /* Each side's nouns with their articles, in a language whose pack names them:

@@ -11,20 +11,24 @@ import { openUrl } from "../platform/env.js";
 import { closeWelcome, fitCardWindow, onSettingsChanged, openSettings, settingsChanged } from "../platform/windows.js";
 import { hotkeyLabel } from "../hotkey.js";
 import { onWindows } from "../system.js";
-import { HELP_URL } from "../updates.js";
+import { HELP_URL, PRIVACY_URL } from "../updates.js";
 import { labels, windowTitle } from "./labels.js";
 import { welcomeView } from "./welcome-view.js";
 import { exampleView } from "./example-view.js";
 import { closeOnKeys, quietContextMenu } from "./elements.js";
-import icon from "../../src-tauri/icons/128x128@2x.png";
+/* The icon without the shadow the Mac's own carries under it. */
+import icon from "../../src-tauri/icons/flat.png";
 
 let settings = await loadSettings();
-/* The window that asks for the first time: a box not ticked means no, so the
-   question counts as answered, and it is not asked again at the next start.
-   A reader of an earlier version who said not to show the first steps sees
-   the box for that unticked here too. */
-let asked = settings.stats === null;
-if (asked) {
+/* The question about counting stands every time the first steps open, with
+   no answer marked; `answered` says the answer in its place once given.
+   Left unanswered the first time it is a no, written at once. A reader of
+   an earlier version who said not to show the first steps sees them once
+   more for it, their box for that unticked. */
+const first = settings.stats === null;
+let answered = false;
+let unhidden = first;
+if (first) {
   settings = await saveSettings({ ...settings, stats: false });
   settingsChanged();
 }
@@ -41,6 +45,17 @@ const fit = () => {
   if (sheet) fitCardWindow(Math.min(Math.ceil(sheet.getBoundingClientRect().height) + AIR, ROOM()));
 };
 
+/* The example is built once per reader's language and kept through every
+   redraw — the window draws again whenever it comes forward, and a word
+   picked in it would be gone. */
+let example = null;
+const exampleFor = (text, reader) => {
+  if (example?.reader !== reader) {
+    example = { reader, node: exampleView(text.welcome.example, reader, { onResize: () => fit() }) };
+  }
+  return example.node;
+};
+
 async function draw() {
   const reader = settings.languages[0];
   const text = labels(reader);
@@ -52,23 +67,28 @@ async function draw() {
     system: onWindows() ? "windows" : "mac",
     key: settings.hotkey ? hotkeyLabel(settings.hotkey, layout) : "",
     permission,
-    hidden: !settings.welcome && !asked,
-    example: exampleView(text.welcome.example, reader),
+    hidden: !settings.welcome && !unhidden,
+    example: exampleFor(text, reader),
     consent: settings.stats,
+    asking: true,
+    answered,
   }, {
     /* Read again first: another window may have written since. */
     onHide: async (hidden) => {
-      asked = false;
+      unhidden = false;
       settings = await saveSettings({ ...(await loadSettings()), welcome: !hidden });
       settingsChanged();
     },
     onSettings: () => openSettings(windowTitle(text.settings)),
     onClose: closeWelcome,
     onReadme: () => openUrl(HELP_URL),
+    onPrivacy: () => openUrl(PRIVACY_URL),
     /* The reading window hears of it and counts the day at once. */
     onConsent: async (yes) => {
+      answered = true;
       settings = await saveSettings({ ...(await loadSettings()), stats: yes });
       settingsChanged();
+      draw();
     },
   }));
   fit();

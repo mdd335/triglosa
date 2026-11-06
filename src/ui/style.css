@@ -433,8 +433,13 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 
 /* What the section is doing right now, at the right end of its heading line.
    Not a heading itself, so it drops the capitals and the letter-spacing. */
-/* A section that found nothing says so on its heading's line. */
+/* A section that found nothing says so on its heading's line, in the
+   name's own run of text (`oneLine`): on its baseline, and with no line
+   height of its own, so the larger type cannot move the name either. */
+.label .empty-line { white-space: nowrap; }
 .label .empty-note {
+  margin-left: 8px;
+  line-height: 0;
   font-size: 12px;
   font-weight: 400;
   font-style: italic;
@@ -1558,6 +1563,9 @@ button.text-link:active:not(:disabled) {
 .settings button { padding: 6px 12px; font-size: 12px; color: var(--ink); }
 /* Air between the sentence and the button under it. */
 .settings .diagnostics { margin-top: 6px; }
+/* The README's sentence under the first steps' button, as far from it as the
+   diagnostics' button from the sentence above it. */
+.settings .about-help .about-links { margin-top: 6px; }
 
 /* The three ways to an AI model (model-setup.js): a row of buttons drawn
    as the Anki decks' languages are (see .anki-targets), outside the boxes
@@ -1590,7 +1598,9 @@ button.text-link:active:not(:disabled) {
   pointer-events: none;
 }
 .setup-choice b { font-size: 13px; font-weight: 600; }
-.setup-choice .via { font-size: 11px; color: var(--ink-faint); }
+/* The help prompt's button right under the sentence offering it. */
+.setup-prompt { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 14px; }
+.setup-prompt p { margin: 0; }
 .setup-line { margin: 0; color: var(--ink-soft); }
 /* The steps, laid on the boxes' ground and folded under their name. A
    fold's content is no flex item, so the air between its parts is margins. */
@@ -1768,6 +1778,9 @@ button.text-link:active:not(:disabled) {
    them, drawn a little larger and thinner for it — the same stroke as a
    16 px symbol (1.4). */
 .button-row { display: flex; gap: 8px; }
+/* The way to the language packs, under a panel or a picked word that says
+   one is missing. */
+.to-translations { margin-top: 8px; }
 .row-button {
   flex: 1 1 0;
   min-width: 0;
@@ -1960,7 +1973,7 @@ button.text-link:active:not(:disabled) {
 }
 
 .welcome-sheet { display: flex; flex-direction: column; gap: 12px; font-size: 13px; line-height: 1.5; }
-.welcome-icon { width: 48px; height: 48px; align-self: center; }
+.welcome-icon { width: 40px; height: 40px; align-self: center; }
 .welcome-sheet h1 { margin: 0; font-size: 18px; font-weight: 600; text-align: center; }
 .welcome-sheet .label { margin: 6px 0 0; }
 .welcome-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
@@ -1976,24 +1989,35 @@ button.text-link:active:not(:disabled) {
    own, set off from the page around it, with the line above it saying what
    to do with it. */
 .welcome-example {
-  padding: 10px 14px 14px;
+  padding: 8px 12px 10px;
   background: var(--box);
   border: 1px solid var(--line);
   border-radius: 10px;
 }
 .welcome-example .sheet { overflow: visible; padding: 0; flex: 0 0 auto; }
+/* A little tighter than a reading, so the steps under it are not far below:
+   half a point smaller and less air, still the reading window's look. */
+.welcome-example .sheet { gap: 10px; }
+.welcome-example .box:not(.rows) { padding: 7px 9px; }
+/* A panel's buttons on the middle of its one line, as in a reading. */
+.welcome-example .actions { top: 5px; }
+.welcome-example .box { font-size: 12.5px; line-height: 1.4; }
+.welcome-example .row { padding-top: 4px; padding-bottom: 4px; }
+.welcome-example .row::before { top: 6px; bottom: 6px; }
+.welcome-example .term, .welcome-example .base { font-size: 12.5px; }
 .welcome-example-hint { margin: 0 0 -6px; color: var(--ink-soft); }
 
-/* The anonymous count: a box to tick, with what it sends under its name. */
+/* The anonymous count: the question, what it sends, and two answers. */
 .welcome-consent {
-  padding: 8px 12px;
+  padding: 10px 12px;
   background: var(--box);
   border-radius: 8px;
 }
-.welcome-consent-line { display: flex; gap: 6px; align-items: center; cursor: pointer; }
-.welcome-consent-line input { margin: 0; accent-color: var(--brand); }
-.welcome-consent-name { font-weight: 500; }
-.welcome-consent-body { margin: 2px 0 0 19px; color: var(--ink-soft); font-size: 11.5px; line-height: 1.45; }
+.welcome-consent p { margin: 0; }
+.welcome-consent-question { font-weight: 600; }
+.welcome-consent-body { margin-top: 2px !important; color: var(--ink-soft); font-size: 12px; line-height: 1.45; }
+.welcome-consent-buttons { margin-top: 10px; }
+.welcome-consent-done { margin: 0; color: var(--ink-soft); }
 
 /* A picture dragged over the window: a frame in the accent where it lands. */
 body.drop-target::after {
@@ -2299,7 +2323,7 @@ body.drop-target::after {
   height: auto;
   padding: 12px 14px;
 }
-.note-icon { width: 28px; height: 28px; flex: 0 0 auto; }
+.note-icon { width: 24px; height: 24px; flex: 0 0 auto; }
 .note-text { margin: 0; font-size: 13px; line-height: 1.4; }
 
 /* ---- a phone's own sheets: the first steps, and the question about the
@@ -2318,19 +2342,7 @@ body.drop-target::after {
 .phone-consent-allow { background: var(--brand); color: #fff; border-color: transparent; }
 
 /* On a phone, under a new translation's field: the camera, the photo
-   library and the clipboard, a row of buttons (below). On a computer, in
-   their place, the line saying a picture can be dropped on the window. */
-.text-sources { margin-top: 8px; }
-.drop-hint {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 8px 2px 0;
-  font-size: 12px;
-  color: var(--ink-faint);
-}
-/* The symbol on the middle of the words' capitals, as a row button's
-   (below). */
-.drop-hint svg { width: 15px; height: 15px; flex: none; }
-.drop-hint span { text-box: trim-both cap alphabetic; }
-.drop-hint span svg { width: 13px; height: 13px; vertical-align: -2px; }
+   library, the Files app and the clipboard, buttons of a row (below) in two
+   rows of two (author 2026-11-06): four across left a word a quarter of the
+   phone's width. */
+.text-sources { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; }

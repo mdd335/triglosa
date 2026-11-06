@@ -25,13 +25,13 @@ import {
   alignVerbs,
   translateText,
   alternativesFor,
-  glanceSentence,
   spellingFor,
   wordLanguageFor,
 } from "./ask.js";
 import { checkerOffer, inAnotherLanguage, languageByDictionaries, mayBeMisspelled, spellingLanguages, spellingWords, translationWords, wordLanguage } from "./spelling.js";
-import { glancePairs, placeUnits } from "./glance.js";
-import { unitsFromLinks } from "./parse/glance.js";
+import { glancePairs, glossOf, placeThird, placeUnits } from "./glance.js";
+import { asHeadword, casedLike } from "./parse/alternatives.js";
+import { unitsFromLinks, unitsOfThird } from "./parse/glance.js";
 import { fragmentsAcross, rangesAcross } from "./match/links.js";
 import { spotsFor } from "./match/positions.js";
 import { wordCount } from "./text.js";
@@ -42,12 +42,6 @@ import { sentenceAround } from "./sentence.js";
    rendering of it is the answer. */
 export const SHORT_MAX_WORDS = 3;
 
-/* How many sentences of the hover's alignment are asked about at once. Every
-   other question of a reading has come back by then, but a long text has
-   dozens of sentences, and dozens of questions at once is what a cloud
-   endpoint answers with a rate limit and a local one with every answer
-   slowing down — including the one to a word the reader clicks meanwhile. */
-export const GLANCE_WIDTH = 3;
 
 /* A looked-up word's spelling (see spelling.js). The checker answers in a
    few milliseconds once its dictionaries are loaded, and is waited for this
@@ -170,20 +164,28 @@ export function emptyState() {
    verb form sitting inside a multi-word term of the word list makes the verb
    row not merely double but misleading, so it drops out entirely. Both point
    at the same spot in the text, and a spot carries one colour. */
-function untangle(state) {
-  if (state.words?.length && state.forms.length) {
+/* `only` holds a list already on the sheet with its places worked out —
+   one that came first while the other waited on its fold: "words" touches
+   the terms alone, "verbs" the verbs alone, and "verbs-all" lets a verb go
+   wherever a term stands on it, since the term is already drawn. */
+function untangle(state, only = "") {
+  if ((!only || only === "words") && state.words?.length && state.forms.length) {
     state.words = withoutVerbs(state.words, state.forms);
   }
+  if (only === "words") return;
   if (state.verbs?.length && state.words?.length) {
     state.verbs = state.verbs.filter((verb) =>
       !state.words.some((word) => {
         const term = String(word.text || "").trim();
-        return term.split(/\s+/).length > 1 && containsWord(term, verb.form);
+        return (only === "verbs-all" || term.split(/\s+/).length > 1) && containsWord(term, verb.form);
       }));
   }
 }
 
-export async function runText(text, { settings, translation, llm, aligner = null, identifier = null, speller = null, onChange, waitTurn, language = "", languageBy = "", guesses = [], sentence = null, asTyped = false, choice = null, kept = null }) {
+/* `later`, where the window offers it, holds the verbs and the terms back
+   while their section is folded away: `folded(key)` says whether it is as
+   the reading starts, and `unfolded(key)` settles once it is opened. */
+export async function runText(text, { settings, translation, llm, aligner = null, identifier = null, speller = null, onChange, language = "", languageBy = "", guesses = [], sentence = null, asTyped = false, choice = null, kept = null, later = null }) {
   const state = emptyState();
   const blame = (error) => {
     const found = faultOf(error);
@@ -310,13 +312,14 @@ export async function runText(text, { settings, translation, llm, aligner = null
   const aligning = !!aligner && !state.short && named && targets.length > 0 && await aligner.ready();
 
   /* The hover says, over a word of a language the reader is learning, what it
-     is in their own — so it wants a translated panel and someone to say which
-     word became which: the aligner, the AI model otherwise. A text in the
-     reader's own language is one of the cases it works in: their language is
-     the original, and the sign over a translation is the source text's own
-     words. Said as coming from the first moment, so that a word hovered while
-     the panels are still filling shows it will answer. */
-  const glanceWanted = (!!llm || aligning) && settings.glance !== false && !state.short && named && targets.length > 0;
+     is in their own — so it wants a translated panel and the aligner to say
+     which word became which, and nothing else: no AI model is asked about it
+     (author 2026-11-05). A text in the reader's own language is one of the
+     cases it works in: their language is the original, and the sign over a
+     translation is the source text's own words. Said as coming from the
+     first moment, so that a word hovered while the panels are still filling
+     shows it will answer. */
+  const glanceWanted = aligning && settings.glance !== false;
   if (glanceWanted) {
     state.glance = { pending: true };
     tell();
@@ -349,11 +352,15 @@ export async function runText(text, { settings, translation, llm, aligner = null
      download helps. Naming the wrong one of those sends somebody into
      System Settings after a language that is already there; and for a
      language the app has no pack for there is no download to name. */
-  const emptyStatus = async () => (llm
-    ? "no-answer"
-    : !named
-    ? "unknown-source"
-    : (await translation?.running?.()) ? "missing" : "no-device");
+  const emptyStatus = async (to) => {
+    if (llm) return "no-answer";
+    if (!named) return "unknown-source";
+    if (!(await translation?.running?.())) return "no-device";
+    /* A pair Apple cannot translate at all is no download away: telling
+       the reader to load its pack sent them after one that does not exist. */
+    const pair = await Promise.resolve(translation.pairStatus?.(from, to)).catch(() => "");
+    return pair === "unsupported" ? "unsupported" : "missing";
+  };
 
   if (state.short) {
     /* A typo (see CHECK_WAIT_MS): the spelling checker first, and only
@@ -419,6 +426,24 @@ export async function runText(text, { settings, translation, llm, aligner = null
       return entries.filter((entry) => itself(entry) || !inAnotherLanguage(entry.text, verdicts, { target: code, languages }));
     };
 
+    /* The looked-up word in Apple's translation of its sentence, where the
+       aligner is on this machine: "" where anything is missing. */
+    const wordInSentence = async (from, code, words) => {
+      const came = askedSentence();
+      if (!came || state.sentence?.apart || !aligner || !translation) return "";
+      try {
+        if (!(await aligner.ready())) return "";
+        const translated = String(await translation.translate(from, code, came.text) || "");
+        if (!translated) return "";
+        const [links] = await aligner.align([{ source: came.text, target: translated }]);
+        const reading = { panels: [1], codes: [from, code], sentences: [{ start: 0, end: came.text.length, to: { start: 0, end: translated.length }, links: [links || []] }] };
+        const found = rangesAcross(reading, [came.text, translated], 0, { start: came.start, end: came.end }, 1);
+        return found.length ? asHeadword(glossOf(translated, found).replace(/^[\p{P}\s]+|[\p{P}\s]+$/gu, ""), words, code) : "";
+      } catch {
+        return "";
+      }
+    };
+
     const fillPanel = async (offset, code, words) => {
       const panel = state.panels[offset + 1];
       if (panel.kept) return;
@@ -441,11 +466,28 @@ export async function runText(text, { settings, translation, llm, aligner = null
         panel.model = settings.model || "";
       } else {
         panel.alternatives = undefined;
-        const translated = from ? await translation?.translate(from, code, words) : "";
-        panel.text = translated || "";
+        /* Apple writes a word alone as though it began a sentence:
+           "Gelangweilt" is German's to keep, "Rug" for "tapis" is not. */
+        const translated = from ? asHeadword(await translation?.translate(from, code, words) || "", words, code) : "";
+        /* Looked up in its sentence: what the word became where Apple
+           translated the sentence, found by the aligner, stands first, as a
+           model's meaning there does, and the word alone under it — two
+           lines of which one may be wrong say more than one that may be
+           (author 2026-11-05). One line where they agree. */
+        const there = translated && from ? await wordInSentence(from, code, words) : "";
+        const fold = (value) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+        if (there && fold(there) !== fold(translated)) {
+          panel.alternatives = [{ text: there }, { text: casedLike(translated, there, code) }];
+          panel.text = "";
+          panel.status = "alternatives";
+        } else {
+          /* The same word: written as the sentence has it ("sparen", not
+             Apple's "Sparen"). */
+          panel.text = (there || translated) || "";
+          panel.status = translated ? "ready" : await emptyStatus(code);
+        }
         panel.engine = translated ? "device" : undefined;
         panel.fallback = !!translated && !!llm;
-        panel.status = translated ? "ready" : await emptyStatus();
       }
       tell();
     };
@@ -472,9 +514,12 @@ export async function runText(text, { settings, translation, llm, aligner = null
         languages: settings.languages,
         levels: settings.levels,
         identifier,
-        lookup: sentence
-          ? { words, start: sentence.start, end: sentence.end }
-          : { words, start: 0, end: words.length },
+        /* The entry in the reader's language, where it stands: the term is
+           held to one of its senses (run 76). */
+        lookup: {
+          ...(sentence ? { words, start: sentence.start, end: sentence.end } : { words, start: 0, end: words.length }),
+          shown: state.panels.find((panel, index) => index && panel.code === reader)?.alternatives || [],
+        },
       })
         .then((list) => {
           state.words = list;
@@ -545,7 +590,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
       }
     }
     panel.text = translated;
-    panel.status = translated ? "ready" : await emptyStatus();
+    panel.status = translated ? "ready" : await emptyStatus(code);
     tell();
   };
 
@@ -584,14 +629,31 @@ export async function runText(text, { settings, translation, llm, aligner = null
   /* The two verb stages separately rather than through one wrapper: only that
      way can the forms be taken off in between, and the word assignment needs
      nothing more than those. */
+  /* A section folded away is asked for once it is opened (author
+     2026-11-05: "Zugeklappte Bereiche erst laden, wenn sie aufgeklappt
+     werden — nur da, wo nichts anderes davon abhängt"). The verbs and the
+     terms of a longer reading: nothing else waits on either. Not a
+     translation, which everything below stands on, nor a lookup's term,
+     which decides its card. Until then its section says nothing and the
+     rest of the reading goes on without it. */
+  const heldBack = (key) => !state.short && !!later?.folded?.(key);
+  const gate = (held, key, status) => (held
+    ? later.unfolded(key).then(() => {
+      state.status[status] = "working";
+      tell();
+    })
+    : Promise.resolve());
+
   if (wantVerbs && keptVerbs) {
     state.verbs = keptVerbs;
     state.forms = kept.forms || [];
   }
-  state.status.verbs = wantVerbs && !keptVerbs ? "working" : "";
+  const lateVerbs = wantVerbs && !keptVerbs && heldBack("verbs");
+  state.status.verbs = wantVerbs && !keptVerbs ? (lateVerbs ? "later" : "working") : "";
   const formsDone = !wantVerbs || keptVerbs
     ? Promise.resolve([])
-    : findVerbForms(llm, { text, source: detected.code })
+    : gate(lateVerbs, "verbs", "verbs")
+    .then(() => findVerbForms(llm, { text, source: detected.code }))
     .then((forms) => {
       state.forms = forms.map((form) => ({ form }));
       return forms;
@@ -644,17 +706,19 @@ export async function runText(text, { settings, translation, llm, aligner = null
     });
 
   if (wantWords && keptWords) state.words = keptWords;
-  state.status.words = wantWords && !keptWords ? "working" : "";
+  const lateWords = wantWords && !keptWords && heldBack("terms");
+  state.status.words = wantWords && !keptWords ? (lateWords ? "later" : "working") : "";
   const wordsDone = !wantWords || keptWords
     ? Promise.resolve()
-    : wordsFor(llm, {
+    : gate(lateWords, "terms", "words")
+    .then(() => wordsFor(llm, {
     text,
     source: asked,
     sourceName: askedName,
     languages: settings.languages,
     levels: settings.levels,
     identifier,
-  })
+  }))
     .then((list) => {
       state.words = list;
       state.status.words = "";
@@ -719,8 +783,11 @@ export async function runText(text, { settings, translation, llm, aligner = null
     };
   };
 
-  const wordAssignment = Promise.all([translations, wordsDone, formsDone]).then(async () => {
-    untangle(state);
+  /* Held back, a section neither waits for the other nor is waited for:
+     the one that comes first is drawn and placed, and the late one gives way
+     to it where both stand on one word. */
+  const wordAssignment = Promise.all([translations, wordsDone, lateVerbs ? null : formsDone]).then(async () => {
+    untangle(state, lateWords || lateVerbs ? "words" : "");
     tell();
     if (!state.words?.length || !aText() || (twoTranslations && !bText())) return;
     state.status.words = "linking";
@@ -742,8 +809,8 @@ export async function runText(text, { settings, translation, llm, aligner = null
 
   /* The verb assignment does need the annotation: its anchor is the meaning
      in the reader's language. */
-  const verbAssignment = Promise.all([translations, verbsDone, wordsDone]).then(async () => {
-    untangle(state);
+  const verbAssignment = Promise.all([translations, verbsDone, lateWords ? null : wordsDone]).then(async () => {
+    untangle(state, lateVerbs ? "verbs-all" : lateWords ? "verbs" : "");
     tell();
     if (!state.verbs?.length || !aText() || (twoTranslations && !bText())) return;
     state.status.verbs = "linking";
@@ -762,23 +829,17 @@ export async function runText(text, { settings, translation, llm, aligner = null
     tell();
   });
 
-  await Promise.all([wordAssignment, verbAssignment]);
+  await Promise.all([lateWords ? null : wordAssignment, lateVerbs ? null : verbAssignment]);
   state.busy = false;
   tell();
 
-  if (glanceWanted && !(await aligned)) await glanceAll(state, { text, reader, source: detected.code, llm, tell, waitTurn });
+  if (glanceWanted && !(await aligned)) {
+    state.glance = null;
+    tell();
+  }
   return state;
 }
 
-/* The hover's alignment, after everything else: the sheet is complete by
-   then, and this is the one part of a reading nobody is waiting on. A
-   sentence at a time, a few at once, each drawn as soon as it is in — and
-   standing aside while the reader is waiting on a clicked word (`waitTurn`).
-
-   A failure is not the run's fault to report. Everything the reader asked
-   for has arrived, and a line under the sheet about a rate limit on
-   something they cannot see would be about nothing. The sentence simply
-   has no answer. */
 /* Which sentences the hover is worked out for, and against which panels:
    null where no panel can be paired with the original. */
 function glanceSentences(state, text, reader) {
@@ -829,7 +890,11 @@ async function alignReading(state, { text, reader, source, aligner, tell, glance
   const own = state.panels[columns[0]];
   const other = second === -1 ? null : state.panels[second];
   const cut = (panel, range) => panel.text.slice(range.start, range.end);
-  const each = other ? 2 : 1;
+  /* Where the reader's own language is a translation beside another, that
+     other one is also laid over it straight: its hover is the reader's
+     words for its own, not by way of the original (run sixty-eight). */
+  const third = !!other && readerPanel > 0 && glance;
+  const each = other ? (third ? 3 : 2) : 1;
   let links;
   try {
     links = await aligner.align(sentences.flatMap((sentence) => {
@@ -837,6 +902,7 @@ async function alignReading(state, { text, reader, source, aligner, tell, glance
       return [
         { source: original, target: cut(own, sentence.to) },
         ...(other ? [{ source: original, target: cut(other, sentence.second) }] : []),
+        ...(third ? [{ source: cut(other, sentence.second), target: cut(own, sentence.to) }] : []),
       ];
     }));
     if (!Array.isArray(links) || links.length !== sentences.length * each) return false;
@@ -844,26 +910,40 @@ async function alignReading(state, { text, reader, source, aligner, tell, glance
     return false;
   }
   const panels = second === -1 ? [columns[0]] : [columns[0], second];
+  const linksOf = (index) => links.slice(index * each, index * each + each);
   state.links = {
     panels,
+    /* Each panel's language, for the small words a place may bridge. */
+    codes: [source, ...state.panels.slice(1).map((panel) => panel.code)],
     sentences: sentences.map((sentence, index) => ({
       start: sentence.start,
       end: sentence.end,
       to: sentence.to,
       second: sentence.second,
-      links: links.slice(index * each, index * each + each),
+      links: linksOf(index).slice(0, other ? 2 : 1),
     })),
   };
   if (glance) {
     sentences.forEach((sentence, index) => {
+      const [ownLinks, otherLinks, between] = linksOf(index);
+      const original = text.slice(sentence.start, sentence.end);
       const units = unitsFromLinks(
-        text.slice(sentence.start, sentence.end),
+        original,
         cut(own, sentence.to),
-        links[index * each],
+        ownLinks,
         [source, own.code],
-        other ? { text: cut(other, sentence.second), links: links[index * each + 1], codes: [source, other.code] } : null,
+        other ? { text: cut(other, sentence.second), links: otherLinks, codes: [source, other.code] } : null,
+        { fill: true },
       );
       sentence.units = units ? placeUnits(sentence, units, sentence.second && { to: sentence.second }) : null;
+      if (third && sentence.second) {
+        const theirs = unitsOfThird({
+          original, own: cut(own, sentence.to), other: cut(other, sentence.second),
+          links: { own: ownLinks, other: otherLinks, between },
+          codes: [source, own.code, other.code],
+        });
+        if (theirs) sentence.third = placeThird(sentence, theirs);
+      }
       sentence.status = "done";
     });
     state.glance = { panels, reader: readerPanel, sentences, by: "aligner" };
@@ -872,45 +952,3 @@ async function alignReading(state, { text, reader, source, aligner, tell, glance
   return true;
 }
 
-async function glanceAll(state, { text, reader, source, llm, tell, waitTurn }) {
-  const laid = glanceSentences(state, text, reader);
-  if (!laid) {
-    state.glance = null;
-    tell();
-    return;
-  }
-  const { columns, second, readerPanel, sentences } = laid;
-  state.glance = {
-    panels: second === -1 ? [columns[0]] : [columns[0], second],
-    reader: readerPanel,
-    sentences,
-    by: "model",
-  };
-  tell();
-
-  let next = 0;
-  const work = async () => {
-    while (next < sentences.length) {
-      const sentence = sentences[next++];
-      if (waitTurn) await waitTurn();
-      try {
-        const units = await glanceSentence(llm, {
-          sentence: text.slice(sentence.start, sentence.end),
-          translation: state.panels[columns[0]].text.slice(sentence.to.start, sentence.to.end),
-          second: sentence.second
-            ? state.panels[second].text.slice(sentence.second.start, sentence.second.end)
-            : "",
-          source,
-          target: state.panels[columns[0]].code,
-          secondTarget: second === -1 ? "" : state.panels[second].code,
-        });
-        sentence.units = units ? placeUnits(sentence, units, sentence.second && { to: sentence.second }) : null;
-      } catch {
-        sentence.units = null;
-      }
-      sentence.status = "done";
-      tell();
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(GLANCE_WIDTH, sentences.length) }, work));
-}

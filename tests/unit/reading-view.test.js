@@ -161,6 +161,11 @@ test("a section that found nothing says that, not …", () => {
     const node = sectionNamed(drawn, title).node;
     assert.strictEqual(node.querySelector(".label .empty-note")?.textContent, sentence, "on the heading's line");
     assert.ok(!node.querySelector(".box"), "one line, no box under it");
+    /* In one run of text with the heading's name, so the two share a
+       baseline; side by side as boxes of their own, the larger italic stood
+       lower than the capitals. */
+    const together = node.querySelector(".label > .empty-line");
+    assert.ok(together?.querySelector(":scope > .name + .empty-note"), `${title}: name and sentence in one line of text`);
   }
   const folding = draw(reading({ verbs: [], words: [] }), SETTINGS, { onFold() {} });
   assert.ok(!sectionNamed(folding, de.verbs).node.querySelector(".fold"), "nothing to fold");
@@ -207,6 +212,37 @@ test("the language-pack sentence is only shown where the device was the only way
     ],
   }));
   assert.match(sectionNamed(drawn, "Deutsch").body, /Sprachpaket .* fehlt/);
+});
+
+test("a missing pack has the way to the Translations page beside it, an impossible pair none", () => {
+  /* author 2026-11-05: a missing pack said where it matters, with a button
+     straight to "Übersetzungen". */
+  const opened = [];
+  const tools = { ...TOOLS, translations: () => opened.push("translation") };
+  const panels = (status) => [reading().panels[0], { code: "de", name: "Deutsch", status, text: "" },
+    { code: "en", name: "Englisch", status: "ready", text: "Yesterday" }];
+  const missing = draw(reading({ panels: panels("missing") }), SETTINGS, { tools });
+  const way = sectionNamed(missing, "Deutsch").node.querySelector(".to-translations button");
+  /* author 2026-11-05: it says it opens the settings, with their symbol,
+     and opens them at the page. */
+  assert.strictEqual(way.textContent, de.settingsOpen);
+  assert.strictEqual(way.dataset.icon, "settings");
+  assert.ok(!way.closest(".box"), "beside the text, where a click picks no word");
+  way.click();
+  assert.deepStrictEqual(opened, ["translation"]);
+  /* Two panels without their pack: the sentence in each, the button once,
+     under the last. */
+  const both = draw(reading({ panels: [reading().panels[0], { code: "de", name: "Deutsch", status: "missing", text: "" },
+    { code: "en", name: "Englisch", status: "missing", text: "" }] }), SETTINGS, { tools });
+  assert.match(sectionNamed(both, "Deutsch").body, /Sprachpaket .* fehlt/);
+  assert.strictEqual(sectionNamed(both, "Deutsch").node.querySelector(".to-translations"), null);
+  assert.ok(sectionNamed(both, "Englisch").node.querySelector(".to-translations button"));
+  assert.strictEqual(both.sheet.querySelectorAll(".to-translations").length, 1);
+  /* Apple cannot do the pair at all: no pack to load, the model to set up. */
+  const impossible = draw(reading({ panels: panels("unsupported") }), SETTINGS, { tools });
+  const area = sectionNamed(impossible, "Deutsch");
+  assert.strictEqual(area.body, de.pairUnsupported("Spanisch", "Deutsch"));
+  assert.strictEqual(area.node.querySelector(".to-translations"), null);
 });
 
 test("a panel the model failed on blames nobody and names no download", () => {
@@ -274,6 +310,73 @@ test("without an endpoint nothing a model fills is drawn, and one line says how 
   const notes = drawn.sheet.querySelectorAll(".locked-note");
   assert.strictEqual(notes.length, 1, "said once");
   assert.strictEqual(notes[0].textContent, de.lockedHow);
+});
+
+test("without an endpoint a picked word is answered as far as the aligner and Apple go", () => {
+  /* author 2026-11-05: no explanation, and still a card. */
+  const cards = [];
+  const state = reading({
+    selection: { panel: 0, start: 8, end: 16, term: "gobierno" },
+    marked: { text: "gobierno", meaning: "Regierung", note: "", synonyms: [], bare: true, meaningBy: "aligner", placedBy: "aligner",
+              ranges: { 1: [{ start: 18, end: 27 }], 2: [{ start: 14, end: 24 }] } },
+    markedStatus: "",
+  });
+  const tools = { ...TOOLS, card: (card) => cards.push(card), cardFor: (code) => code !== "de", speak() {}, canSpeak: () => true };
+  const drawn = draw(state, { ...SETTINGS, endpoint: "" }, { tools });
+  assert.deepStrictEqual(titles(drawn), ["Deutsch", "Englisch", markedIn("Spanisch")]);
+  const area = sectionNamed(drawn, markedIn("Spanisch"));
+  const [row] = area.rows;
+  assert.strictEqual(row.querySelector(".term").textContent, "gobierno");
+  assert.ok(row.textContent.includes("Regierung"), "what it became in the reader's language");
+  assert.deepStrictEqual(iconsOf(row), ["speak", "search", "card"], "nothing that explains");
+  assert.strictEqual(area.node.querySelector(".label .status").textContent, "zugeordnet von Triglosa");
+  row.querySelector("button[data-icon='card']").dispatchEvent(new window.MouseEvent("click"));
+  assert.deepStrictEqual([cards[0].term, cards[0].meaning], ["gobierno", "Regierung"]);
+  /* Framed where it went, as the aligner found it. */
+  const lit = [...drawn.sheet.querySelectorAll(".pane .box")].slice(1, 3).map((box) => box.querySelector(".sel")?.textContent);
+  assert.deepStrictEqual(lit, ["Regierung", "government"]);
+  assert.strictEqual(drawn.sheet.querySelectorAll(".locked-note").length, 1, "and the line about what a model adds");
+
+  /* A pack Apple could load says so where the meaning would stand. */
+  const opened = [];
+  const packless = draw({ ...state, marked: { ...state.marked, meaning: "", meaningBy: "", ranges: {}, missingPair: ["es", "de"] } },
+    { ...SETTINGS, endpoint: "" }, { tools: { ...tools, translations: () => opened.push(1) } });
+  const unmeant = sectionNamed(packless, markedIn("Spanisch")).rows[0];
+  assert.strictEqual(unmeant.querySelector(".note").textContent, de.packMissing("Spanisch", "Deutsch"));
+  unmeant.querySelector(".to-translations button").click();
+  assert.strictEqual(opened.length, 1);
+  /* A panel above already shows the button: the word says it without one. */
+  const underPanel = draw({ ...state, panels: state.panels.map((entry, index) => (index === 1 ? { ...entry, status: "missing", text: "" } : entry)),
+    marked: { ...state.marked, meaning: "", meaningBy: "", ranges: {}, missingPair: ["es", "de"] } },
+  { ...SETTINGS, endpoint: "" }, { tools: { ...tools, translations: () => opened.push(1) } });
+  const plain = sectionNamed(underPanel, markedIn("Spanisch")).rows[0];
+  assert.strictEqual(plain.querySelector(".note").textContent, de.packMissing("Spanisch", "Deutsch"));
+  assert.strictEqual(plain.querySelector(".to-translations"), null);
+  assert.strictEqual(underPanel.sheet.querySelectorAll(".to-translations").length, 1);
+
+  /* Apple's word for it, where no panel said. */
+  const device = draw({ ...state, marked: { ...state.marked, meaningBy: "device", placedBy: "", ranges: {} } }, { ...SETTINGS, endpoint: "" }, { tools });
+  assert.strictEqual(sectionNamed(device, markedIn("Spanisch")).node.querySelector(".label .status").textContent, "übersetzt von Apple (auf diesem Gerät)");
+  /* Both, where the aligner's word and Apple's differ (author 2026-11-05):
+     the two words, and both named. */
+  const both = draw({ ...state, marked: { ...state.marked, meaning: "Regierung, Staat", meaningBy: "both" } }, { ...SETTINGS, endpoint: "" }, { tools });
+  const credit = sectionNamed(both, markedIn("Spanisch")).node.querySelector(".label .status").textContent;
+  assert.match(credit, /Apple/);
+  assert.match(credit, /Triglosa/);
+  assert.match(sectionNamed(both, markedIn("Spanisch")).rows[0].textContent, /Regierung, Staat/);
+});
+
+test("where Apple translated, the line says so before what a model adds", () => {
+  /* author 2026-11-05: reminded, not nagged — one wording wherever Apple
+     translated, and what a model adds at that place. */
+  const device = reading();
+  device.panels = device.panels.map((entry, index) => (index ? { ...entry, engine: "device" } : entry));
+  const note = draw(device, { ...SETTINGS, endpoint: "" }).sheet.querySelectorAll(".locked-note");
+  assert.strictEqual(note.length, 1);
+  assert.strictEqual(note[0].textContent,
+    "Übersetzt von Apple (auf diesem Gerät). Verbinde in den Einstellungen ein KI-Modell für genauere Übersetzungen, Begriffe, Verben und Erklärungen zu jedem Wort.");
+  /* Nothing translated by Apple, nothing said about it. */
+  assert.strictEqual(draw(reading(), { ...SETTINGS, endpoint: "" }).sheet.querySelector(".locked-note").textContent, de.lockedHow);
 });
 
 test("a blank sheet without an endpoint has the line and no empty areas", () => {
@@ -571,6 +674,20 @@ test("a word picked in a dictionary line is framed in that line alone", () => {
   assert.strictEqual(lines[0].querySelector(".sel"), null);
   assert.strictEqual(lines[1].querySelector(".sel.picked").textContent, "Fehler");
   assert.ok(titles(drawn).includes(markedIn("Deutsch")));
+  /* Folded away, the area takes the frame with it, as in a panel. */
+  const folded = draw({ ...state, folded: new Set(["marked"]) });
+  assert.strictEqual(folded.sheet.querySelector(".box.rows.entries .sel"), null);
+});
+
+test("a word picked in the sentence of a short text loses its frame with its area folded", () => {
+  const sentence = { text: "Otra vez metí la pata delante de todos.", start: 17, end: 21 };
+  const state = { ...SHORT(), text: "pata", sentence,
+    selection: { panel: 0, inSentence: true, start: 9, end: 13, term: "metí" },
+    marked: { text: "metí", meaning: "steckte", note: "", synonyms: [] },
+    markedStatus: "" };
+  state.panels[0] = { ...state.panels[0], text: "pata" };
+  assert.ok(draw(state).sheet.querySelector(".looked-up-in .sel"));
+  assert.strictEqual(draw({ ...state, folded: new Set(["marked"]) }).sheet.querySelector(".looked-up-in .sel"), null);
 });
 
 test("short mode without a model shows the device's translation and the one line", () => {
@@ -579,7 +696,11 @@ test("short mode without a model shows the device's translation and the one line
   const drawn = draw(state, { ...SETTINGS, endpoint: "" });
   assert.deepStrictEqual(titles(drawn), ["Deutsch"]);
   assert.strictEqual(sectionNamed(drawn, "Deutsch").body, "ins Fettnäpfchen treten");
-  assert.strictEqual(drawn.sheet.querySelectorAll(".locked-note").length, 1);
+  const notes = drawn.sheet.querySelectorAll(".locked-note");
+  assert.strictEqual(notes.length, 1);
+  /* What a model adds to a word looked up, not to a reading. */
+  assert.strictEqual(notes[0].textContent, `${de.byApple} ${de.lockedHowShort}`);
+  assert.match(de.lockedHowShort, /Bedeutungen/);
 });
 
 /* ---- the buttons of a row ---- */
@@ -597,6 +718,14 @@ test("a term offers the search alone", () => {
     words: [{ text: "acuerdo", meaning: "Abkommen", note: "Vertragsrecht.", spot: "acuerdo" }],
   }));
   assert.deepStrictEqual(iconsOf(sectionNamed(drawn, de.terms).rows[0]), ["search"]);
+});
+
+test("the search names the service it opens where that is known", () => {
+  const state = () => reading({ words: [{ text: "acuerdo", meaning: "Abkommen", note: "Vertragsrecht.", spot: "acuerdo" }] });
+  const label = (tools) => sectionNamed(draw(state(), SETTINGS, { tools }), de.terms).rows[0]
+    .querySelector("button[data-icon='search']").getAttribute("aria-label");
+  assert.strictEqual(label({ ...TOOLS, searchName: () => "DuckDuckGo" }), "Mit DuckDuckGo suchen");
+  assert.strictEqual(label({ ...TOOLS, searchName: () => "" }), de.search, "a phone's: Safari decides");
 });
 
 test("a marked word that is a verb is treated as one", () => {
@@ -761,7 +890,7 @@ test("while the original is being written in, no language is claimed for it", ()
   assert.strictEqual(sheet.querySelector("#translate .pill-key").textContent, de.enterKey, "the key in grey, not in brackets");
 });
 
-test("on a phone a new translation's field has the camera, the photo library and the clipboard under it", () => {
+test("on a phone a new translation's field has the camera, the photo library, the Files app and the clipboard under it", () => {
   const draw = (tools, editing = true) => {
     const sheet = document.createElement("div");
     renderReading(sheet, editing ? null : reading(), {
@@ -778,50 +907,33 @@ test("on a phone a new translation's field has the camera, the photo library and
   const phone = { ...TOOLS, picture: (source) => asked.push(source), paste: () => asked.push("paste"), copied: () => true };
   const sheet = draw(phone);
   const sources = [...sheet.querySelectorAll(".text-sources button")];
-  assert.deepStrictEqual(sources.map((node) => node.textContent), [de.pictureCamera, de.pictureLibrary, de.clipboard]);
-  assert.deepStrictEqual(sources.map((node) => node.querySelector("svg") && node.querySelector("svg").innerHTML.length > 0), [true, true, true],
+  assert.deepStrictEqual(sources.map((node) => node.textContent), [de.pictureCamera, de.pictureLibrary, de.pictureFiles, de.clipboard]);
+  assert.deepStrictEqual(sources.map((node) => node.querySelector("svg") && node.querySelector("svg").innerHTML.length > 0), [true, true, true, true],
     "each with its symbol");
   assert.ok(sheet.querySelector(".pane > .text-sources"), "under the field");
   sources.forEach((node) => node.click());
-  assert.deepStrictEqual(asked, ["camera", "library", "paste"]);
+  assert.deepStrictEqual(asked, ["camera", "library", "files", "paste"]);
   /* Greyed as the bar's button while nothing was copied. */
   assert.strictEqual(draw({ ...phone, copied: () => false }).querySelector('[data-source="clipboard"]').disabled, true);
-  assert.strictEqual(sources[2].disabled, false);
+  assert.strictEqual(sources[3].disabled, false);
   /* A computer has no such buttons, and a reading none either. */
   assert.strictEqual(draw(TOOLS).querySelector(".text-sources"), null);
   assert.strictEqual(draw(phone, false).querySelector(".text-sources"), null);
 });
 
-test("on a computer a new translation's field says that a picture can be dropped on the window", () => {
-  const draw = (tools, draft = "", editing = true) => {
-    const sheet = document.createElement("div");
-    renderReading(sheet, editing ? null : reading(), {
-      settings: SETTINGS,
-      tools,
-      edit: { editing, draft, onDraft() {}, onEdit() {}, onTranslate() {} },
-      onPick() {},
-      onLookUp() {},
-      onBack() {},
-    });
-    return sheet;
-  };
-  const computer = { ...TOOLS, dropsPicture: true };
-  const hint = draw(computer).querySelector(".pane > .drop-hint");
-  assert.ok(hint, "under the field");
-  assert.ok(hint.textContent.startsWith(de.dropHint));
-  assert.ok(hint.querySelector("svg"), "with the photos' symbol");
-  /* Dragging from another program puts a window that is not pinned away. */
-  const named = draw(computer).querySelector(".drop-hint");
-  assert.ok(named.textContent.includes(de.pinWindow));
-  assert.strictEqual(named.querySelectorAll("span svg").length, 1, "the pin drawn in its sentence");
-  const pinned = draw({ ...computer, pinned: () => true }).querySelector(".drop-hint");
-  assert.strictEqual(pinned.textContent, de.dropHint);
-  /* Not over a text being written, not over a reading, and not where no
-     picture can be dropped (a phone has its buttons instead). */
-  assert.strictEqual(draw(computer, "Hola").querySelector(".drop-hint"), null);
-  assert.strictEqual(draw(computer, "", false).querySelector(".drop-hint"), null);
-  assert.strictEqual(draw(TOOLS).querySelector(".drop-hint"), null);
-  assert.strictEqual(draw({ ...TOOLS, picture: () => {}, dropsPicture: false }).querySelector(".drop-hint"), null);
+test("a new translation's field on a computer says nothing about dropping a picture", () => {
+  /* author 2026-11-05: the line under the empty field went. */
+  const sheet = document.createElement("div");
+  renderReading(sheet, null, {
+    settings: SETTINGS,
+    tools: TOOLS,
+    edit: { editing: true, draft: "", onDraft() {}, onEdit() {}, onTranslate() {} },
+    onPick() {},
+    onLookUp() {},
+    onBack() {},
+  });
+  assert.strictEqual(sheet.querySelector(".drop-hint"), null);
+  assert.strictEqual(sheet.querySelector(".text-sources"), null);
 });
 
 test("⌘ or Ctrl with Enter in the field translates, Enter alone does not", () => {
@@ -947,7 +1059,54 @@ test("in short mode the reading itself carries the card", () => {
   assert.ok(onOriginal, "the original field offers one");
   onOriginal.dispatchEvent(new window.MouseEvent("click"));
   assert.strictEqual(cards[0].term, "aparcar");
-  assert.strictEqual(cards[0].meaning, "parken, abstellen");
+  assert.strictEqual(cards[0].meaning, "parken;\nabstellen");
+});
+
+test("in short mode a panel Apple translated plainly is a line of the entry: a card and a voice", () => {
+  /* author 2026-11-05: what Apple wrote is worth a card too. */
+  const cards = [];
+  const short = reading({
+    short: true,
+    text: "Besserwisser",
+    panels: [
+      { code: "de", name: "Deutsch", status: "ready", text: "Besserwisser" },
+      { code: "en", name: "Englisch", status: "ready", text: "know-it-all", engine: "device" },
+      { code: "es", name: "Spanisch", status: "ready", text: "sabelotodo", engine: "device" },
+    ],
+    verbs: null,
+    words: null,
+  });
+  const tools = { ...TOOLS, card: (card) => cards.push(card), cardFor: (code) => code !== "de",
+                  speak() {}, canSpeak: () => true };
+  const drawn = draw(short, SETTINGS, { tools });
+  const english = sectionNamed(drawn, "Englisch").node;
+  assert.ok(english.querySelector(".actions button[data-icon='speak']"), "said aloud");
+  english.querySelector(".actions button[data-icon='card']").dispatchEvent(new window.MouseEvent("click"));
+  assert.deepStrictEqual([cards[0].term, cards[0].termLanguage, cards[0].meaning], ["know-it-all", "en", "Besserwisser"]);
+
+  /* A foreign word: its card on the original takes Apple's German as the
+     meaning, and the other panel's card too. */
+  const foreign = reading({
+    short: true,
+    text: "smart aleck",
+    panels: [
+      { code: "en", name: "Englisch", status: "ready", text: "smart aleck" },
+      { code: "de", name: "Deutsch", status: "ready", text: "Besserwisser", engine: "device" },
+      { code: "es", name: "Spanisch", status: "ready", text: "sabelotodo", engine: "device" },
+    ],
+    verbs: null,
+    words: null,
+  });
+  const again = draw(foreign, SETTINGS, { tools });
+  again.sheet.querySelector(".pane:first-child .actions button[data-icon='card']").dispatchEvent(new window.MouseEvent("click"));
+  assert.deepStrictEqual([cards[1].term, cards[1].meaning], ["smart aleck", "Besserwisser"]);
+  sectionNamed(again, "Spanisch").node.querySelector(".actions button[data-icon='card']").dispatchEvent(new window.MouseEvent("click"));
+  assert.deepStrictEqual([cards[2].term, cards[2].meaning], ["sabelotodo", "Besserwisser"]);
+  assert.ok(!sectionNamed(again, "Deutsch").node.querySelector(".actions button[data-icon='card']"), "none in the reader's own");
+
+  /* A paragraph's panels stay a translation's: copy and insert. */
+  const long = draw(reading({ verbs: null, words: null }), SETTINGS, { tools });
+  assert.ok(!sectionNamed(long, "Englisch").node.querySelector(".actions button[data-icon='card']"));
 });
 
 test("a paragraph does not, because it is no vocabulary item", () => {
@@ -981,7 +1140,7 @@ test("a panel says who translated it outright only where that was not the reader
   state.panels[1] = { ...state.panels[1], engine: "device", fallback: true };
   state.panels[2] = { ...state.panels[2], engine: "model", model: "gemma-4-e4b-it", fallback: false };
   const drawn = draw(state);
-  assert.strictEqual(statusOf(drawn, "Deutsch").textContent, "übersetzt von Apple (auf dem Gerät)");
+  assert.strictEqual(statusOf(drawn, "Deutsch").textContent, "übersetzt von Apple (auf diesem Gerät)");
   assert.ok(!statusOf(drawn, "Deutsch").classList.contains("on-hover"), "said outright");
   assert.strictEqual(statusOf(drawn, "Englisch").textContent, "übersetzt von gemma-4-e4b-it");
   assert.ok(statusOf(drawn, "Englisch").classList.contains("on-hover"), "under the pointer only");
@@ -1046,7 +1205,7 @@ test("the heading above the sheet names who found the language", () => {
     return node.querySelector(".heading-note")?.textContent;
   };
   assert.strictEqual(heading({ code: "es", by: "text" }), "Sprache erkannt von Triglosa");
-  assert.strictEqual(heading({ code: "es", by: "device" }), "Sprache erkannt von Apple (auf dem Gerät)");
+  assert.strictEqual(heading({ code: "es", by: "device" }), "Sprache erkannt von Apple (auf diesem Gerät)");
   assert.strictEqual(heading({ code: "es", by: "model", model: "google/gemma-4-e4b-it" }), "Sprache erkannt von gemma-4-e4b-it");
   assert.strictEqual(heading({ code: "es", by: "reader" }), "Sprache von dir gewählt");
   /* And who said which word became which, once the hover has its answer:
@@ -1059,7 +1218,7 @@ test("the heading above the sheet names who found the language", () => {
   };
   assert.strictEqual(matched({ code: "es", by: "text" }, { sentences: [], by: "aligner" }), "Sprache erkannt und Wörter zugeordnet von Triglosa");
   assert.strictEqual(matched({ code: "es", by: "device" }, { sentences: [], by: "aligner" }),
-    "Sprache erkannt von Apple (auf dem Gerät) · Wörter zugeordnet von Triglosa");
+    "Sprache erkannt von Apple (auf diesem Gerät) · Wörter zugeordnet von Triglosa");
   assert.strictEqual(matched({ code: "es", by: "text" }, { sentences: [], by: "model" }),
     "Sprache erkannt von Triglosa · Wörter zugeordnet von deepseek-v4.1-flash");
   assert.strictEqual(matched({ code: "es", by: "reader" }, { sentences: [], by: "aligner" }), "Sprache von dir gewählt · Wörter zugeordnet von Triglosa");
@@ -1076,11 +1235,11 @@ test("text read off the screen says who recognised it, first", () => {
     return node.querySelector(".heading-note")?.textContent;
   };
   assert.strictEqual(heading({ code: "es", by: "text" }, { sentences: [], by: "aligner" }, "triglosa"),
-    "Text erkannt von Triglosa (auf dem Gerät) · Sprache erkannt und Wörter zugeordnet von Triglosa");
+    "Text erkannt von Triglosa (auf diesem Gerät) · Sprache erkannt und Wörter zugeordnet von Triglosa");
   assert.strictEqual(heading({ code: "es", by: "device" }, null, "device"),
-    "Text erkannt und Sprache erkannt von Apple (auf dem Gerät)");
+    "Text erkannt und Sprache erkannt von Apple (auf diesem Gerät)");
   assert.strictEqual(heading({ code: "es", by: "text" }, null, "device", labels("en", "mac")),
-    "Text recognised by Apple (on device) · language detected by Triglosa");
+    "Text recognized by Apple (on this device) · language detected by Triglosa");
   assert.strictEqual(heading({ code: "es", by: "text" }, null, null), "Sprache erkannt von Triglosa");
 });
 
@@ -1123,6 +1282,15 @@ test("a new reading starts with everything unfolded", () => {
   assert.ok(sectionNamed(view.drawn, de.verbs).node.classList.contains("folded"));
   const next = draw(MARKED_READING(), SETTINGS, { onFold() {} });
   assert.ok(!next.sheet.querySelector(".pane.folded"));
+});
+
+test("a section held back while folded keeps its heading and fold, and says it is coming once opened", () => {
+  const state = reading({ verbs: null, status: { words: "", verbs: "later", panels: "" }, folded: new Set(["verbs"]) });
+  const folded = sectionNamed(draw(state, SETTINGS, { onFold() {} }), de.verbs);
+  assert.ok(folded.node.classList.contains("folded"));
+  assert.ok(folded.node.querySelector(".label .fold"), "there to be opened");
+  const open = sectionNamed(draw({ ...state, folded: new Set() }, SETTINGS, { onFold() {} }), de.verbs);
+  assert.ok(open.node.textContent.includes(de.searching));
 });
 
 test("folding the verbs away takes their markings out of the panels", () => {

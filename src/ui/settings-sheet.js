@@ -13,6 +13,13 @@ import { backToList, onPageList, openPage, settingsView } from "./settings-view.
 import { icon } from "./icons.js";
 
 let open = null;
+let shut = null;
+
+/* Put away as its own button does, for a reading handed over from outside,
+   which would otherwise stand unseen under the sheet. */
+export function closeSettingsSheet() {
+  shut?.();
+}
 
 /* Opened on the list of pages, or on the page asked for: a card's "choose a
    deck" leads straight to the cards. */
@@ -95,14 +102,16 @@ export async function openSettingsSheet(page = "") {
     draw();
   });
 
-  done.addEventListener("click", () => {
+  shut = () => {
     /* A field still being written in saves as it loses the focus. */
     document.activeElement?.blur?.();
     sheet.remove();
     open = null;
+    shut = null;
     stop();
     settingsChanged();
-  });
+  };
+  done.addEventListener("click", () => shut?.());
 
   open = sheet;
   if (page) openPage(page);

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { dropOldest, keptReading, readingKey } from "../../src/history.js";
+import { dropOldest, keptReading, lastPlace, readingKey } from "../../src/history.js";
 
 const settings = { languages: ["de", "en", "es"], levels: { es: "B1" },
   show: { verbs: "foreign", terms: "foreign" }, endpoint: "http://x", model: "m",
@@ -73,4 +73,36 @@ test("the oldest readings go beyond what the settings keep, never the one on scr
   list = made(3);
   dropOldest(list, { kept: 0 }, list[0]);
   assert.deepStrictEqual(list.map((one) => one.draft), ["text 0"]);
+});
+
+test("a page taken down hands its settled readings to the next, and the selection of one still running", async () => {
+  const { handOver, takeOver } = await import("../../src/history.js");
+  const done = entry("Hola.", { panels: [], status: { words: "", verbs: "" } });
+  const running = entry("Adiós.", { panels: [], busy: true, status: { words: "working" } });
+  const linking = entry("Buenas.", { panels: [], status: { words: "linking" } });
+  const selection = { text: "Adiós.", route: "selection", source: 4 };
+
+  const taken = takeOver(handOver([done, running, linking], 1, selection));
+  assert.deepStrictEqual(taken.readings.map((one) => one.draft), ["Hola."]);
+  assert.strictEqual(taken.place, 1, "the sheet past the kept ones, where the reading is read again");
+  assert.deepStrictEqual(taken.pending, selection);
+
+  const settledOne = takeOver(handOver([done, linking], 0, selection));
+  assert.strictEqual(settledOne.place, 0);
+  assert.strictEqual(settledOne.pending, null, "a settled reading on screen is not read again");
+  assert.strictEqual(settledOne.readings[0].shown, undefined);
+});
+
+test("a page that did not answer leaves nothing to take over", async () => {
+  const { takeOver } = await import("../../src/history.js");
+  assert.deepStrictEqual(takeOver("{}"), { readings: [], place: 0, pending: null });
+  assert.deepStrictEqual(takeOver("not json"), { readings: [], place: 0, pending: null });
+});
+
+test("a blank sheet written in and stepped back from is one step forward", () => {
+  const kept = [entry("Hola."), entry("Adiós.")];
+  assert.strictEqual(lastPlace(kept), 1);
+  assert.strictEqual(lastPlace(kept, "  "), 1);
+  assert.strictEqual(lastPlace(kept, "Buenas"), 2);
+  assert.strictEqual(lastPlace([], "Buenas"), 0);
 });

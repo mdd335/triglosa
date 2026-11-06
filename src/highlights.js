@@ -15,6 +15,11 @@ import { namesTheLookup } from "./parse/words.js";
 export function fragmentsForPanel(state, index) {
   const words = state.words || [];
   const verbs = state.verbs || [];
+  /* A term that is the whole text is marked nowhere: a line under every
+     word says nothing a line under none would not (author 2026-11-05), as
+     a lookup's term that names the looked-up words is not marked either.
+     Left out, it keeps its place in the list and its row its colour. */
+  const whole = (word) => !state.short && !!state.text && namesTheLookup(word.text, state.text, state.panels?.[0]?.code);
 
   if (index === 0) {
     /* A lookup's term is marked only where it differs from the words
@@ -24,14 +29,14 @@ export function fragmentsForPanel(state, index) {
     const marked = (word) => !state.short
       || (differsFromLookup(state, word) && (!state.sentence || withinLookup(state, word)));
     return {
-      words: words.map((word) => (marked(word) ? [word.spot || word.text] : [])),
+      words: words.map((word) => (marked(word) && !whole(word) ? [word.spot || word.text] : [])),
       verbs: verbs.map((verb) => [verb.form]),
     };
   }
 
   const column = index === 1 ? "a" : "b";
   return {
-    words: state.wordAlign ? state.wordAlign[column] || [] : [],
+    words: state.wordAlign ? (state.wordAlign[column] || []).map((spots, i) => (words[i] && whole(words[i]) ? [] : spots)) : [],
     verbs: state.verbAlign ? state.verbAlign[column] || [] : [],
     /* Whereabouts each one stands, where the word aligner knows: see run.js. */
     near: {
@@ -74,6 +79,9 @@ export function selectionForPanel(state, index, languages) {
   if (!selection || selection.inSentence) return null;
   if (selection.panel === index) return [{ start: selection.start, end: selection.end }];
   if (!state.marked) return null;
+  /* An entry that already knows where it stands in a panel — the first
+     steps' example, written beforehand — is not searched for. */
+  if (state.marked.ranges && index in state.marked.ranges) return state.marked.ranges[index];
 
   const others = otherPanels(selection.panel, state.panels.map((panel) => panel.code), (languages || [])[0]);
   const position = others.indexOf(index);

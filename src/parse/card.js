@@ -58,8 +58,23 @@ const unfenced = (raw) => String(raw || "")
   .replace(/^\s*```[a-z]*\s*$/gim, "")
   .replace(/\r/g, "");
 
+/* What the reader wrote into the explanation themselves: every line of it
+   that neither the app nor the model put there (`card.given`, the note as
+   it last arrived) and that is not the text's own sentence. Kept on an
+   improved card, after the text's sentence, and a sentence among them in the
+   language being learned gets its translation as that one does. A line
+   that already ends in a translation is kept as it stands. */
+export function readerLines(card) {
+  const given = new Set(String(card?.given ?? card?.note ?? "").split("\n").map(bare).filter(Boolean));
+  const own = bare(card?.context?.sentence);
+  return String(card?.note || "").split("\n").map((line) => line.trim())
+    .filter((line) => line && !given.has(bare(line)) && !(own && bare(line).includes(own)))
+    .map((line) => ({ line, untranslated: !exampleParts(line).translation }));
+}
+
 /* The word, its meaning, and the sentence from the text as the card's first
-   line ("" where there is none). */
+   line ("" where there is none); `own` the reader's lines, each with the
+   translation the answer gave it where it asked for one. */
 export function parseImprovedCard(raw, card) {
   const lines = unfenced(raw).split("\n");
   let rule = lines.findIndex((line) => /^\s*-{3,}\s*$/.test(line));
@@ -77,22 +92,60 @@ export function parseImprovedCard(raw, card) {
 
   let sentence = "";
   const context = card && card.context;
+  const given = items(lines.slice(rest).filter((line) => !/^\s*-{3,}\s*$/.test(line)).join("\n")).split("\n\n");
+  const translationOf = (said) => {
+    const found = given.find((item) => item.includes(said) || bare(exampleParts(item).sentence) === bare(said));
+    return found ? exampleParts(found).translation : "";
+  };
   if (context && context.sentence) {
-    const given = items(lines.slice(rest).filter((line) => !/^\s*-{3,}\s*$/.test(line)).join("\n")).split("\n\n");
-    const own = given.find((item) => item.includes(context.sentence)
-      || bare(exampleParts(item).sentence) === bare(context.sentence));
-    const theirs = own ? exampleParts(own).translation : "";
-    sentence = exampleLine({ sentence: context.sentence, translation: context.translation || theirs });
+    sentence = exampleLine({ sentence: context.sentence, translation: context.translation || translationOf(context.sentence) });
   }
+  const own = readerLines(card).map(({ line, untranslated }) =>
+    untranslated ? exampleLine({ sentence: line, translation: translationOf(line) }) : line);
   /* Two senses one under the other, the semicolon kept at the end of the
      first line. */
-  return { term, meaning: meaning.replace(/\s*;\s*/g, ";\n"), sentence };
+  return { term, meaning: meaning.replace(/\s*;\s*/g, ";\n"), sentence, own };
 }
 
 /* The explanation asked apart: its items, without a line that repeats the
    card's own sentence. */
-export function parseCardExplanation(raw, sentence = "") {
+export function parseCardExplanation(raw, sentence = "", others = []) {
   const text = items(unfenced(raw).split("\n").filter((line) => !/^\s*-{3,}\s*$/.test(line)).join("\n"));
-  const own = bare(exampleParts(sentence).sentence);
-  return text.split("\n\n").filter((item) => item && !(own && bare(exampleParts(item).sentence) === own)).join("\n\n");
+  const own = new Set([sentence, ...others].map((line) => bare(exampleParts(line).sentence)).filter(Boolean));
+  return text.split("\n\n").filter((item) => item && !own.has(bare(exampleParts(item).sentence))).join("\n\n");
+}
+
+/* The explanation's answer as its two parts: the notes, one sentence each,
+   and the examples, one line each. Read by the headings where they came;
+   where one is missing, a line ending in a bracketed translation is an
+   example and anything else a note. "NONE", or a label alone, is no note. */
+export function parseCardNotes(raw) {
+  const lines = items(unfenced(raw).split("\n").filter((line) => !/^\s*-{3,}\s*$/.test(line)).join("\n"))
+    .split("\n\n").map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "").replace(/\*\*/g, "").trim());
+  const notes = [];
+  const examples = [];
+  let part = "";
+  for (const line of lines) {
+    const heading = line.match(/^(NOTES?|EXAMPLES?)\s*:\s*(.*)$/i);
+    const text = heading ? heading[2].trim() : line;
+    if (heading) part = /^N/i.test(heading[1]) ? "notes" : "examples";
+    if (!text || /^\W*none\W*$/i.test(text)) continue;
+    const example = !!exampleParts(text).translation;
+    if (part === "examples" || (!part && example)) examples.push(text);
+    else if (/\p{L}{2}/u.test(text) && !/:$/.test(text)) notes.push(text);
+  }
+  return { notes, examples };
+}
+
+/* The check's verdicts: a note is kept only where its line says TRUE and
+   NEW. A note the answer said nothing about is not kept. */
+export function parseNoteVerdicts(raw, count) {
+  const kept = Array(count).fill(false);
+  for (const line of unfenced(raw).split("\n")) {
+    const found = line.match(/^\W*(\d+)\W+(TRUE|FALSE|UNSURE)\W+(NEW|OBVIOUS)\b/i);
+    if (!found) continue;
+    const at = Number(found[1]) - 1;
+    if (at >= 0 && at < count) kept[at] = /^TRUE$/i.test(found[2]) && /^NEW$/i.test(found[3]);
+  }
+  return kept;
 }

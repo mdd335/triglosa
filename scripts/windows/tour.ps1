@@ -192,14 +192,25 @@ Start-Sleep -Milliseconds 300
 Press ([byte[]](0x11, 0x10, 0xDE))
 Start-Sleep 4
 $send = $null
+$card = $null
 foreach ($id in (Get-Process Triglosa).Id) {
   foreach ($top in $ua::RootElement.FindAll($tree::Children, (New-Object Windows.Automation.PropertyCondition($ua::ProcessIdProperty, $id)))) {
-    $send = ByName $top "Direkt nach Anki"
-    if ($send) { break }
+    $send = ByName $top "In Anki speichern"
+    if ($send) { $card = $top; break }
   }
   if ($send) { break }
 }
 if ($send) {
+  # Anki waits for the word and its meaning both: the meaning is typed into
+  # the card's second field, as a reader would.
+  $edits = $card.FindAll($tree::Descendants, (New-Object Windows.Automation.PropertyCondition($ua::ControlTypeProperty, [Windows.Automation.ControlType]::Edit)))
+  if ($edits.Count -ge 2) {
+    $edits[1].SetFocus()
+    Start-Sleep -Milliseconds 300
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.SendKeys]::SendWait("tour meaning")
+    Start-Sleep -Milliseconds 500
+  }
   # Greyed until the card's language is found.
   for ($i = 0; $i -lt 50 -and -not $send.Current.IsEnabled; $i++) { Start-Sleep -Milliseconds 200 }
   $send.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()

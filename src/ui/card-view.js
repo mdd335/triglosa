@@ -13,7 +13,7 @@
    reads. Anki underneath them is one way out of several, and the window works
    with nothing installed at all. */
 
-import { CARD_FIELDS, cardLine, hasCard, spokenWord } from "../card.js";
+import { CARD_FIELDS, bothSides, cardLine, hasCard, spokenWord } from "../card.js";
 import { languageLabel, writingDirection } from "../languages/index.js";
 import { popupChoice } from "./language-choice.js";
 import { button, buttonRow, element, nameButton, relabel, reportOn, rowButton, select } from "./elements.js";
@@ -206,10 +206,22 @@ function ankiButton(current, { text, anki, say, empty }) {
    page's own business — see card-window.js. */
 /* The wand named with its key after the word, in grey, as every hover
    names one. */
-function named(node, text) {
-  nameButton(node, text.cardImprove, text.enterKey);
+function named(node, label, text) {
+  nameButton(node, label, text.enterKey);
   return node;
 }
+
+/* The wand's words: the model's, or Apple's where Apple only writes the
+   missing side. Apple's side says whose it is in the one wording every such
+   note has, and what a model adds to a card — not where the reader has a
+   model and did not let the text go to it (`declined`, a phone). */
+const wandWords = (text, improve) => (improve?.by === "device"
+  ? { label: text.cardComplete, working: text.cardCompleting, undo: text.cardCompleteUndo, nothing: text.cardCompleteNothing,
+    done: [text.byApple, improve.declined ? "" : text.cardHow].filter(Boolean).join(" ") }
+  : { label: text.cardImprove, working: text.cardImproving, undo: text.cardUndo, nothing: text.cardImproveNothing, done: "" });
+/* Whether the wand has something to work from: Apple's needs one side
+   written and the other empty, the model's two letters on either. */
+const readyFor = (improve, card) => (improve?.ready ? improve.ready(card) : enoughToImprove(card));
 
 export function renderCard(host, card, { text, reader, anki, copy, improve, improveNow, wandSlot, speak, canSpeak, onLanguage, mostLines }) {
   host.textContent = "";
@@ -246,9 +258,10 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
     status.classList.toggle("failed", !!wrong);
   };
 
-  /* A card without its word is nothing to copy out or to file — Anki refuses
-     it anyway — so the two ways out wait, greyed, like a field's buttons. */
-  const empty = () => !hasCard(edited());
+  /* A card without its word or its meaning is nothing to copy out or to
+     file — half a card is nothing to learn from — so the two ways out wait,
+     greyed, like a field's buttons. */
+  const empty = () => !bothSides(edited());
   const copyAll = rowButton(text.cardCopyAll, "copy", (node) =>
     reportOn(node, () => copy(cardLine(edited())), text.copied));
   feet.append(copyAll);
@@ -284,6 +297,7 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
 
   open();
   boxes.term.addEventListener("input", open);
+  boxes.meaning.addEventListener("input", open);
 
   host.append(sheet);
   /* Now that there is something to measure: what arrived is already several
@@ -311,7 +325,7 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
      away; the answer takes the fields over when it arrives, with the way
      back on the wand's place. A card with nothing on it yet — a blank one
      from the shortcut — has nothing to ask about and waits for the wand. */
-  if (wand && improveNow && enoughToImprove(card)) wand.run();
+  if (wand && improveNow && readyFor(improve, card)) wand.run();
   /* ⌘/Ctrl+Enter, from the window: the wand's own press, so it does what a
      click would and nothing where the wand stands greyed or as the way back. */
   return { sheet, improve: () => wand?.press() };
@@ -339,9 +353,14 @@ export const enoughToImprove = (card) =>
   ["term", "meaning"].some((role) => (String(card[role] || "").match(/\p{L}/gu) || []).length >= MIN_LETTERS);
 
 function improveButton({ text, boxes, grown, edited, improve, say, open }) {
+  const words = wandWords(text, improve);
   let before = null;
   let written = null;
   let working = false;
+  /* The note as the app or the model last wrote it: whatever else stands in
+     the field the reader wrote, and improving keeps it. */
+  let given = edited().note;
+  let givenBefore = given;
   const fields = () => Object.fromEntries(CARD_FIELDS.map((role) => [role, boxes[role].value]));
   const put = (values) => {
     CARD_FIELDS.forEach((role, index) => {
@@ -359,27 +378,30 @@ function improveButton({ text, boxes, grown, edited, improve, say, open }) {
      card comes out the same and the way back is on the same place. */
   const run = async () => {
     if (working || untouched()) return;
-    const current = edited();
+    const current = { ...edited(), given };
     const stood = fields();
-    say(text.cardImproving, false);
+    say(words.working, false);
     working = true;
     draw();
     for (const role of CARD_FIELDS) boxes[role].readOnly = true;
     try {
       const better = await improve(current);
       if (!better) {
-        say(text.cardImproveNothing, true);
+        say(words.nothing, true);
         return;
       }
       put(better);
       before = stood;
       /* Read back from the fields: a field keeps its own line ends. */
       written = fields();
-      say("", false);
+      givenBefore = given;
+      given = written.note;
+      /* Apple's side says whose it is, and what a model adds. */
+      say(words.done, false);
     } catch (error) {
       /* The window words a fault in the reader's language before it gets
          here; anything else says at least that nothing changed. */
-      say((error && error.message) || text.cardImproveNothing, true);
+      say((error && error.message) || words.nothing, true);
     } finally {
       working = false;
       for (const role of CARD_FIELDS) boxes[role].readOnly = false;
@@ -394,17 +416,18 @@ function improveButton({ text, boxes, grown, edited, improve, say, open }) {
     let node = holder.querySelector("button");
     if (!node || node.dataset.icon !== kind) {
       node = kind === "undo"
-        ? button(text.cardUndo, () => {
+        ? button(words.undo, () => {
             put(before);
             before = null;
             written = null;
+            given = givenBefore;
             say("", false);
             draw();
           }, "undo")
-        : named(button(text.cardImprove, () => run(), "improve"), text);
+        : named(button(words.label, () => run(), "improve"), words.label, text);
       holder.replaceChildren(node);
     }
-    node.disabled = kind === "improve" && (working || !enoughToImprove(edited()));
+    node.disabled = kind === "improve" && (working || !readyFor(improve, edited()));
   };
   draw();
   for (const role of CARD_FIELDS) boxes[role].addEventListener("input", draw);

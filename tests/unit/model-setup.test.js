@@ -10,8 +10,9 @@ globalThis.document = dom.window.document;
 globalThis.Node = dom.window.Node;
 globalThis.fetch = async () => { throw new TypeError("fetch failed"); };
 
-const { modelSetup } = await import("../../src/ui/model-setup.js");
-const { ONLINE, keyAccount, setupOf } = await import("../../src/setup.js");
+const { helpPrompt, modelSetup } = await import("../../src/ui/model-setup.js");
+const { MODEL_HELP_URL } = await import("../../src/updates.js");
+const { LOCAL_SERVERS, ONLINE, keyAccount, setupOf } = await import("../../src/setup.js");
 const { normalizeSettings } = await import("../../src/settings.js");
 const { labels } = await import("../../src/ui/labels.js");
 
@@ -36,6 +37,16 @@ test("a settings file from before the ways takes the way its address names", () 
   const local = normalizeSettings({ way: "local", endpoint: "http://127.0.0.1:1234/v1", model: "m" });
   assert.strictEqual(local.way, "own", "a way that is gone is entered by hand, its address kept");
   assert.strictEqual(local.endpoint, "http://127.0.0.1:1234/v1");
+});
+
+test("Online's address is OpenRouter's, whatever the file holds", () => {
+  const chosen = normalizeSettings({ way: "online", endpoint: "https://openrouter.ai/api/v", model: "m" });
+  assert.strictEqual(chosen.endpoint, ONLINE.endpoint);
+  assert.strictEqual(chosen.ways.online.endpoint, ONLINE.endpoint);
+  const put = normalizeSettings({ way: "own", endpoint: "https://api.mistral.ai/v1", model: "x",
+    ways: { online: { endpoint: "https://example.org/v1", model: ONLINE.model } } });
+  assert.strictEqual(put.ways.online.endpoint, ONLINE.endpoint, "also while another way is in use");
+  assert.strictEqual(put.endpoint, "https://api.mistral.ai/v1", "the reader's own stays theirs");
 });
 
 test("a key belongs to its way", () => {
@@ -88,7 +99,7 @@ for (const code of ["de", "en"]) {
       [text.setupOnline, text.setupOwn]);
     assert.ok(!view.classList.contains("field"), "outside the boxes: it fills in every field under it");
     assert.ok(!cards(view)[0].textContent.includes(ONLINE.title), "the model is named under the row, not in it");
-    assert.ok(cards(view)[1].textContent.includes(text.setupOwnVia));
+    assert.deepStrictEqual(cards(view).map((node) => node.textContent), [text.setupOnline, text.setupOwn], "the names alone");
     assert.strictEqual(view.querySelector(".setup-choice[aria-pressed=true]"), null, "nothing chosen before anything is set");
     assert.strictEqual(view.querySelector(".setup-steps"), null, "and no steps either");
     cards(view)[0].click();
@@ -100,7 +111,8 @@ for (const code of ["de", "en"]) {
     const steps = [...again.view.querySelectorAll(".setup-steps li")];
     assert.strictEqual(steps.length, 4);
     assert.ok(steps[3].textContent.includes("Zero Data Retention"), "the optional step last among the steps");
-    assert.ok(again.view.querySelector(".setup-steps").textContent.includes(text.setupRecommended(ONLINE.title, true)));
+    const recommended = again.view.querySelector(".setup-steps ol + p");
+    assert.strictEqual(recommended?.textContent, text.setupRecommended(ONLINE.title, true), "the model under the steps");
     assert.ok(!again.view.querySelector(".setup-steps").contains(again.view.querySelector(".setup-line")),
       "what the way is good and bad at stands outside the fold");
     assert.strictEqual(again.view.querySelector(".setup-steps").tagName, "DETAILS");
@@ -164,5 +176,35 @@ for (const code of ["de", "en"]) {
     ({ view, changes } = await draw(code, changes.at(-1)));
     cards(view)[1].click();
     assert.strictEqual(changes.at(-1).endpoint, "https://api.mistral.ai/v1");
+  });
+}
+
+/* The prompt a reader sends a chatbot of their own when stuck: copied, never
+   shown, and holding only what is true for every reader of the system. */
+for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
+  test(`the help prompt names the fields as the window does and nothing that is set (${code})`, async () => {
+    const { view, text } = await draw(code, { way: "own", endpoint: "https://secret.example/v1", model: "my-model" });
+    const copy = view.querySelector(".setup-prompt button");
+    assert.strictEqual(copy.textContent, text.setupPromptCopy);
+    assert.ok(!view.textContent.includes(MODEL_HELP_URL), "not shown");
+    const prompt = await helpPrompt(text);
+    for (const name of [text.groupModel, text.setupOnline, text.setupOwn, text.endpoint, text.model, text.apiKey, text.testConnection]) {
+      assert.ok(prompt.includes(name), `${code}: ${name}`);
+    }
+    assert.ok(prompt.includes(MODEL_HELP_URL) && prompt.includes("macOS"));
+    assert.ok(prompt.includes("Gemma 4 E4B") && prompt.includes("16"), "what a local model needs, for the chatbot to judge the computer");
+    assert.ok(prompt.includes("Triglosa") && !/Triglosa {2}/.test(prompt), "no version outside the app, and no gap for it");
+    for (const { endpoint } of LOCAL_SERVERS) assert.ok(prompt.includes(endpoint), "a computer's local servers");
+    assert.ok(!prompt.includes("secret.example") && !prompt.includes("my-model"), "nothing from the settings");
+    assert.doesNotMatch(prompt, /\$\{|undefined/);
+    globalThis.TRIGLOSA_SYSTEM = "ios";
+    try {
+      const phone = await helpPrompt(labels(code, "ios"));
+      assert.ok(phone.includes("iOS") && !phone.includes("127.0.0.1"), "a phone runs no server");
+      assert.ok(!phone.includes("Gemma") && !phone.includes("LM Studio"), "nor is cloud against local weighed there");
+      assert.match(phone, /^[^\n]+\n\n[^\n]+\n\n\S/, "no empty paragraph where it would stand");
+    } finally {
+      delete globalThis.TRIGLOSA_SYSTEM;
+    }
   });
 }

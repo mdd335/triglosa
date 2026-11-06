@@ -8,8 +8,9 @@
    pasteboard — nothing is linked by symbol.
 
    Two routes are the phone's own: what was copied (`/pasteboard`) and the
-   text in a picture from the camera, the photo library or the pasteboard
-   (`/recognize?from=…`, Recognition.swift).
+   text in a picture from the camera, the photo library, the Files app or
+   the pasteboard (`/pick?from=…`, cut in Crop.swift, then `/recognize`,
+   Recognition.swift).
 
    Raise PROTOCOL together with translator.swift and translation.js whenever
    a route's answer changes shape. */
@@ -218,6 +219,27 @@ private final class LibraryPicking: NSObject, PHPickerViewControllerDelegate, UI
   }
 }
 
+/* A picture chosen in the Files app, copied out of wherever it lies (iCloud
+   Drive, the phone, a server); nothing where the reader cancels. */
+@MainActor
+private final class FilePicking: NSObject, UIDocumentPickerDelegate {
+  private var finish: ((CGImage?) -> Void)?
+  init(_ finish: @escaping (CGImage?) -> Void) { self.finish = finish }
+
+  private func end(_ picture: CGImage?) {
+    finish?(picture)
+    finish = nil
+  }
+
+  func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+    end(urls.first.flatMap { try? Data(contentsOf: $0) }.flatMap(uprightPicture))
+  }
+
+  func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+    end(nil)
+  }
+}
+
 /* What the reader took or chose, held from the system's sheet closing until
    it is read. */
 @MainActor private var pickedPicture: CGImage?
@@ -290,6 +312,19 @@ private func picture(from source: String) async -> CGImage? {
       top.present(picker, animated: true)
       picker.presentationController?.delegate = picking
     }
+  case "files":
+    guard let top = uppermost() else { return nil }
+    return await withCheckedContinuation { (done: CheckedContinuation<CGImage?, Never>) in
+      var picking: FilePicking?
+      picking = FilePicking { picture in
+        done.resume(returning: picture)
+        picking = nil
+      }
+      let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.image], asCopy: true)
+      picker.allowsMultipleSelection = false
+      picker.delegate = picking
+      top.present(picker, animated: true)
+    }
   default:
     return nil
   }
@@ -320,6 +355,11 @@ private func answer(_ route: String, _ body: String) async -> (Int32, String) {
     }
     return (200, held)
   }
+  /* A field focused next brings the keyboard up without a tap (Keyboard.swift). */
+  if path == "/keyboard" {
+    await MainActor.run { allowKeyboard() }
+    return (200, "ok")
+  }
   if path == "/ground" {
     await paintGround(values["color"] ?? "")
     return (200, "ok")
@@ -330,11 +370,17 @@ private func answer(_ route: String, _ body: String) async -> (Int32, String) {
     }
     return (200, "ok")
   }
-  /* A picture from the system's sheet; 404 where none came of it. */
+  /* A picture from the system's sheet or what was copied, cut to the part
+     to be read where the page names the buttons for it (Crop.swift); 404
+     where none came of it or the reader cancelled. */
   if path == "/pick" {
-    let found = await picture(from: values["from"] ?? "")
-    await MainActor.run { pickedPicture = found }
-    return found == nil ? (404, "no picture") : (200, "ok")
+    var found = await picture(from: values["from"] ?? "")
+    if let whole = found, let done = values["done"], !done.isEmpty {
+      found = await cropped(whole, over: { uppermost() }, cancel: values["cancel"] ?? "", done: done)
+    }
+    let kept = found
+    await MainActor.run { pickedPicture = kept }
+    return kept == nil ? (404, "no picture") : (200, "ok")
   }
   /* The text in a picture; 404 where there is no picture. Apple's
      recognition came before iOS 26, and is asked on any. */

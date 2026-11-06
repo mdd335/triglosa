@@ -1,10 +1,10 @@
 [package]
 name = "triglosa"
-version = "0.7.0"
+version = "0.8.0"
 description = "Read in a foreign language with the words worth learning explained"
 edition = "2021"
 rust-version = "1.77.2"
-license = "GPL-3.0-only"
+license = "AGPL-3.0-only"
 
 # The binary's name is what macOS shows in the dock while developing — a
 # bundled build takes productName from tauri.conf.json, but `tauri dev` runs

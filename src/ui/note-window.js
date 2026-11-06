@@ -6,7 +6,7 @@
 
 import { fitCardWindow } from "../platform/windows.js";
 import { element } from "./elements.js";
-import icon from "../../src-tauri/icons/128x128@2x.png";
+import icon from "../../src-tauri/icons/flat.png";
 
 const root = document.getElementById("app");
 root.className = "note-window";

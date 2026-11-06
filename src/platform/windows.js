@@ -26,6 +26,22 @@ export async function showWindow({ veiled = false } = {}) {
   return true;
 }
 
+/* The shell building the reading window anew (rebuild_reading_window): the
+   old page is asked for what it holds, and the new one takes it. A page that
+   takes nothing over is the app's first. */
+export async function onHandOverAsked(handler) {
+  if (!onDesktop()) return () => {};
+  const { listen } = await import("@tauri-apps/api/event");
+  return listen("hand-over", async () => {
+    await shell("hand_over", { readings: handler() }).catch(() => {});
+  });
+}
+
+export async function takenOver() {
+  if (!onDesktop()) return null;
+  return (await shell("taken_over").catch(() => null)) ?? null;
+}
+
 /* A line said in a small window of its own that goes by itself, without
    the reading window: what went wrong where a screenshot's text was to be
    copied or put on a card. */

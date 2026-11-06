@@ -70,7 +70,7 @@ import { createAnkiMobile } from "../platform/anki-mobile.js";
 import { CARD_FIELDS, guessFieldMap } from "../card.js";
 import { hotkeyFrom, hotkeyLabel, shortcutTaken } from "../hotkey.js";
 import { faultOf } from "../faults.js";
-import { CAPTURE_CODE_URL, HELP_URL, ISSUES_URL, PROJECT_URL, RELEASES_URL, checkForUpdate } from "../updates.js";
+import { CAPTURE_CODE_URL, HELP_URL, INSTALL_URL, ISSUES_URL, PRIVACY_URL, PROJECT_URL, RELEASES_URL, checkForUpdate } from "../updates.js";
 import { faultText, labels, windowTitle } from "./labels.js";
 import { openWelcome } from "../platform/windows.js";
 import { keyHint } from "../platform/keychain.js";
@@ -81,7 +81,7 @@ import { element, field, group, reportOn, select, secretInput, textInput } from 
 import { icon } from "./icons.js";
 import { languageGroups, languageList } from "./language-choice.js";
 import { modelSetup } from "./model-setup.js";
-import { LOCAL_SERVERS, ONLINE, holdsPreset, presetOf } from "../setup.js";
+import { LOCAL_SERVERS } from "../setup.js";
 
 /* Asked once for the whole session rather than once per rendering. Changing a
    language redraws this view, and a pair that was asked about before must not
@@ -116,14 +116,15 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
   let page = null;
   const phone = onPhone();
   const placeOnPhone = () => view.classList.toggle("on-list", phone && onList);
-  const startPage = (key, title) => {
+  /* The list may name a page shorter than its heading does. */
+  const startPage = (key, title, entryName = title) => {
     page = element("section", "settings-page");
     page.dataset.page = key;
     page.append(group(title));
     content.append(page);
     const entry = element("button", "settings-entry");
     entry.dataset.page = key;
-    entry.append(icon(PAGE_ICONS[key]), element("span", null, title));
+    entry.append(icon(PAGE_ICONS[key]), element("span", null, entryName));
     /* On a phone the list is a screen of its own, each entry leading on to
        its page, as the system's own settings do. */
     if (phone) entry.append(icon("next"));
@@ -271,17 +272,12 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
      address and models, or anyone's. */
   const hintOf = (hints) => hints[settings.way] || hints.own;
 
-  /* OpenRouter's address changed by mistake is put back with a
-     button, which stands only while the address is another. */
+  /* OpenRouter's address is fixed (settings.js), so Online has no field for
+     it; any other provider's is typed in. */
   const endpoint = textInput(settings.endpoint, "https://…/v1");
   endpoint.addEventListener("change", () => onChange({ ...settings, endpoint: endpoint.value }));
   const endpointRow = element("div", "with-presets");
   endpointRow.append(endpoint);
-  if (!holdsPreset(settings.way, settings.endpoint)) {
-    const restore = element("button", null, text.endpointPreset(ONLINE.provider));
-    restore.addEventListener("click", () => onChange({ ...settings, endpoint: presetOf(settings.way).endpoint }));
-    endpointRow.append(restore);
-  }
   const endpointControl = element("div", "endpoint-rows");
   endpointControl.append(endpointRow);
   /* A computer can run a model of its own, and these two have known addresses. */
@@ -294,7 +290,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
     }
     endpointControl.append(servers);
   }
-  page.append(field({ label: text.endpoint, hint: hintOf(text.endpointHints), control: endpointControl }));
+  if (settings.way !== "online") page.append(field({ label: text.endpoint, hint: text.endpointHints.own, control: endpointControl }));
 
   const model = textInput(settings.model);
   model.addEventListener("change", () => onChange({ ...settings, model: model.value }));
@@ -378,11 +374,6 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
   /* ---- the translations ---- */
 
   startPage("translation", text.groupTranslation);
-  if (phone) {
-    const open = element("button", null, text.pasteOpen);
-    open.addEventListener("click", openPhoneSettings);
-    page.append(field({ label: text.pasteSetting, lead: text.pasteHint, control: open }));
-  }
   /* On Windows there is no translation on the device: the model is the only
      translator, and the group holds nothing but the hover and the kept
      readings. A phone has Apple's translation and no hover — nothing hovers
@@ -429,6 +420,11 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
   const translatorField = field({ label: text.translator, hint: text.translatorHint, control: translator });
   if (settings.translator === "model" && !settings.endpoint) {
     translatorField.append(element("p", "hint", text.translatorNoModel));
+  }
+  /* Short mode asks the model first whatever the choice (run.js): said
+     where the choice would make one think otherwise. */
+  if (settings.translator === "device" && settings.endpoint) {
+    translatorField.append(element("p", "hint", text.translatorShort));
   }
   if (onDevice) page.append(translatorField);
   let fetchButton = null;
@@ -605,7 +601,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
        is none. */
     /* In the menu's order and its sections — translating, cards, copying —
        with a little room between the sections. The screenshot's three need
-       a permission of their own on the Mac, in a box under "Other programs". */
+       a permission of their own on the Mac, in a box under "Text from other programs". */
     const shortcuts = [];
     const sections = [
       [
@@ -641,7 +637,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
     /* What reads another program's text or writes into it, in a group of its
        own: on the Mac the system's permission first and, once it is granted,
        what it is used for; on Windows the same without anything to grant. */
-    startPage("reading", text.groupReading);
+    startPage("reading", text.groupReading, text.groupReadingEntry);
     const pointer = [
       { key: "wordHotkey", label: text.wordHotkey, lead: text.wordHotkeyLead },
       { key: "sentenceHotkey", label: text.sentenceHotkey, lead: text.sentenceHotkeyLead },
@@ -671,6 +667,15 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
         if (view.isConnected) for (const one of shortcuts) one.refresh();
       });
     }
+  }
+
+  /* A phone reads another app's text from what was copied or shared, and
+     what it asks for is that iOS stops asking at every paste. */
+  if (phone) {
+    startPage("reading", text.groupReading, text.groupReadingEntry);
+    const open = element("button", null, text.pasteOpen);
+    open.addEventListener("click", openPhoneSettings);
+    page.append(field({ label: text.pasteSetting, lead: text.pasteHint, control: open }));
   }
 
   /* ---- the flashcards ---- */
@@ -711,11 +716,13 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
   const [versionRow, ...aboutRest] = aboutFields(text, { settings, apiKey, findUpdate, storeCopy });
   page.append(versionRow);
   if (!phone) {
-    page.append(field({
+    const stats = field({
       label: text.statsSetting,
-      hint: `${text.statsHint} ${text.statsThanks}`,
+      hint: `${text.statsHint} `,
       control: switchFor(settings.stats === true, (on) => onChange({ ...settings, stats: on })),
-    }));
+    });
+    stats.querySelector(".hint").append(...text.statsPrivacy((word) => textLink(word, PRIVACY_URL)), ` ${text.statsThanks}`);
+    page.append(stats);
   }
   page.append(...aboutRest);
 
@@ -973,12 +980,31 @@ function aboutFields(text, { settings, apiKey, findUpdate, storeCopy }) {
   }
   show();
 
-  /* The way to the project as a sentence, its three places as links in it:
-     three buttons in a row read as three things to do, and none of them is
-     a setting. */
-  const urls = { project: PROJECT_URL, help: HELP_URL, issues: ISSUES_URL };
-  const links = element("p", "about-links");
-  links.append(...text.aboutLinks((place, word) => textLink(word, urls[place])));
+  /* The way to the project, then a box named help and one named feedback:
+     each a sentence with its link in it — links in a row would read as
+     things to do, and none of them is a setting. */
+  const sentence = (words, url) => {
+    const node = element("p", "about-links");
+    node.append(...words((word) => textLink(word, url)));
+    return node;
+  };
+  /* Where else the app runs, before the way to the project. */
+  const elsewhere = element("p", "about-links about-elsewhere");
+  elsewhere.append(...text.aboutElsewhere(currentSystem(), (word) => textLink(word, INSTALL_URL)));
+  const project = element("div", "field");
+  project.append(elsewhere, sentence(text.aboutProject, PROJECT_URL));
+
+  /* The first steps again, for whoever said not to show them at a start,
+     and the README for anything they leave open. */
+  const again = element("button", "welcome-again", text.welcome.open);
+  again.addEventListener("click", () => (onPhone()
+    ? import("./phone-sheets.js").then((sheets) => sheets.openWelcomeSheet())
+    : openWelcome(windowTitle(text.welcome.steps))));
+  const steps = element("div", "with-presets");
+  steps.append(again);
+  const help = element("div", "field about-help");
+  help.append(element("label", null, text.groupHelp), steps, sentence(text.aboutHelp, HELP_URL));
+
   /* What a problem report needs, copied for the reader to paste — nothing is
      sent from here. Under the sentence that leads to the issues. */
   const diagnostics = element("button", null, text.diagnosticsCopy);
@@ -992,18 +1018,10 @@ function aboutFields(text, { settings, apiKey, findUpdate, storeCopy }) {
   })), text.copied));
   const diagnosticsRow = element("div", "with-presets diagnostics");
   diagnosticsRow.append(diagnostics);
-  const linkRow = element("div", "field");
-  /* The first steps again, for whoever said not to show them at a start. */
-  const again = element("button", "welcome-again", text.welcome.open);
-  again.addEventListener("click", () => (onPhone()
-    ? import("./phone-sheets.js").then((sheets) => sheets.openWelcomeSheet())
-    : openWelcome(windowTitle(text.welcome.steps))));
-  const steps = element("div", "field");
-  steps.append(again);
-  linkRow.append(links, diagnosticsRow, element("p", "hint", text.diagnosticsHint));
-  /* The way back to the first steps last, under what the page is about;
-     not on a phone, where nothing starts in the background. */
-  return [row, linkRow, steps];
+  const feedback = element("div", "field about-feedback");
+  feedback.append(element("label", null, text.groupFeedback), sentence(text.aboutIssues, ISSUES_URL), diagnosticsRow, element("p", "hint", text.diagnosticsHint));
+
+  return [row, project, help, feedback];
 }
 
 /* A link inside a sentence, opened in the browser rather than in this

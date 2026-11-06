@@ -3,6 +3,7 @@
      node scripts/ios.mjs            build, sign with the reader's own team, install
      node scripts/ios.mjs --build    build only
      node scripts/ios.mjs --store    build for release, for App Store Connect; installs nothing
+     node scripts/ios.mjs --simulator   build for the simulator and install it in the one running
      node scripts/ios.mjs --device=<udid>   install on that phone, by cable or Wi-Fi
 
    Needs Xcode itself, not only the command line tools, signed in with an
@@ -17,18 +18,20 @@
    front of the path as small scripts that name Xcode themselves. */
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { signingIdentity, teamOf } from "./signing.mjs";
+import { writeSymbols } from "./ios-symbols.mjs";
 
 /* The share menu's list under the apps. */
 const ACTION = "com.apple.ui-services";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const xcode = process.env.XCODE_DEVELOPER_DIR || "/Applications/Xcode.app/Contents/Developer";
 const store = process.argv.includes("--store");
-const buildOnly = store || process.argv.includes("--build");
+const simulator = process.argv.includes("--simulator");
+const buildOnly = store || simulator || process.argv.includes("--build");
 const chosen = process.argv.find((arg) => arg.startsWith("--device="))?.slice("--device=".length) || "";
 
 function stop(message) {
@@ -147,7 +150,8 @@ function copyTree(from, to) {
 }
 
 /* One share extension's description in project.yml. Both run the same
-   Swift with the text recognition the app has too (Recognition.swift); what
+   Swift with the text recognition and the crop frame the app has too
+   (Recognition.swift, Crop.swift); what
    they open the app with is their Info.plist's `TriglosaOpens`. */
 function shareTarget({ name, folder, sources, title, opens, product, identifier, version, point }) {
   return [
@@ -157,6 +161,7 @@ function shareTarget({ name, folder, sources, title, opens, product, identifier,
     "    sources:",
     ...sources.map((path) => `      - path: ${path}`),
     "      - path: Sources/triglosa/Recognition.swift",
+    "      - path: Sources/triglosa/Crop.swift",
     "    info:",
     `      path: ${folder}/Info.plist`,
     "      properties:",
@@ -186,6 +191,45 @@ function shareTarget({ name, folder, sources, title, opens, product, identifier,
   ].join("\n");
 }
 
+/* The Control Center's buttons (src-tauri/ios/Controls): a WidgetKit
+   extension of their own, which opens the app at its addresses. */
+function controlsTarget(version) {
+  return [
+    "  triglosa_Controls:",
+    "    type: app-extension",
+    "    platform: iOS",
+    "    sources:",
+    "      - path: Controls",
+    "      - path: Sources/triglosa/ControlIntents.swift",
+    /* Named, not only imported: the intents' metadata, without which the
+       system finds no control's action, is extracted only from a target
+       that links AppIntents itself. */
+    "    dependencies:",
+    "      - sdk: AppIntents.framework",
+    "      - sdk: WidgetKit.framework",
+    "      - sdk: SwiftUI.framework",
+    "    info:",
+    "      path: Controls/Info.plist",
+    "      properties:",
+    "        CFBundleDisplayName: Triglosa",
+    `        CFBundleShortVersionString: "${version}"`,
+    `        CFBundleVersion: "${version}"`,
+    "        NSExtension:",
+    "          NSExtensionPointIdentifier: com.apple.widgetkit-extension",
+    "    settings:",
+    "      groups: [app]",
+    "      base:",
+    "        PRODUCT_NAME: TriglosaControls",
+    "        PRODUCT_BUNDLE_IDENTIFIER: de.mdd335.triglosa.controls",
+    "        SWIFT_ACTIVE_COMPILATION_CONDITIONS: \"$(inherited) TRIGLOSA_CONTROLS\"",
+    "        SWIFT_VERSION: \"5.0\"",
+    "        SKIP_INSTALL: true",
+    "        CODE_SIGN_STYLE: Automatic",
+    `        DEVELOPMENT_TEAM: ${signing}`,
+    "",
+  ].join("\n");
+}
+
 /* A target's description put in, or put right where it differs, and the
    app's dependency on it. */
 function withTarget(yml, name, target) {
@@ -200,15 +244,18 @@ function withTarget(yml, name, target) {
 
 /* The share menu's Triglosas — one in the row of apps, and two actions in the
    list under it, one that reads and one that makes a card, named in the
-   reader's language (their InfoPlist.strings) — their Swift copied in, and
+   reader's language (their InfoPlist.strings) — and the Control Center's
+   buttons: their Swift copied in, and
    the targets and the app's dependencies on them added to project.yml where
    they are missing. Answers whether the description changed. */
 function shareExtension() {
   const apple = join(root, "src-tauri/gen/apple");
   let changed = copyTree(join(root, "src-tauri/ios/Share"), join(apple, "Share"));
-  for (const folder of ["ShareCard", "ShareRead"]) {
+  for (const folder of ["ShareCard", "ShareRead", "Controls"]) {
     if (copyTree(join(root, "src-tauri/ios", folder), join(apple, folder))) changed = true;
   }
+  /* The controls' symbols and the share actions' icons (ios-symbols.mjs). */
+  if (writeSymbols(apple)) changed = true;
   const spec = join(apple, "project.yml");
   let yml = readFileSync(spec, "utf8");
   const { version } = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8"));
@@ -231,6 +278,13 @@ function shareExtension() {
     product: "TriglosaShareRead", identifier: "de.mdd335.triglosa.shareread", version,
     point: ACTION,
   }));
+  yml = withTarget(yml, "triglosa_Controls", controlsTarget(version));
+  /* The controls' intents run in the app, whose own copy of them has its
+     metadata extracted only where the app links AppIntents by name. */
+  const app = yml.match(/\n {2}triglosa_iOS:\n(?: {4}.*\n|\n)*/)?.[0] || "";
+  if (!/\n {6}- sdk: AppIntents\.framework\n/.test(app)) {
+    yml = yml.replace(/(\n {2}triglosa_iOS:\n[\s\S]*?\n {4}dependencies:\n)/, "$1      - sdk: AppIntents.framework\n");
+  }
   /* The Rust library is linked, never carried in the app: Apple refuses one
      lying in it, and a debug and a release one beside each other do not build. */
   yml = yml.replace(/( {6}- path: Externals\n)(?! {8}buildPhase)/, "$1        buildPhase: none\n");
@@ -244,6 +298,33 @@ function shareExtension() {
     changed = true;
   }
   return changed;
+}
+
+/* The simulator takes a debug build of its own, with the page inside, put
+   into the one running. */
+if (simulator) {
+  run("npx", ["tauri", "ios", "build", "--debug", "--target", "aarch64-sim"]);
+  const products = join(root, "src-tauri/gen/apple/build");
+  const app = findApp(products);
+  if (!app) stop(`No simulator app under ${products}.`);
+  run("xcrun", ["simctl", "install", "booted", app]);
+  console.log(`installed ${app}`);
+  rmSync(tools, { recursive: true, force: true });
+  process.exit(0);
+}
+
+/* The newest .app built for the simulator under `folder`. */
+function findApp(folder) {
+  const found = [];
+  const walk = (at) => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const path = join(at, entry.name);
+      if (entry.isDirectory() && entry.name.endsWith(".app") && /-sim\b|simulator/.test(path)) found.push(path);
+      else if (entry.isDirectory() && !entry.name.endsWith(".app")) walk(path);
+    }
+  };
+  if (existsSync(folder)) walk(folder);
+  return found.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0] || "";
 }
 
 /* A phone takes a debug build; the store a release build, signed by Xcode for distribution. */

@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 
 const { counting, dayOf, dueFault, dueReport, modelKind, normalizeCounted } = await import("../../src/stats.js");
+const { ONLINE } = await import("../../src/setup.js");
 const { normalizeSettings } = await import("../../src/settings.js");
 const worker = await import("../../counter/worker.js");
 
@@ -36,7 +37,22 @@ test("a report says only what is listed: no text, no address, no model's name", 
 test("the kind of model is all that is said of it", () => {
   assert.strictEqual(modelKind(normalizeSettings({})), "none");
   assert.strictEqual(modelKind(normalizeSettings({ endpoint: "http://127.0.0.1:1234/v1" })), "local");
-  assert.strictEqual(modelKind(normalizeSettings({ endpoint: "https://api.example.com/v1", way: "own" })), "own");
+  assert.strictEqual(modelKind(normalizeSettings({ endpoint: "http://127.0.0.1:11434/v1" })), "local", "Ollama");
+  assert.strictEqual(modelKind(normalizeSettings({ endpoint: "http://192.168.1.20:8080/v1" })), "local", "the own network");
+  assert.strictEqual(modelKind(normalizeSettings({ endpoint: "http://studio.local:1234/v1" })), "local");
+  assert.strictEqual(modelKind(normalizeSettings({ endpoint: "https://api.example.com/v1", way: "own" })), "online");
+  const openRouter = { endpoint: "https://openrouter.ai/api/v1", way: "online" };
+  assert.strictEqual(modelKind(normalizeSettings({ ...openRouter, model: ONLINE.model })), "preset");
+  assert.strictEqual(modelKind(normalizeSettings({ ...openRouter, model: ONLINE.free.model })), "preset", "the free one too");
+  assert.strictEqual(modelKind(normalizeSettings({ ...openRouter, model: "openai/gpt-6-luna" })), "online");
+});
+
+test("the counter still takes what 0.7.0 sends", async () => {
+  const DB = d1();
+  const good = dueReport(null, "seen", CONTEXT(dayOf())).report;
+  for (const model of ["online", "own", "local", "none", "preset"]) {
+    assert.strictEqual((await worker.default.fetch(post({ ...good, model }), { DB })).status, 204, model);
+  }
 });
 
 test("once a day per event, and the first report of each week since the first day is marked", () => {

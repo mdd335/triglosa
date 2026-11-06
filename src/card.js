@@ -23,6 +23,15 @@ export const CARD_FIELDS = ["term", "meaning", "note"];
 
 const joined = (...parts) => parts.filter(Boolean).join("\n\n");
 
+/* Several meanings one under the other, the semicolon ending each but the
+   last — the shape an improved card gives its two senses, so a card reads
+   the same before and after. */
+export const meanings = (list) => list.filter(Boolean).join(";\n");
+
+/* A row's meaning as the model wrote it — two, at most, separated by a
+   comma — put one under the other the same way. */
+const rowMeanings = (meaning) => meanings(String(meaning || "").split(/\s*[,;]\s*/).map((part) => part.trim()));
+
 /* The example on the back of a card: the one sentence the word stands in,
    followed by that sentence in the reader's own language in brackets — the
    way every further example on an improved card is written, so the first one
@@ -68,7 +77,7 @@ export function verbCard(verb, { sourceLanguage, reader, sentence, translation, 
   return {
     term: citationForm(sourceLanguage, verb.infinitive) || verb.form,
     termLanguage: sourceLanguage,
-    meaning: verb.meaning || "",
+    meaning: rowMeanings(verb.meaning),
     meaningLanguage: reader,
     /* Found by the form that stands in the text, not by the base form: the
        base form is what a dictionary is written about and is usually nowhere
@@ -90,7 +99,7 @@ export function termCard(word, { sourceLanguage, reader, sentence, translation, 
   return {
     term: word.text,
     termLanguage: sourceLanguage,
-    meaning: word.meaning || word.note || "",
+    meaning: word.meaning ? rowMeanings(word.meaning) : word.note || "",
     meaningLanguage: reader,
     note: joined(word.meaning ? word.note : "", exampleLine(context)),
     context,
@@ -123,7 +132,7 @@ export function markedCard(marked, { wordLanguage, reader, sentence, translation
   return {
     term: citationForm(wordLanguage, marked.infinitive) || marked.text,
     termLanguage: wordLanguage,
-    meaning: marked.meaning || marked.note || "",
+    meaning: marked.meaning ? rowMeanings(marked.meaning) : marked.note || "",
     meaningLanguage: reader,
     note: joined(marked.meaning ? marked.note : "", repeats ? "" : exampleLine(context)),
     context,
@@ -146,9 +155,11 @@ export function entryCard(item, { panelLanguage, reader, sentence, sourceLanguag
   return {
     term: item.text,
     termLanguage: panelLanguage,
-    meaning: own || !theirs.length ? (own ? sentence : "") : theirs.join(", "),
+    meaning: own || !theirs.length ? (own ? sentence : "") : meanings(theirs),
     meaningLanguage: reader,
-    note: own ? item.note || "" : [item.note, sentence].filter(Boolean).join("\n"),
+    /* The word looked up in a third language is not the reader's to learn
+       here, and alone in the note it says nothing (author 2026-11-05). */
+    note: item.note || "",
   };
 }
 
@@ -173,7 +184,7 @@ export function readingCard({ text, sourceLanguage, reader, alternatives, verb =
   return {
     term: text,
     termLanguage: sourceLanguage,
-    meaning: list.map((item) => item.text).join(", "),
+    meaning: meanings(list.map((item) => item.text)),
     meaningLanguage: reader,
     note: joined(list.filter((item) => item.note).map((item) => `${item.text} — ${item.note}`).join("\n"),
                  exampleLine(context)),
@@ -200,10 +211,11 @@ export function freeCard({ text = "", detected = "", reader, choices = [], prese
   };
 }
 
-/* One line, the fields separated by tabs — what Anki, Quizlet and most of
-   the rest read when a deck is imported from a file. A field's own line
-   breaks cannot survive as line breaks, or the line would become three, so
-   they go in as the break every one of those programs renders. */
+/* One line, the fields separated by tabs — what a spreadsheet makes three
+   cells of, and what Anki reads when a deck is imported from a file. A
+   field's own line breaks cannot survive as line breaks, or the line would
+   become three, so they go in as the break Anki renders. Quizlet's import
+   was looked at and is not named: it takes two fields, not three. */
 export function cardLine(card) {
   return CARD_FIELDS.map((name) => String(card[name] || "").replace(/\s*\n\s*/g, "<br>"))
     .join("\t");
@@ -218,6 +230,10 @@ export const asHtml = (s) => escapeHtml(s).replace(/\r?\n/g, "<br>");
 
 /* Whether there is a card here at all. An empty word is nothing to learn. */
 export const hasCard = (card) => !!(card && String(card.term || "").trim());
+
+/* Whether the card can leave the window: a word without its meaning is half
+   a card, and nobody can learn from its front alone. */
+export const bothSides = (card) => hasCard(card) && !!String(card.meaning || "").trim();
 
 const fold = (s) => stripDiacritics(String(s || "")).toLowerCase().trim();
 

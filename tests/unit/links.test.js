@@ -68,3 +68,27 @@ test("the same as ranges, for telling one occurrence of a word from another", ()
   assert.strictEqual(run.start, TEXTS[1].indexOf("Anwohner"));
 });
 
+
+test("a small word linked to nothing between two pieces of one word's place is part of it", () => {
+  /* "KI-Chatbot" is "chatbot de IA": the aligner links "KI" and "Chatbot"
+     and nobody "de", which stood unmarked between the two (author
+     2026-11-06). Only small words of the panel's language, at most two,
+     linked to nothing; a word carrying meaning keeps the pieces apart. */
+  const texts = ["Schick ihn einem KI-Chatbot.", "Envíalo a un chatbot de IA.", "Envíalo a un chatbot moderno IA."];
+  const links = {
+    panels: [1, 2],
+    codes: ["de", "es", "es"],
+    sentences: [{
+      start: 0, end: texts[0].length,
+      to: { start: 0, end: texts[1].length },
+      second: { start: 0, end: texts[2].length },
+      links: [[[0, 0], [2, 2], [3, 5], [4, 3]], [[0, 0], [2, 2], [3, 5], [4, 3]]],
+    }],
+  };
+  const term = range(texts[0], "KI-Chatbot");
+  assert.deepStrictEqual(fragmentsAcross(links, texts, 0, term, 1), ["chatbot de IA"]);
+  assert.deepStrictEqual(fragmentsAcross(links, texts, 0, term, 2), ["chatbot", "IA"], "an adjective between");
+  const linked = { ...links, sentences: [{ ...links.sentences[0], links: [[[0, 0], [1, 4], [2, 2], [3, 5], [4, 3]], []] }] };
+  assert.deepStrictEqual(fragmentsAcross(linked, texts, 0, term, 1), ["chatbot", "IA"], "a small word with a place of its own");
+  assert.deepStrictEqual(fragmentsAcross({ ...links, codes: undefined }, texts, 0, term, 1), ["chatbot", "IA"], "no language known");
+});

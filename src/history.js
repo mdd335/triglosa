@@ -22,6 +22,13 @@ export function dropOldest(history, settings, shown = null) {
   }
 }
 
+/* The furthest place the chevrons reach: the last kept reading, or one past
+   it where a blank sheet was written in and not read yet. Stepped back from,
+   that text is not thrown away: the step forward leads to it again. */
+export function lastPlace(history, unsent = "") {
+  return unsent.trim() ? history.length : history.length - 1;
+}
+
 /* The latest kept reading of exactly this text under these settings. One that
    failed is not an answer worth keeping: selecting the text again is how a
    reader tries once more. One still being worked out is, because it goes on
@@ -32,4 +39,49 @@ export function keptReading(history, text, settings, sentence = "", choice = nul
   return history.findLast((entry) =>
     entry.draft === text && (entry.sentence?.text || "") === sentence
     && entry.key === key && !entry.state?.fault) || null;
+}
+
+/* A reading that will not change any more: its run has ended and no section
+   is still being asked for. Only such a reading can be carried into another
+   page — the run filling it in stays behind in the old one. */
+export function settled(entry) {
+  const state = entry?.state;
+  if (!state || state.busy) return false;
+  return !Object.values(state.status || {}).some((value) => value === "working" || value === "linking");
+}
+
+/* What a page that is taken down leaves for the one built in its place (the
+   shell's rebuild_reading_window): the settled readings, which of them was
+   on screen, and the selection a reading still being worked out came from,
+   to be read once more. Anything that does not survive JSON is left out with
+   its reading. */
+export function handOver(history, place, pending = null) {
+  const shown = history[place] || null;
+  const readings = [];
+  for (const entry of history) {
+    if (!settled(entry)) continue;
+    try {
+      readings.push(JSON.parse(JSON.stringify(entry)));
+    } catch {
+      continue;
+    }
+    if (entry === shown) readings.at(-1).shown = true;
+  }
+  const unsettled = !shown || !settled(shown);
+  return JSON.stringify({ readings, pending: unsettled ? pending : null });
+}
+
+/* The other end: the readings in the order they were kept, where the one on
+   screen stands among them, and the selection to read again. */
+export function takeOver(handed) {
+  let parsed;
+  try {
+    parsed = JSON.parse(handed);
+  } catch {
+    parsed = null;
+  }
+  const readings = Array.isArray(parsed?.readings) ? parsed.readings : [];
+  const shown = readings.findIndex((entry) => entry.shown);
+  for (const entry of readings) delete entry.shown;
+  return { readings, place: shown === -1 ? readings.length : shown, pending: parsed?.pending || null };
 }

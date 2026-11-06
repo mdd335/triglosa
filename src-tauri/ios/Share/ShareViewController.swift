@@ -4,7 +4,9 @@ shares text or a picture: the text is handed to the app in its own address
 and the share menu closes. A picture's text is recognised here, on the
 iPhone (Recognition.swift), and handed over as its lines
 (`triglosa://read?lines=…`), which the page puts in order as it does a
-screenshot's. Nothing is shown here and nothing is kept.
+screenshot's. A picture is cut first, in the frame the app's own pictures
+get (Crop.swift; author 2026-11-06); cancelled, nothing opens. Nothing else
+is shown here, and nothing is kept.
 
 The same extension stands in the menu twice: as Triglosa, which reads, and
 as a flashcard (`triglosa://card?…`), which makes a card of what was shared.
@@ -29,6 +31,24 @@ final class ShareViewController: UIViewController {
     /* What the address asks of the app: "read", or "card". */
     private var opens: String {
         Bundle.main.object(forInfoDictionaryKey: "TriglosaOpens") as? String == "card" ? "card" : "read"
+    }
+
+    /* The frame's two buttons in the iPhone's language: the extension does
+    not know the one the app is set to. A card's frame goes on to the card. */
+    private var frameWords: (cancel: String, done: String) {
+        let words: [String: (String, String, String)] = [
+            "de": ("Abbrechen", "Übersetzen", "Weiter"),
+            "en": ("Cancel", "Translate", "Continue"),
+            "es": ("Cancelar", "Traducir", "Continuar"),
+            "fr": ("Annuler", "Traduire", "Continuer"),
+            "it": ("Annulla", "Traduci", "Continua"),
+            "pt": ("Cancelar", "Traduzir", "Continuar"),
+            "ru": ("Отмена", "Перевести", "Далее"),
+        ]
+        let code = Locale.preferredLanguages.lazy.compactMap { Locale(identifier: $0).language.languageCode?.identifier }
+            .first { words[$0] != nil } ?? "en"
+        let (cancel, translate, next) = words[code]!
+        return (cancel, opens == "card" ? next : translate)
     }
 
     override func viewDidLoad() {
@@ -91,7 +111,10 @@ final class ShareViewController: UIViewController {
             } else if let image = loaded as? UIImage {
                 picture = uprightPicture(image)
             }
-            guard let picture else { continue }
+            guard let whole = picture else { continue }
+            let words = frameWords
+            guard let picture = await cropped(whole, over: { [weak self] in self }, cancel: words.cancel, done: words.done)
+            else { return nil }
             let languages = Locale.preferredLanguages.compactMap { Locale(identifier: $0).language.languageCode?.identifier }
             guard let lines = try? await recognizedLines(picture, languages),
                   !lines.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }

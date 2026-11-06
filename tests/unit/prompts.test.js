@@ -3,7 +3,7 @@ import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { wordsPrompt } from "../../src/prompts/words.js";
+import { shownInput, wordsPrompt } from "../../src/prompts/words.js";
 import {
   abbreviationPrompt,
   meaningPrompt,
@@ -16,7 +16,6 @@ import {
 } from "../../src/prompts/marked.js";
 import { alignVerbsPrompt, annotateVerbsPrompt, fieldName, findVerbsPrompt } from "../../src/prompts/verbs.js";
 import { alignWordsPrompt } from "../../src/prompts/words-align.js";
-import { glanceInput, glancePrompt } from "../../src/prompts/glance.js";
 import { alternativesInput, alternativesPrompt, readerSpelling } from "../../src/prompts/translation.js";
 import { detectPrompt } from "../../src/prompts/detect.js";
 import { SUPPORTED, languagePack } from "../../src/languages/index.js";
@@ -100,7 +99,7 @@ test("a dictionary lookup asks the same question for one term", () => {
   assert.ok(!alone.includes("Looked up"), "without a sentence the text is the words");
   /* Everything else is the longer texts' question, line for line. */
   const others = (prompt) => prompt.split("\n").filter((line) =>
-    !/At most|translation|Looked up|<known>|^<term>|single verb|A verb form counts|stand apart in the sentence/.test(line));
+    !/At most|translation|Looked up|<known>|^<term>|single verb|A verb form counts|stand apart in the sentence|one and the same sense/.test(line));
   assert.deepStrictEqual(others(alone), others(long));
   assert.deepStrictEqual(others(inSentence), others(long).filter((line) => !line.startsWith("- <term> is copied")));
   assert.ok(!long.includes("Looked up") && !long.includes("dictionary translations"), "a longer text's question is untouched");
@@ -110,6 +109,16 @@ test("a dictionary lookup asks the same question for one term", () => {
     assert.ok(lookup.includes("how many Spanish learners at level B2 know the term"));
   }
   assert.ok(!long.includes("<known>"), "a learner's list is not");
+
+  /* Meaning and note about one sense; where the entry in the reader's
+     language stands already, about one of its lines (run 76). */
+  for (const lookup of [alone, inSentence]) assert.ok(lookup.includes("<meaning> and <note> are about one and the same sense"));
+  assert.ok(!long.includes("same sense") && !long.includes("Shown"), "a longer text has no entry beside it");
+  const shown = wordsPrompt({ code: "es", languages: ["de", "es"], levels: { es: "B2" }, lookup: { inSentence: false, shown: true } });
+  assert.ok(shown.includes('given as "Shown". The item explains one of them'));
+  assert.ok(shown.includes("none of them is hard for this reader, the whole answer is NONE - never a sense they do not give"));
+  assert.ok(!shown.includes("<meaning> and <note> are about one and the same sense"), "said once");
+  assert.equal(shownInput([{ text: "zart", note: "häufigste Bedeutung" }, { text: "weich" }]), "Shown: zart (häufigste Bedeutung); weich");
 
   const beginner = wordsPrompt({ code: "es", languages: ["de", "es"], levels: { es: "A2" }, lookup: { inSentence: false } });
   assert.ok(!beginner.includes("never an item"), "a beginner is helped by an everyday word here too");
@@ -528,20 +537,6 @@ test("a dictionary entry is told the capitals of its target language, from the p
   const spanish = alternativesPrompt({ source: "German", target: "Spanish", reader: "English", capitalisesNouns: false });
   assert.ok(spanish.includes("Write it in lower case unless it is a proper name."));
   assert.ok(!spanish.includes("noun with a capital"));
-});
-
-test("the hover's alignment names no language of its own and carries no example", () => {
-  const system = glancePrompt();
-  for (const code of SUPPORTED) {
-    assert.ok(!system.includes(languagePack(code).englishName), `names ${code}`);
-  }
-  /* A schematic line, not a sentence: the only pipe stands between two
-     placeholders. */
-  assert.deepStrictEqual(system.match(/[^\n]*\|[^\n]*/g).map((line) => /<unit> \| <stretch>/.test(line)), [true]);
-  assert.strictEqual(
-    glanceInput({ sourceName: "Spanish", targetName: "German", sentence: "Hola.", translation: "Hallo." }),
-    "Original (Spanish): Hola.\nTranslation (German): Hallo.",
-  );
 });
 
 test("the word-class question offers the genders the pack names, and none where it names none", async () => {

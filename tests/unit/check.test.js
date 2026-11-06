@@ -51,3 +51,10 @@ test("every prompt has its place on the page on a translation", async () => {
   const page = readFileSync(new URL("../../docs/behind-a-translation.md", import.meta.url), "utf8");
   assert.deepEqual(staleRequests(page, promptNames()), []);
 });
+
+test("the README holds the headings the app links to", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { INSTALL_URL, MODEL_HELP_URL } = await import("../../src/updates.js");
+  const anchors = anchorsOf(readFileSync(new URL("../../README.md", import.meta.url), "utf8"));
+  for (const url of [INSTALL_URL, MODEL_HELP_URL]) assert.ok(anchors.has(url.split("#")[1]), url);
+});

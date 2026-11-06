@@ -132,6 +132,17 @@ export function wordsPrompt({ code, name, languages, levels, retry, lookup = nul
     lookup
       ? "- At most 1 item, the hardest. Looking words up does not make them hard: where they are ordinary vocabulary at this reader's level, the whole answer is NONE."
       : "- At most 3 items, the hardest first. Never fill the places for their own sake: where nothing in the text is new to this reader, the whole answer is NONE.",
+    /* A word of several senses had its <meaning> in one and its <note> in
+       another, or in a narrower use: "tierno | zart" over meat with little
+       connective tissue, under an entry giving zart, weich (for meat) and
+       liebevoll apart (author 2026-11-06). Told only to keep the two to one
+       sense, the cloud model went on as before; given the entry's lines, its
+       term kept to one of them in 41 rows of 43 and the kind reported was
+       gone. Here among the selection, not the format: there it made up a
+       sense more often (run 76). */
+    ...(lookup?.shown
+      ? [`- The ${reader} translations the reader already sees beside it are given as "Shown". The item explains one of them: <meaning> is that translation, and <note> explains that sense of the term and no other. Where none of them is hard for this reader, the whole answer is NONE - never a sense they do not give.`]
+      : []),
     ...(lookup?.inSentence
       ? ["- The reader looked up only the words given as \"Looked up\". The item must contain at least one of them. It may reach into the rest of the sentence only where they belong to a fixed expression there; otherwise the sentence is context and nothing else."]
       : []),
@@ -153,6 +164,11 @@ export function wordsPrompt({ code, name, languages, levels, retry, lookup = nul
        measured. */
     `- <note> is written in ${reader}, at most 16 words: first what the term actually means or refers to, in plain words a reader who has never met it would understand - a short sentence is fine - then the field or register after a semicolon. Never a repeat of <meaning>, never the part of speech. A field or a category alone is not a note.`,
     "- <note> explains the TERM, not the sentence. The reader has the text in front of them, so no retelling of it and no \"here\" unless the term would be misread without it.",
+    /* Where no entry stands beside it, the same, said of the two fields
+       (run 76). */
+    ...(lookup && !lookup.shown
+      ? ["- <meaning> and <note> are about one and the same sense: <note> explains what <meaning> says, never another sense of the term."]
+      : []),
     /* Told not to, the cloud model still named Reisebüro and caution to a
        native reader; asked to rate them, it rated both "most", and the
        rating is what drops them (knownToReader). A learner's list is not
@@ -176,3 +192,8 @@ export function wordsPrompt({ code, name, languages, levels, retry, lookup = nul
 /* The line after the text in a lookup's question, where the text is the
    sentence: which of its words the reader looked up. */
 export const lookupInput = (words) => `Looked up: ${words}`;
+
+/* The line after those in a lookup's question where the entry in the
+   reader's language stands already: its lines as the window shows them. */
+export const shownInput = (lines) =>
+  `Shown: ${lines.map((line) => (line.note ? `${line.text} (${line.note})` : line.text)).join("; ")}`;

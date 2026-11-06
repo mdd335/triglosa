@@ -13,8 +13,9 @@ globalThis.Node = dom.window.Node;
 
 const { renderReading } = await import("../../src/ui/reading-view.js");
 const { GLANCE_DELAY, watchGlance } = await import("../../src/ui/glance-view.js");
-const { glancePairs, placeUnits } = await import("../../src/glance.js");
-const { parseGlance, parseGlanceWide } = await import("../../src/parse/glance.js");
+const { glancePairs, placeThird, placeUnits } = await import("../../src/glance.js");
+const { unitsFromLinks, unitsOfThird } = await import("../../src/parse/glance.js");
+const { parseGlance, parseGlanceWide } = await import("../glance-answers.mjs");
 
 const SETTINGS = {
   languages: ["de", "es", "en"],
@@ -129,11 +130,24 @@ test("resting on a word of the original shows what it became and lights both pla
   assert.deepStrictEqual(drawn.lit(1), ["focht", "an"], "two stretches where the translation parts them");
 });
 
-test("nothing appears before the pointer has rested", async () => {
+test("before the pointer has rested only its own group lights, at once and whole", async () => {
+  /* Entering a panel, the word under the pointer showed its own darker
+     ground first and its group a moment later (author 2026-11-06). Now the
+     group stands at once; the other panels and the sign wait. */
   const drawn = view(reading());
-  const word = [...drawn.sheet.querySelectorAll(".words[data-panel=\"0\"] .w")].find((node) => node.textContent === "acuerdo");
-  word.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+  const enter = (text) => [...drawn.sheet.querySelectorAll(".words[data-panel=\"0\"] .w")]
+    .find((node) => node.textContent === text).dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+  enter("acuerdo");
   assert.ok(!drawn.sign.classList.contains("shown"));
+  assert.deepStrictEqual(drawn.lit(0), ["el acuerdo"], "the group, not the word alone");
+  assert.deepStrictEqual(drawn.lit(1), [], "the other panels wait");
+  enter("Ayer");
+  assert.ok(!drawn.sign.classList.contains("shown"), "a pointer travelling on is not answered at once");
+  assert.deepStrictEqual(drawn.lit(0), ["Ayer"]);
+  assert.deepStrictEqual(drawn.lit(1), []);
+  await new Promise((resolve) => setTimeout(resolve, GLANCE_DELAY + 30));
+  assert.strictEqual(drawn.sign.textContent, "Gestern");
+  assert.deepStrictEqual(drawn.lit(1), ["Gestern"]);
 });
 
 test("over the reader's own panel the original lights up and nothing is written", async () => {
@@ -277,6 +291,41 @@ test("with three panels the pointer lights all of them, and both translations ge
   assert.deepStrictEqual(drawn.lit(2), ["the government"]);
 });
 
+test("the third panel from the aligner: its own words grouped, the reader's words over them, all three lit", async () => {
+  /* Ayer el gobierno impugnó el acuerdo . / Gestern focht die Regierung das Abkommen an . /
+     Yesterday the government challenged the agreement . */
+  const own = [[0, 0], [1, 2], [2, 3], [3, 1], [3, 6], [4, 4], [5, 5]];
+  const other = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5]];
+  /* Straight between English and German: "the agreement" only, which the
+     way through the original already knows. */
+  const between = [[4, 4], [5, 5]];
+  const [pair] = glancePairs(ORIGINAL, GERMAN);
+  const [second] = glancePairs(ORIGINAL, ENGLISH);
+  const sentence = { ...pair, second: second.to };
+  const units = unitsFromLinks(ORIGINAL, GERMAN, own, ["es", "de"], { text: ENGLISH, links: other, codes: ["es", "en"] }, { fill: true });
+  const third = unitsOfThird({ original: ORIGINAL, own: GERMAN, other: ENGLISH, links: { own, other, between }, codes: ["es", "de", "en"] });
+  const drawn = view(reading({
+    glance: {
+      panels: [1, 2],
+      reader: 1,
+      by: "aligner",
+      sentences: [{ ...sentence, status: "done", units: placeUnits(sentence, units, { to: second.to }), third: placeThird(sentence, third) }],
+    },
+  }));
+  await drawn.hover(2, "challenged");
+  assert.strictEqual(drawn.sign.textContent, "focht … an");
+  assert.deepStrictEqual(drawn.lit(2), ["challenged"]);
+  assert.deepStrictEqual(drawn.lit(1), ["focht", "an"]);
+  assert.deepStrictEqual(drawn.lit(0), ["impugnó"]);
+  await drawn.hover(2, "government");
+  assert.strictEqual(drawn.sign.textContent, "die Regierung");
+  assert.deepStrictEqual(drawn.lit(2), ["the government"]);
+  assert.deepStrictEqual(drawn.lit(0), ["el gobierno"]);
+  /* Over the original, as before. */
+  await drawn.hover(0, "acuerdo");
+  assert.strictEqual(drawn.sign.textContent, "das Abkommen");
+});
+
 test("a text in the reader's own language signs both translations with the source text's words", async () => {
   const german = "Die Regierung focht das Abkommen an.";
   const spanish = "El gobierno impugnó el acuerdo.";
@@ -310,4 +359,40 @@ test("a text in the reader's own language signs both translations with the sourc
   await drawn.hover(0, "Regierung");
   assert.ok(!drawn.sign.classList.contains("shown"), "nothing over the reader's own language");
   assert.deepStrictEqual(drawn.lit(1), ["El gobierno"]);
+});
+
+test("a word cut out of a unit by a marked term takes its own counterparts along", async () => {
+  /* "einem KI" is one unit from the aligner, the article led by its noun;
+     "KI-Chatbot" is a term. Cut out of the unit, "KI" takes "IA" and the
+     "de" in front of it, which was its own: "einem" is "a un", not
+     "a un … de". */
+  const german = "Schick ihn einem KI-Chatbot deines Vertrauens.";
+  const english = "Send it to an AI chatbot you trust.";
+  const spanish = "Envíalo a un chatbot de IA de tu confianza.";
+  const [pair] = glancePairs(german, english);
+  const [second] = glancePairs(german, spanish);
+  const units = unitsFromLinks(german, english, [[0, 0], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7]], ["de", "en"],
+    { text: spanish, links: [[0, 0], [2, 2], [3, 5], [4, 3], [5, 8], [6, 9]], codes: ["de", "es"] }, { fill: true });
+  const drawn = view(reading({
+    text: german,
+    source: { code: "de", name: "Deutsch" },
+    panels: [
+      { code: "de", status: "ready", text: german },
+      { code: "en", status: "ready", text: english },
+      { code: "es", status: "ready", text: spanish },
+    ],
+    words: [{ text: "KI-Chatbot", meaning: "AI chatbot", note: "Ein Chatprogramm." }],
+    wordAlign: { a: [["AI chatbot"]], b: [["chatbot", "IA"]] },
+    glance: {
+      panels: [1, 2],
+      reader: 0,
+      sentences: [{ ...pair, second: second.to, status: "done", units: placeUnits(pair, units, { to: second.to }) }],
+    },
+  }));
+  await drawn.hover(2, "un");
+  assert.strictEqual(drawn.sign.textContent, "einem");
+  assert.deepStrictEqual(drawn.lit(0), ["einem"]);
+  assert.deepStrictEqual(drawn.lit(2), ["a un"]);
+  await drawn.hover(2, "de");
+  assert.ok(!drawn.sign.classList.contains("shown"), "the term's own small word says nothing of the article");
 });

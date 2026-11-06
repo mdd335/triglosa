@@ -181,6 +181,13 @@ export async function searchUrl(choice) {
   return searchBase;
 }
 
+/* The name of the service the search opens, for the button's hover: ""
+   where it is not known (a phone, where Safari decides). */
+export async function searchName(choice) {
+  const { searchNameFor } = await import("./search.js");
+  return searchNameFor(await searchUrl(choice));
+}
+
 /* The system's languages, first one first, as language tags. The Mac's list
    comes from the shell as `defaults` prints it; everywhere else the web
    view's own list is the system's. */
@@ -230,6 +237,13 @@ export async function pasteHeld() {
   return answer?.status === 200 ? String(answer.text || "") : "text";
 }
 
+/* On a phone, the next field focused brings the keyboard up although no
+   finger tapped it: a blank sheet opened from the Control Center. */
+export async function allowKeyboard() {
+  if (!(insideApp() && onPhone())) return;
+  await shell("apple_translation", { route: "/keyboard", body: "" }).catch(() => null);
+}
+
 /* The phone's edges, where the page does not reach — the bands under the
    clock and over the home bar — painted in the page's own ground. */
 export async function paintGround() {
@@ -248,7 +262,10 @@ export async function openPhoneSettings() {
    what for: `triglosa://read?text=…` to be read, `triglosa://card?text=…`
    to become a flashcard. A picture shared to the app comes as the lines
    recognised in it (`lines=…`, the share extension), which the window puts
-   in order. Null where the address is neither or brings nothing. */
+   in order. The Control Center's buttons (src-tauri/ios/Controls) ask
+   without a text: `from=clipboard` for what was copied, `from=camera` for a
+   photograph, and neither for a blank sheet or card (`blank`). Null where
+   the address is neither, or only opens the app (`triglosa://open`). */
 export function textHandedOver(address) {
   let url;
   try {
@@ -260,7 +277,11 @@ export function textHandedOver(address) {
   const text = (url.searchParams.get("text") || "").trim();
   if (text) return { what: url.hostname, text };
   const lines = url.searchParams.get("lines") || "";
-  return lines.trim() ? { what: url.hostname, lines } : null;
+  if (lines.trim()) return { what: url.hostname, lines };
+  if (url.searchParams.has("text") || url.searchParams.has("lines")) return null;
+  const from = url.searchParams.get("from");
+  if (from === "clipboard" || (from === "camera" && url.hostname === "read")) return { what: url.hostname, from };
+  return from === null ? { what: url.hostname, blank: true } : null;
 }
 
 /* Told the address the app was opened with, on a phone: once for the one

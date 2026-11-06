@@ -11,7 +11,8 @@
    other programs; `hidden` is whether the reader asked not to see this at
    every start; `example` the example's drawing, built by the window
    (example-view.js); `consent` whether the reader allowed the anonymous
-   count. */
+   count, `asking` whether the question stands (in the first steps' own
+   window, every time), and `answered` whether the reader answered here. */
 
 import { buttonRow, element, rowButton } from "./elements.js";
 
@@ -34,22 +35,28 @@ function step(body, title) {
   return item;
 }
 
-/* The anonymous count as one box to tick, in the words the settings use for
-   it; unticked nothing is counted. */
-function consentBox(text, consent, onConsent) {
+/* The question about the anonymous count, in the window that asks it: what
+   would be sent, in the words the settings use for it, and two answers of
+   equal weight. Answered, one line says what now holds and where it is
+   changed. */
+function consentBox(text, { consent, asking, answered }, onConsent, onPrivacy) {
+  const words = text.welcome.stats;
+  if (answered) return element("p", "welcome-consent-done", consent ? words.yesDone : words.noDone);
+  if (!asking) return null;
   const box = element("div", "welcome-consent");
-  const line = element("label", "welcome-consent-line");
-  const tick = element("input");
-  tick.type = "checkbox";
-  tick.checked = consent === true;
-  tick.addEventListener("change", () => onConsent(tick.checked));
-  line.append(tick, element("span", "welcome-consent-name", text.statsSetting));
-  box.append(line, element("p", "welcome-consent-body", `${text.statsHint} ${text.welcome.stats.off} ${text.statsThanks}`));
+  const body = element("p", "welcome-consent-body", `${text.statsHint} ${words.change} `);
+  body.append(...text.statsPrivacy((word) => link(word, onPrivacy)), ` ${text.statsThanks}`);
+  box.append(element("p", "welcome-consent-question", words.question), body);
+  /* Side by side as one row, the yes last as on every other pair. */
+  box.append(buttonRow([
+    rowButton(words.no, "close", () => onConsent(false)),
+    rowButton(words.yes, "done", () => onConsent(true)),
+  ], "welcome-consent-buttons"));
   return box;
 }
 
-export function welcomeView({ text, system, icon, key, permission, hidden, example = null, consent = null },
-                            { onHide, onSettings, onClose, onReadme, onConsent = () => {} }) {
+export function welcomeView({ text, system, icon, key, permission, hidden, example = null, consent = null, asking = false, answered = false },
+                            { onHide, onSettings, onClose, onReadme, onConsent = () => {}, onPrivacy = () => {} }) {
   const words = text.welcome;
   const sheet = element("div", "welcome-sheet");
   if (icon) {
@@ -83,7 +90,7 @@ export function welcomeView({ text, system, icon, key, permission, hidden, examp
   );
   if (copies) steps.append(step(words.permission.body, words.permission.title));
 
-  const consentNode = consentBox(text, consent, onConsent);
+  const consentNode = consentBox(text, { consent, asking, answered }, onConsent, onPrivacy);
 
   const more = element("p", "welcome-more");
   more.append(...words.more((word) => link(word, onReadme)));
@@ -102,6 +109,6 @@ export function welcomeView({ text, system, icon, key, permission, hidden, examp
     rowButton(words.close, "close", () => onClose()),
   ]));
 
-  sheet.append(steps, consentNode, more, foot);
+  sheet.append(steps, ...(consentNode ? [consentNode] : []), more, foot);
   return sheet;
 }

@@ -100,8 +100,6 @@ export const REQUESTS = {
   alignWordsSinglePrompt: "Q8",
   alignVerbsPrompt: "Q9",
   alignVerbsSinglePrompt: "Q9",
-  glancePrompt: "Q10",
-  glanceWidePrompt: "Q10",
   alternativesPrompt: "Q11",
   verbFormPrompt: "Q12",
   meaningPrompt: "Q13",
@@ -115,6 +113,7 @@ export const REQUESTS = {
   wordLanguagePrompt: "Q21",
   improveCardPrompt: "",
   explainCardPrompt: "",
+  checkCardNotesPrompt: "",
   headwordPrompt: "",
 };
 

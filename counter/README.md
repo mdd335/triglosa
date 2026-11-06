@@ -1,6 +1,6 @@
 # The anonymous counter
 
-Triglosa asks once, in its first steps, whether it may count anonymously. Where the reader says yes, the app on a computer reports at most once a day that it was used and that a text was read, and a failure by its kind. `src/stats.js` decides what a report holds; `worker.js` here only adds one to the sum for its day and values. Nothing in the table tells one installation from another, and no address, time of day or text is kept. `PRIVACY.md` says the same for readers.
+Triglosa asks in its first steps whether it may count anonymously. Where the reader says yes, the app on a computer reports at most once a day that it was used and that a text was read, and a failure by its kind. `src/stats.js` decides what a report holds; `worker.js` here only adds one to the sum for its day and values. Nothing in the table tells one installation from another, and no address, time of day or text is kept. `PRIVACY.md` says the same for readers.
 
 ## What a report holds
 
@@ -9,7 +9,7 @@ Triglosa asks once, in its first steps, whether it may count anonymously. Where 
 | `event` | `seen` | `seen` (started or window shown), `read` (a text read) or `fault` |
 | `version` | `0.7.0` | the app's version |
 | `system` | `mac` | `mac` or `windows` |
-| `model` | `online` | the kind of AI model: `online`, `local`, `own` or `none` |
+| `model` | `preset` | the kind of AI model: `local` (this computer or the own network), `preset` (one the settings fill in), `online` (any other) or `none`; 0.7.0 sent `online`, `local`, `own` or `none`, still taken |
 | `since` | `2026-11-03` | the day this installation was first counted (UTC) |
 | `week`, `first` | `1`, `true` | the week since that day, and whether this is its first report in that week |
 | `kind` | `key` | for a failure only: its kind (`src/faults.js`) |
