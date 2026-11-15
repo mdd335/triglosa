@@ -20,9 +20,10 @@
    nothing a reader can feel. What stays open is the short input where
    function words give nothing away, and that runs in short mode anyway. */
 
-import { cleanLine, stripDiacritics, stripQuotes, unspacedWords, wordCount } from "./text.js";
+import { SHORT_MAX_WORDS, cleanLine, stripDiacritics, stripQuotes, unspacedWords, wordCount } from "./text.js";
 import { SUPPORTED, codeNamed, displayName, isSupported, languageLabel, lettersInScriptOf, wordSet } from "./languages/index.js";
 import { detectPrompt } from "./prompts/detect.js";
+import { learnedLanguageKnowing, spellingWords } from "./spelling.js";
 
 export const MIN_WORDS = 8;
 export const MIN_HITS = 4;
@@ -81,12 +82,25 @@ export const IDENTIFIER_THRESHOLD = 0.9;
    empty, `own` the language): of 600 texts and words of the eight it named
    two so, an Arabic word Persian and a Russian phrase Bulgarian (run
    forty-nine). And a language none of whose script the text holds is not
-   believed, however sure: a word in Han came back Spanish at 0.99. */
+   believed, however sure: a word in Han came back Spanish at 0.99.
+   A short input it is sure is in one of the eight that the reader does not
+   read, written in the script of a language they learn, is passed on
+   (`passed`) for the stages after it to weigh the reader's languages: of a
+   single word it was sure and wrong for a reader whose language writes it
+   alike — "cosa" Italian 1.00, "nos vemos" Portuguese 0.97 — and every
+   stage after it knows the reader. Where none of them answers, its answer
+   stands. A reader who learns no language of that script keeps its answer:
+   the local model named "tiempo" Portuguese for a reader of English,
+   Russian and Arabic (run 87). */
 export function readIdentified(top, { languages = [], text = "" } = {}) {
   const [code, share] = (top || [])[0] || [];
   const nothing = { code: "", foreign: false };
   if (!code || !(share >= IDENTIFIER_THRESHOLD)) return nothing;
   if (lettersInScriptOf(code, text) === "none") return nothing;
+  const learnedWriteIt = languages.slice(1).some((own) => lettersInScriptOf(own, text) === "all");
+  if (SUPPORTED.includes(code) && !languages.includes(code) && learnedWriteIt && wordCount(text) <= SHORT_MAX_WORDS) {
+    return { code: "", foreign: false, passed: code };
+  }
   if (SUPPORTED.includes(code)) return { code, foreign: false };
   return { code: "", foreign: true, other: code, ...(languages.slice(1).includes(code) ? { own: true } : {}) };
 }
@@ -157,7 +171,36 @@ export function asConfigured(found, languages) {
   return { ...found, code: known };
 }
 
-async function detectAmongAll(text, { languages, reader, translation, llm, identifier }) {
+/* How long the dictionaries are waited for before the model is asked
+   instead: as long as for a typo (run.js), as their languages are loaded
+   when the window appears. */
+const DICTIONARY_WAIT_MS = 300;
+
+/* The weight Apple's recognizer has to give the language the dictionaries
+   name. The Mac's dictionaries know more than their language: Spanish knows
+   "Hand" and "tramonto", French "vida", English "merci". Held to it, the
+   dictionaries pulled no word of one language into a reader's (run 87). */
+export const DICTIONARY_FLOOR = 0.1;
+
+/* The one of the reader's learned languages whose dictionaries alone know a
+   text of up to three words (spelling.js), or "" — never longer than the
+   wait above, never where there is no checker. */
+async function learnedByDictionaries(text, languages, speller) {
+  const learned = (languages || []).slice(1).filter(isSupported);
+  if (!speller || !learned.length || wordCount(text) > SHORT_MAX_WORDS) return "";
+  const words = spellingWords(text);
+  if (!words.length) return "";
+  const verdicts = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({}), DICTIONARY_WAIT_MS);
+    speller.check(words, learned).then(
+      (answer) => { clearTimeout(timer); resolve(answer || {}); },
+      () => { clearTimeout(timer); resolve({}); },
+    );
+  });
+  return learnedLanguageKnowing(text, verdicts, learned);
+}
+
+async function detectAmongAll(text, { languages, reader, translation, llm, identifier, speller = null }) {
   const local = detectByStopwords(text, SUPPORTED);
   if (local) return { code: local, name: displayName(local, reader), guesses: [], by: "text" };
 
@@ -172,12 +215,14 @@ async function detectAmongAll(text, { languages, reader, translation, llm, ident
   let guesses = [];
   let unsure = "";
   let leader = null;
+  let shares = {};
   /* The reader's own languages break a tie the recognizer cannot. */
   const askDevice = async () => (translation
     ? translation.detect(text, SUPPORTED, languages || [], (found) => {
       guesses = found?.guesses || [];
       unsure = found?.unsure || "";
       leader = found?.leader || null;
+      shares = found?.shares || {};
     })
     : "");
   const device = await askDevice();
@@ -203,6 +248,20 @@ async function detectAmongAll(text, { languages, reader, translation, llm, ident
     return { code: device, name: displayName(device, reader), guesses, by: "device" };
   }
 
+  /* A word or three that exactly one of the reader's learned languages
+     knows is theirs, where nobody before was sure of it and Apple's
+     recognizer gives that language some weight — before the model is
+     asked, and in place of a guess where there is none (run 87). So only
+     where the recognizer is there: the Mac and the iPhone. Not where the
+     identifier is sure of a language the app does not offer: a dictionary
+     that knows every word of its script would claim it. */
+  if (!identified.foreign && Object.keys(shares).length) {
+    const known = await learnedByDictionaries(text, languages, speller);
+    if (known && (shares[known] || 0) >= DICTIONARY_FLOOR) {
+      return { code: known, name: displayName(known, reader), guesses, by: "text" };
+    }
+  }
+
   /* Nobody left to ask. A single word carries no function words and the
      recognizer is rarely sure enough of one, so the model was the last
      stage — and where it is not there, or cannot be reached, the panels
@@ -215,6 +274,7 @@ async function detectAmongAll(text, { languages, reader, translation, llm, ident
      than nothing, and the heading's list is where the reader says which it
      is (author 2026-09-22). */
   const guessed = () => (identified.foreign && foreign(identified.other, "text"))
+    || (identified.passed && { code: identified.passed, name: displayName(identified.passed, reader), guesses, by: "text" })
     || (unsure
       ? { code: unsure, name: displayName(unsure, reader), guesses, by: "device" }
       : { code: "", name: "", guesses });
@@ -252,13 +312,24 @@ export function keepsChosenLanguage(text, code) {
   return !found || found === code;
 }
 
+/* The sentence a looked-up word came with, once the reader has said which
+   language the word is in. It goes along with the reading made again. Where
+   the word was named in the sentence's language, the sentence was named
+   with the same mistake and takes the reader's language too; a word that
+   stood apart from its sentence ("encender" in an English sentence) leaves
+   the sentence's language as it was. */
+export function sentenceInChosen(sentence, code, apart) {
+  if (!sentence || apart) return sentence || null;
+  return { ...sentence, code: isSupported(code) ? code : "" };
+}
+
 /* The third stage on its own. */
 export async function detectByModel(text, { languages, reader, llm }) {
   /* A long text says everything it needs to in its first characters, and the
      answer is one word either way. */
   const sample = text.length > 600 ? text.slice(0, 600) : text;
   const answer = stripQuotes(cleanLine(await llm.chat({
-    system: detectPrompt({ languages, reader }),
+    system: detectPrompt({ languages, reader, short: wordCount(text) <= SHORT_MAX_WORDS }),
     user: sample,
     maxTokens: 12,
   })));

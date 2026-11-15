@@ -9,7 +9,6 @@
 
 import {
   containsWord,
-  flattenField,
   isUnspaced,
   isWordChar,
   stripDiacritics,
@@ -221,24 +220,6 @@ export function formInText(text, form) {
   return parts.join(" + ");
 }
 
-/* Merge ranges with nothing but whitespace between them. A space is not a
-   gap: both parts belong in one frame. With a word in between they stay two
-   groups. */
-export function mergeRanges(fullText, ranges) {
-  const out = [];
-  for (const r of ranges.slice().sort((x, y) => x.start - y.start)) {
-    const last = out[out.length - 1];
-    if (last && r.start <= last.end) {
-      last.end = Math.max(last.end, r.end);
-    } else if (last && !/\S/.test(fullText.slice(last.end, r.start))) {
-      last.end = r.end;
-    } else {
-      out.push({ start: r.start, end: r.end });
-    }
-  }
-  return out;
-}
-
 /* All spots a fragment could sit at, most exact first: verbatim, then
    without diacritics, then a suffix match inside a longer word. The third
    stage is what makes a German compound highlightable — "Kündigungsfrist"
@@ -285,48 +266,6 @@ export function claimSpot(marks, fullText, fragment, cls, near = null) {
     : free.reduce((best, other) => (Math.abs(other.start - near) < Math.abs(best.start - near) ? other : best));
   marks.push({ start: spot.start, end: spot.end, cls });
   return true;
-}
-
-/* Turn field A or B into the spots inside one panel's text.
-
-   codes names the languages of the run — the entry and the panel do not
-   share one. Without it every function word of all ten packs counts, and
-   a Portuguese "dos" would silently shorten a Spanish field. */
-export function rangesOf(fullText, fragment, entry, codes, { passage = false } = {}) {
-  const f = String(fragment || "").trim();
-  if (!f || f === "-") return null;
-
-  /* The bar hangs on the length of the chosen entry, not on a fixed number.
-     A fixed limit of six words let "Clicking on it again" through for
-     "Nochmal" — four words, under the limit, and still the whole clause
-     instead of "again". One word more than the entry is allowed: "Getriebe"
-     becomes "caja de cambios" in Spanish. Two more are a sentence. */
-  const own = contentWordCount(entry, codes);
-  /* A passage is a clause, and a clause in another language routinely takes
-     a few words more: the bar grows with it, by half. */
-  const bar = passage ? Math.max(own + 1, Math.ceil(own * 1.5)) : own + 1;
-  if (contentWordCount(f, codes) > bar) return null;
-
-  /* 1. Verbatim and in one piece — the normal case. */
-  const whole = rangeOf(fullText, f) || rangeOf(fullText, flattenField(f));
-  if (whole) return [whole];
-
-  /* 2. Multipart. The prompt asks for a plus sign, but measurement shows
-     ellipses just as often ("warfen...das Handtuch"). Split on both. */
-  const out = [];
-  for (const part of f.split(/\s*(?:\+|\.{2,}|…)\s*/)) {
-    const t = part.trim();
-    if (!t) continue;
-    let range = rangeOf(fullText, t);
-    /* 3. Not verbatim, because the model inflected it: take the longest
-       piece that really stands there. */
-    if (!range) {
-      const run = longestRunInText(fullText, t, codes);
-      if (run) range = rangeOf(fullText, run);
-    }
-    if (range) out.push(range);
-  }
-  return out.length ? mergeRanges(fullText, out) : null;
 }
 
 /* Does the fragment, at some place it stands in the text, cover a

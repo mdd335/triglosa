@@ -94,6 +94,20 @@ export function glanceAt(glance, side, position) {
   return sentence.units.find((unit) => unit.to.some(inside)) || null;
 }
 
+/* Every unit of the original a word of a translation belongs to: two
+   apart in the original can have become one stretch — "zieht" and "ab"
+   both "se retira" — and that word is answered with both, as each of them
+   is answered with it (author 2026-11-12). The third panel's own units and
+   a word of the source text has one each. */
+export function glanceUnitsAt(glance, side, position) {
+  const one = glanceAt(glance, side, position);
+  if (!one || one.pending || one.third || side === "source") return one ? [one] : [];
+  const inside = (range) => position >= range.start && position < range.end;
+  const sentence = glance.sentences.find((entry) => (side === "second" ? entry.second : entry.to) && inside(side === "second" ? entry.second : entry.to));
+  const rendered = (unit) => (side === "second" ? unit.second?.to || [] : unit.to).some(inside);
+  return sentence.units.filter(rendered);
+}
+
 /* Every unit touching a stretch of the original — for a verb or a term the
    run has already marked, whose words stand together however the units cut
    them. */

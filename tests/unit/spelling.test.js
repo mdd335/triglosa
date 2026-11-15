@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { checkerOffer, inAnotherLanguage, translationWords, languageByDictionaries, mayBeMisspelled, nearTyped, readSpelling, spellingLanguages, spellingWords, typoDistance, readWordLanguage, wordLanguage } from "../../src/spelling.js";
+import { checkerOffer, inAnotherLanguage, translationWords, languageByDictionaries, mayBeMisspelled, nearTyped, readSpelling, spellingLanguages, spellingWords, typoDistance, readWordLanguage, wordLanguage, learnedLanguageKnowing } from "../../src/spelling.js";
 import { spellingPrompt } from "../../src/prompts/spelling.js";
 
 const unknown = (correction = null, guesses = []) => ({ there: true, known: false, correction, guesses });
@@ -190,4 +190,17 @@ test("a noun written small in a language that capitalises its nouns is still tha
   };
   assert.ok(!inAnotherLanguage("hand", verdicts, { target: "de", languages: ["de", "en"] }));
   assert.ok(inAnotherLanguage("ehrlich", { ehrlich: { en: unknown(), de: known } }, { target: "en", languages: ["en", "de"] }));
+});
+
+test("a short text is the one learned language whose dictionaries alone know it", () => {
+  const v = (known) => Object.fromEntries(["es", "en", "pt"].map((code) => [code, { there: true, known: known.includes(code) }]));
+  assert.strictEqual(learnedLanguageKnowing("sobremesa", { sobremesa: v(["es", "pt"]) }, ["es", "en"]), "es",
+    "Portuguese knows it too, but the reader does not learn it");
+  assert.strictEqual(learnedLanguageKnowing("fiesta", { fiesta: v(["es", "en"]) }, ["es", "en"]), "", "two of them: nobody decides");
+  assert.strictEqual(learnedLanguageKnowing("tramonto", { tramonto: v([]) }, ["es", "en"]), "", "none of them");
+  assert.strictEqual(learnedLanguageKnowing("nos vemos", { nos: v(["es", "en"]), vemos: v(["es"]) }, ["es", "en"]), "es", "every word");
+  const missing = { pronto: { en: { there: true, known: true }, es: { there: false, known: false } } };
+  assert.strictEqual(learnedLanguageKnowing("pronto", missing, ["es", "en"]), "",
+    "a learned language without dictionaries: English alone may not claim it");
+  assert.strictEqual(learnedLanguageKnowing("pronto", {}, []), "");
 });

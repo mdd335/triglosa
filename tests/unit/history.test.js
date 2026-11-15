@@ -24,9 +24,8 @@ test("settings that shape a reading make it a different one, the shortcut does n
   const kept = [entry("Hola.")];
   assert.strictEqual(keptReading(kept, "Hola.", { ...settings, model: "other" }), null);
   assert.strictEqual(keptReading(kept, "Hola.", { ...settings, languages: ["de", "es"] }), null);
-  /* Switched on afterwards, a reading made without the hover has nothing to
-     show over its words: it is read again. */
-  assert.strictEqual(keptReading(kept, "Hola.", { ...settings, glance: !settings.glance }), null);
+  /* The sign over a word is only shown or not: the reading is the same. */
+  assert.strictEqual(keptReading(kept, "Hola.", { ...settings, glance: !settings.glance }), kept[0]);
   assert.strictEqual(keptReading(kept, "Hola.", { ...settings, hotkey: null }), kept[0]);
 });
 

@@ -8,7 +8,7 @@ Triglosa runs on your computer and your iPhone. It has no account, shows no adve
 
 **On the iPhone, Triglosa asks before the first text goes to an AI model**, and again if you enter another address. Without your permission, Apple translates on the iPhone and no text leaves it. You can change the answer in the settings under *AI model*.
 
-**A looked-up word takes its sentence along**, at most 30 words, even though you did not select that sentence. Switch off *Send the sentence along* in the settings under *Other programs* if you do not want that.
+**A looked-up word takes its sentence along**, at most 30 words, even though you did not select that sentence. Switch off *Send the sentence along* in the settings under *Text from other apps* if you do not want that.
 
 **Your API key** goes only to the provider it belongs to.
 

@@ -136,7 +136,7 @@ for (index, symbol) in symbols.enumerated() {
 /* ---- The look before a build ---- */
 
 if CommandLine.arguments.count > 1 {
-  let others = ["book.fill", "arrow.right.circle.fill", "rectangle.badge.plus", "camera.fill",
+  let others = ["book.fill", "arrow.right.circle.fill", "rectangle.badge.plus", "text.viewfinder",
                 "qrcode.viewfinder", "flashlight.off.fill", "note.text.badge.plus", "list.bullet.rectangle.fill"]
   let cell: CGFloat = 220, columns = 4
   let count = symbols.count + others.count

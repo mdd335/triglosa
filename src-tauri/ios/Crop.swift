@@ -1,7 +1,11 @@
 /* A picture cut to the part to be read, before its text is recognised
    (author 2026-11-06): the picture over the whole screen with a frame on it,
    at first around all of it, so a picture that needs no cutting costs one
-   tap more. A corner or an edge of the frame is dragged, the frame itself
+   tap more. Where the text recognised in it is clearly in one part —
+   a sign, a label, a packet's instructions without the price sticker below
+   (`suggestedCut` in Frame.swift) — the frame glides onto it a moment
+   later, unless the reader has already taken hold of it (author
+   2026-11-14). A corner or an edge of the frame is dragged, the frame itself
    moved by its inside. Nothing where the reader cancels. The page names the
    two buttons in its own language (`/pick?…&cancel=…&done=…`). */
 
@@ -27,12 +31,20 @@ final class CropController: UIViewController {
      whole frame moved. Where the drag began, and the frame then. */
   private var held = (left: false, top: false, right: false, bottom: false, move: false)
   private var started = CGRect.zero
+  /* Whether the reader has taken hold of the frame: a frame suggested
+     after that is not used. The suggestion in the picture's pixels, and
+     the glide onto it. */
+  private var touched = false
+  private var suggested: CGRect?
+  private var glide: (from: CGRect, to: CGRect, start: CFTimeInterval, link: CADisplayLink)?
 
-  /* A finger's reach around an edge, and the smallest frame: a word or two
-  of small print (author 2026-11-06). Inside a frame narrower than two
-  reaches an edge is held only from its outer third, so that its middle
-  still moves it. */
-  private let reach: CGFloat = 34
+  /* How far from an edge a finger still takes it: outside, and further
+  inside, where a finger aiming at a corner tends to land (author
+  2026-11-10); the smallest frame: a word or two of small print (author
+  2026-11-06). Inside, an edge is held at most from its outer third, so
+  that the frame's middle still moves it. */
+  private let reach: CGFloat = 44
+  private let reachInside: CGFloat = 72
   private let smallest: CGFloat = 12
 
   init(_ picture: CGImage, cancel: String, done: String, finish: @escaping (CGImage?) -> Void) {
@@ -93,6 +105,42 @@ final class CropController: UIViewController {
     ])
 
     view.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(dragged(_:))))
+
+    let whole = picture
+    Task { [weak self] in
+      guard let cut = await suggestedCut(whole) else { return }
+      self?.suggested = cut
+      self?.glideToSuggestion()
+    }
+  }
+
+  /* The frame moved onto the suggested part in a quarter of a second, once
+     the picture has its place and while the frame is still untouched. */
+  private func glideToSuggestion() {
+    guard !touched, glide == nil, let suggested, shown.width > 0 else { return }
+    let scale = shown.width / CGFloat(picture.width)
+    let target = CGRect(x: shown.minX + suggested.minX * scale, y: shown.minY + suggested.minY * scale,
+                        width: suggested.width * scale, height: suggested.height * scale)
+    self.suggested = nil
+    let link = CADisplayLink(target: self, selector: #selector(gliding(_:)))
+    glide = (cut, target, CACurrentMediaTime(), link)
+    link.add(to: .main, forMode: .common)
+  }
+
+  @objc private func gliding(_ link: CADisplayLink) {
+    guard let glide else { return link.invalidate() }
+    let done = min(1, (CACurrentMediaTime() - glide.start) / 0.25)
+    let eased = done * done * (3 - 2 * done)
+    func step(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * eased }
+    cut = CGRect(x: step(glide.from.minX, glide.to.minX), y: step(glide.from.minY, glide.to.minY),
+                 width: step(glide.from.width, glide.to.width), height: step(glide.from.height, glide.to.height))
+    draw()
+    if done >= 1 { stopGliding() }
+  }
+
+  private func stopGliding() {
+    glide?.link.invalidate()
+    glide = nil
   }
 
   override func viewDidLayoutSubviews() {
@@ -117,6 +165,7 @@ final class CropController: UIViewController {
     }
     pictureView.frame = shown
     draw()
+    glideToSuggestion()
   }
 
   private func draw() {
@@ -159,13 +208,19 @@ final class CropController: UIViewController {
   }
 
   @objc private func dragged(_ pan: UIPanGestureRecognizer) {
-    let at = pan.location(in: view)
     switch pan.state {
     case .began:
+      touched = true
+      stopGliding()
       started = cut
-      /* An edge is in reach a finger's width outside it, and inside it as
-         far as a third of the frame. `inward` is negative outside. */
-      func inReach(_ inward: CGFloat, _ size: CGFloat) -> Bool { inward > -reach && inward < min(reach, size / 3) }
+      /* Where the finger came down, not where it is once the drag is
+         recognised: by then it has moved some ten points, and a corner
+         touched just inside and dragged inwards would be out of reach of
+         the edge it moves towards. */
+      let now = pan.location(in: view), moved = pan.translation(in: view)
+      let at = CGPoint(x: now.x - moved.x, y: now.y - moved.y)
+      /* `inward` is negative outside. */
+      func inReach(_ inward: CGFloat, _ size: CGFloat) -> Bool { inward > -reach && inward < min(reachInside, size / 3) }
       let near = (left: inReach(at.x - cut.minX, cut.width), top: inReach(at.y - cut.minY, cut.height),
                   right: inReach(cut.maxX - at.x, cut.width), bottom: inReach(cut.maxY - at.y, cut.height))
       let within = cut.insetBy(dx: -reach, dy: -reach).contains(at)
@@ -207,26 +262,76 @@ final class CropController: UIViewController {
     return picture.cropping(to: pixels) ?? picture
   }
 
+  /* Its wait ended with nothing, the frame left for whoever closes the
+     stack it lies in. */
+  func giveUp() {
+    stopGliding()
+    let finishing = finish
+    finish = nil
+    finishing?(nil)
+  }
+
   private func end(_ result: CGImage?) {
+    stopGliding()
     let finishing = finish
     finish = nil
     dismiss(animated: true) { finishing?(result) }
   }
 }
 
+/* Every system sheet and frame waiting on the reader, with how to give it
+   up as if cancelled, and how often everything was put away: a reading
+   handed over from outside is shown, never left under a camera, a picker,
+   the frame or a dictionary (author 2026-11-14). Here beside the frame,
+   which the share extension shares; the app closes them (Translation.swift). */
+@MainActor private var standing: [Int: () -> Void] = [:]
+@MainActor private var lastStanding = 0
+@MainActor private(set) var putAways = 0
+
+/* Kept until `noLongerStanding`; `giveUp` ends its wait with nothing,
+   without closing anything — the whole stack is closed at once. */
+@MainActor
+func whileStanding(_ giveUp: @escaping () -> Void) -> Int {
+  lastStanding += 1
+  standing[lastStanding] = giveUp
+  return lastStanding
+}
+
+@MainActor
+func noLongerStanding(_ id: Int) {
+  standing[id] = nil
+}
+
+/* Every wait ended with nothing, and counted: what was still on its way to
+   the screen does not come. */
+@MainActor
+func giveUpEverything() {
+  putAways += 1
+  let waiting = Array(standing.values)
+  standing = [:]
+  for giveUp in waiting { giveUp() }
+}
+
 /* The picture cut, presented over `top` once nothing is still being put
    away there — a system sheet closes itself as it hands its picture over. */
 @MainActor
 func cropped(_ picture: CGImage, over top: @MainActor () -> UIViewController?, cancel: String, done: String) async -> CGImage? {
+  let began = putAways
   var presenter = top()
   for _ in 0..<30 {
     guard let shown = presenter, shown.isBeingDismissed || shown.isBeingPresented else { break }
     try? await Task.sleep(nanoseconds: 50_000_000)
     presenter = top()
   }
+  guard putAways == began else { return nil }
   guard let presenter else { return picture }
   return await withCheckedContinuation { (done_: CheckedContinuation<CGImage?, Never>) in
-    let crop = CropController(picture, cancel: cancel, done: done) { done_.resume(returning: $0) }
+    var held = 0
+    let crop = CropController(picture, cancel: cancel, done: done) {
+      noLongerStanding(held)
+      done_.resume(returning: $0)
+    }
+    held = whileStanding { [weak crop] in crop?.giveUp() }
     presenter.present(crop, animated: true)
   }
 }

@@ -68,6 +68,4 @@ export default {
   /* How this language gives itself away in spelling — used by the
      detector prompt, where the input is often a single word. */
   spellingHints: "-tion, -ness, -ly and th point to English",
-  /* What the aligned tables call this language in their columns. */
-  columnName: "english",
 };

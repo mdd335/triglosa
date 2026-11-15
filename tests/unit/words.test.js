@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { MAX_WORDS, namesTheLookup, parseMarkedWord, withoutFormOpening, parseVerbGrammar, parseWordClass, parseWords, usableSpot, withoutNestedTerms } from "../../src/parse/words.js";
+import { MAX_WORDS, namesTheLookup, parseMarkedWord, withoutFormOpening, parseVerbGrammar, parseWordClass, parseWords, withoutNestedTerms } from "../../src/parse/words.js";
 import {
   MAX_SYNONYMS,
   MAX_SYNONYM_WORDS,
@@ -13,8 +13,8 @@ import { explainMarked, wordsFor } from "../../src/ask.js";
 const RUN = ["de", "en", "es"];
 const syn = (raw, term) => parseSynonyms(raw, term, RUN);
 /* A German reader with a Spanish text. */
-const marked = (meaningRaw, spotRaw, term, code, thirdRaw, grammarRaw) =>
-  parseMarkedWord({ meaningRaw, spotRaw, term, code, thirdRaw, grammarRaw, lang: "de", codes: RUN });
+const marked = (meaningRaw, term, code, thirdRaw, grammarRaw) =>
+  parseMarkedWord({ meaningRaw, term, code, thirdRaw, grammarRaw, lang: "de", codes: RUN });
 
 test("three slots, and the parser reads in with reserve", () => {
   assert.strictEqual(MAX_WORDS, 3);
@@ -119,82 +119,57 @@ test("synonyms are only asked for up to two words", () => {
 /* ---- the clicked word ---- */
 
 test("what is shown is the clicked word, not the model's inflected one", () => {
-  const m = marked("fianzas | Kaution | Erklärung dazu.", "Kaution | deposit", "fianza", "es");
+  const m = marked("fianzas | Kaution | Erklärung dazu.", "fianza", "es");
   assert.strictEqual(m.text, "fianza");
 });
 
 test("an unknown word yields no entry rather than an invented one", () => {
-  assert.strictEqual(marked("procaz | - | UNBEKANNT", "- | -", "procaz", "es"), null);
-  assert.strictEqual(marked("procaz | - | UNKNOWN", "- | -", "procaz", "es"), null);
-  assert.strictEqual(marked("", "- | -", "procaz", "es"), null);
-  assert.strictEqual(marked("no separator anywhere", "- | -", "procaz", "es"), null);
+  assert.strictEqual(marked("procaz | - | UNBEKANNT", "procaz", "es"), null);
+  assert.strictEqual(marked("procaz | - | UNKNOWN", "procaz", "es"), null);
+  assert.strictEqual(marked("", "procaz", "es"), null);
+  assert.strictEqual(marked("no separator anywhere", "procaz", "es"), null);
 });
 
 test("the marker for an unknown word is no equivalent", () => {
-  const m = marked("lloret | UNKNOWN | Ortsname an der Costa Brava, Teil der Gemeinde Lloret de Mar.", "- | -", "lloret", "es");
+  const m = marked("lloret | UNKNOWN | Ortsname an der Costa Brava, Teil der Gemeinde Lloret de Mar.", "lloret", "es");
   assert.strictEqual(m.meaning, "");
   assert.strictEqual(m.note, "Ortsname an der Costa Brava, Teil der Gemeinde Lloret de Mar.");
   /* In ordinary case it is what a word meaning "unknown" is in the reader's language. */
-  assert.strictEqual(marked("desconocido | unbekannt | Nicht bekannt oder nicht identifiziert, allgemein gebräuchlich.", "- | -", "desconocido", "es").meaning, "unbekannt");
-});
-
-test("an unusable spot line does not cost the explanation", () => {
-  /* The two calls can fail separately. If the spot call fails, the entry
-     stands — just without a highlight. */
-  const m = marked("fianza | Kaution | Im Mietrecht die Sicherheitsleistung.", "Kaution", "fianza", "es");
-  assert.strictEqual(m.meaning, "Kaution");
-  assert.strictEqual(m.a, "");
-  assert.strictEqual(m.b, "");
-  assert.strictEqual(m.note, "Im Mietrecht die Sicherheitsleistung.");
+  assert.strictEqual(marked("desconocido | unbekannt | Nicht bekannt oder nicht identifiziert, allgemein gebräuchlich.", "desconocido", "es").meaning, "unbekannt");
 });
 
 test("the synonyms hang off the entry and are missing when the call fails", () => {
   const m = marked(
     "fianza | Kaution | Im Mietrecht die Sicherheitsleistung.",
-    "Kaution | deposit",
     "fianza",
     "es",
     "depósito | garantía",
   );
   assert.deepStrictEqual(m.synonyms, ["depósito", "garantía"]);
-  const o = marked("fianza | Kaution | Im Mietrecht die Sicherheitsleistung.", "Kaution | deposit", "fianza", "es", "");
+  const o = marked("fianza | Kaution | Im Mietrecht die Sicherheitsleistung.", "fianza", "es", "");
   assert.deepStrictEqual(o.synonyms, []);
   assert.strictEqual(o.note, "Im Mietrecht die Sicherheitsleistung.");
-  assert.strictEqual(o.a, "Kaution");
 });
 
 test("a missing equivalent leaves the explanation — it stands at the back", () => {
-  const m = marked("fianza | Im Mietrecht die Sicherheitsleistung.", "Kaution | deposit", "fianza", "es");
+  const m = marked("fianza | Im Mietrecht die Sicherheitsleistung.", "fianza", "es");
   assert.strictEqual(m.meaning, "");
   assert.strictEqual(m.note, "Im Mietrecht die Sicherheitsleistung.");
-  assert.strictEqual(m.a, "Kaution");
 });
 
 test("for an expression field 2 carries the base form, not the spot", () => {
   const m = marked(
     "tirar la toalla | das Handtuch werfen | Redewendung für aufgeben.",
-    "warfen ... das Handtuch | threw in the towel",
     "tiramos la toalla",
     "es",
   );
   assert.strictEqual(m.meaning, "das Handtuch werfen");
-  assert.strictEqual(m.a, "warfen ... das Handtuch");
-  assert.strictEqual(m.b, "threw in the towel");
   assert.strictEqual(m.note, "Redewendung für aufgeben.");
-});
-
-test("the explanation never lands in a spot field", () => {
-  const m = marked("x | Entsprechung | Eine Erklärung mit | einem Strich darin.", "A-Stelle | B-Stelle", "x", "es");
-  assert.strictEqual(m.meaning, "Entsprechung");
-  assert.strictEqual(m.a, "A-Stelle");
-  assert.strictEqual(m.b, "B-Stelle");
-  assert.strictEqual(m.note, "Eine Erklärung mit | einem Strich darin.");
 });
 
 test("for an abbreviation the expansion replaces the equivalent", () => {
   const m = marked(
     "IVA | Mehrwertsteuer | Die Steuer auf Waren und Dienstleistungen; Steuerrecht",
-    "",
     "IVA",
     "es",
     "Impuesto sobre el Valor Añadido | Mehrwertsteuer",
@@ -203,14 +178,13 @@ test("for an abbreviation the expansion replaces the equivalent", () => {
   /* And the synonym line stays empty: the third question was the expansion. */
   assert.deepStrictEqual(m.synonyms, []);
   /* If that call delivers nothing, the equivalent stands. */
-  const n = marked("IVA | Mehrwertsteuer | Die Steuer auf Waren; Steuerrecht", "", "IVA", "es", "-");
+  const n = marked("IVA | Mehrwertsteuer | Die Steuer auf Waren; Steuerrecht", "IVA", "es", "-");
   assert.strictEqual(n.meaning, "Mehrwertsteuer");
 });
 
 test("for an ordinary word the third question stays the one about synonyms", () => {
   const m = marked(
     "fianza | Kaution | Die Sicherheitsleistung beim Einzug; Mietrecht",
-    "",
     "fianza",
     "es",
     "depósito | garantía | aval",
@@ -247,13 +221,12 @@ test("a subject named alongside is cut off in front", () => {
 
 test("field 1 carries the infinitive, but only for a verb form", () => {
   const line = (f1) => `${f1} | weigerte sich | Erklärung dazu.`;
-  const spot = "weigerte | refused";
-  assert.strictEqual(marked(line("negarse"), spot, "negó", "es").infinitive, "negarse");
+  assert.strictEqual(marked(line("negarse"), "negó", "es").infinitive, "negarse");
   /* Not a verb: the model repeats the word instead of the required dash —
      then field 1 is empty, not "fianza → fianza". */
-  assert.strictEqual(marked(line("fianza"), spot, "fianza", "es").infinitive, "");
-  assert.strictEqual(marked(line("-"), spot, "fianza", "es").infinitive, "");
-  assert.strictEqual(marked(line("Fianza"), spot, "fianzá", "es").infinitive, "");
+  assert.strictEqual(marked(line("fianza"), "fianza", "es").infinitive, "");
+  assert.strictEqual(marked(line("-"), "fianza", "es").infinitive, "");
+  assert.strictEqual(marked(line("Fianza"), "fianzá", "es").infinitive, "");
 });
 
 test("two words are a verb form only when both questions say so", () => {
@@ -267,28 +240,27 @@ test("two words are a verb form only when both questions say so", () => {
      None of this knows a language: the count is a fact about the selection,
      and the second vote comes from the one prompt all eight share. */
   const line = (f1) => `${f1} | weigerte sich | Erklärung dazu.`;
-  const spot = "weigerte | refused";
   const person = "él/ella/usted | indefinido";
 
   /* A form its language writes in two words, and both questions agree. */
-  const two = marked(line("negarse"), spot, "se negó", "es", "", person);
+  const two = marked(line("negarse"), "se negó", "es", "", person);
   assert.strictEqual(two.infinitive, "negarse");
   assert.strictEqual(two.person, "él/ella/usted");
 
   /* A verb standing next to a word that is not part of the form. The meaning
      question still names the verb; the verb-form question writes the hyphen
      its rule 6 asks for, and that settles it. */
-  const apart = marked(line("negarse"), spot, "la negó", "es", "", "-");
+  const apart = marked(line("negarse"), "la negó", "es", "", "-");
   assert.strictEqual(apart.infinitive, "");
   assert.strictEqual(apart.person, "");
 
   /* Nothing came back from the second question at all — a language with no
      grammar table, or a call that failed. One row too few, never a wrong one. */
-  assert.strictEqual(marked(line("negarse"), spot, "se negó", "es").infinitive, "");
+  assert.strictEqual(marked(line("negarse"), "se negó", "es").infinitive, "");
 
   /* Three words are not a form anybody picks whole, whatever comes back. */
   assert.strictEqual(
-    marked(line("negarse"), spot, "se negó a", "es", "", person).infinitive, "");
+    marked(line("negarse"), "se negó a", "es", "", person).infinitive, "");
 });
 
 test("one word keeps the single vote it was measured with", () => {
@@ -297,7 +269,7 @@ test("one word keeps the single vote it was measured with", () => {
      meaning question answered correctly. */
   const line = (f1) => `${f1} | weigerte sich | Erklärung dazu.`;
   assert.strictEqual(
-    marked(line("negarse"), "weigerte | refused", "negó", "es").infinitive, "negarse");
+    marked(line("negarse"), "negó", "es").infinitive, "negarse");
 });
 
 test("the base form has to fit the source language", () => {
@@ -352,10 +324,10 @@ test("grammar reaches the row only where field 1 carries an infinitive", () => {
   /* If the meaning call says "not a verb" and the annotation says "1st
      person, present", the row would stand against itself. */
   const line = (f1) => `${f1} | weigerte sich | Erklärung dazu.`;
-  const verb = marked(line("negarse"), "weigerte | refused", "negó", "es", "", "él/ella/usted | indefinido");
+  const verb = marked(line("negarse"), "negó", "es", "", "él/ella/usted | indefinido");
   assert.strictEqual(verb.person, "él/ella/usted");
   assert.strictEqual(verb.tense, "indefinido");
-  const noun = marked(line("fianza"), "Kaution | deposit", "fianza", "es", "", "él/ella/usted | presente");
+  const noun = marked(line("fianza"), "fianza", "es", "", "él/ella/usted | presente");
   assert.strictEqual(noun.person, "");
   assert.strictEqual(noun.tense, "");
 });
@@ -363,25 +335,21 @@ test("grammar reaches the row only where field 1 carries an infinitive", () => {
 test("the two answer lines are merged into one entry", () => {
   const m = marked(
     "fianza | Kaution | Im Mietrecht die Sicherheitsleistung beim Einzug.",
-    "Kaution | deposit",
     "fianza",
     "es",
   );
   assert.strictEqual(m.meaning, "Kaution");
-  assert.strictEqual(m.a, "Kaution");
-  assert.strictEqual(m.b, "deposit");
   assert.match(m.note, /^Im Mietrecht/);
 });
 
 test("two meanings stay for a single word, as in the verb table", () => {
   const m = marked(
     "spring | Feder, Frühling | Das gewundene Bauteil, das unter Last nachgibt.",
-    "Feder | muelle",
     "spring",
     "en",
   );
   assert.strictEqual(m.meaning, "Feder, Frühling");
-  const e = marked("planta | Etage, Pflanze | Das Stockwerk eines Gebäudes.", "Etage | floor", "planta", "es");
+  const e = marked("planta | Etage, Pflanze | Das Stockwerk eines Gebäudes.", "planta", "es");
   assert.strictEqual(e.meaning, "Etage, Pflanze");
 });
 
@@ -391,7 +359,6 @@ test("a phrase has its appended synonym struck", () => {
      second meaning. */
   const m = marked(
     "ferrocarril subterráneo | U-Bahn, unterirdische Eisenbahn | Das geheime Netzwerk zur Flucht.",
-    "Untergrundbahn | underground railroad",
     "ferrocarril subterráneo",
     "es",
   );
@@ -448,7 +415,9 @@ test("a clicked word is still asked with its text", async () => {
   assert.ok(asked.some((user) => user.includes("Hoy me da pereza")));
 });
 
-test("a place the aligner already found is not asked for, and is the place shown", async () => {
+test("no question about where a picked word stands goes out: that is the aligner's", async () => {
+  /* Run eighty-four: the places in the other panels come from the word
+     aligner alone (app.js). */
   const asked = [];
   const llm = {
     async chat({ system }) {
@@ -461,11 +430,11 @@ test("a place the aligner already found is not asked for, and is the place shown
     text: "Hoy me da pereza salir de casa.",
     source: "es",
     reader: "de",
-    others: [{ code: "de", text: "Heute habe ich keine Lust rauszugehen." }],
-    spot: "Lust | -",
+    others: [{ code: "de", text: "Heute habe ich keine Lust rauszugehen." }, { code: "en", text: "Today I can't be bothered to go out." }],
   });
-  assert.ok(asked.every((system) => !system.includes("Locate it in both translations")));
-  assert.strictEqual(marked.a, "Lust");
+  assert.ok(asked.every((system) => !/Locate it|Find the words that render it|You align/.test(system)));
+  assert.strictEqual(marked.meaning, "Unlust");
+  assert.ok(!("a" in marked) && !("b" in marked));
 });
 
 test("a clicked infinitive is a verb when the verb-form question calls it one", () => {
@@ -474,40 +443,27 @@ test("a clicked infinitive is a verb when the verb-form question calls it one", 
      restituer, rachar and indemnify all lost their conjugation table. The
      verb-form question tells the two apart. */
   const line = (f1) => `${f1} | kippen | Erklärung dazu.`;
-  const spot = "kippen | overturn";
-  const clicked = marked(line("tumbar"), spot, "tumbar", "es", "", "infinitive | infinitivo");
+  const clicked = marked(line("tumbar"), "tumbar", "es", "", "infinitive | infinitivo");
   assert.strictEqual(clicked.infinitive, "tumbar");
-  assert.strictEqual(marked(line("fianza"), spot, "fianza", "es", "", "-").infinitive, "");
+  assert.strictEqual(marked(line("fianza"), "fianza", "es", "", "-").infinitive, "");
   /* A conjugated form the model merely repeated is not its own base form. */
   const ru = parseMarkedWord({
-    meaningRaw: "забрёл | wandered into | note", spotRaw: "", term: "забрёл", code: "ru",
+    meaningRaw: "забрёл | wandered into | note", term: "забрёл", code: "ru",
     thirdRaw: "", grammarRaw: "он/она/оно | прошедшее время", lang: "en", codes: ["en", "de", "ru"],
   });
   assert.strictEqual(ru.infinitive, "");
-});
-
-test("a spot field with the label written into it still finds its words", () => {
-  assert.strictEqual(usableSpot("<A> Arbeit", "curro"), "Arbeit");
-  assert.strictEqual(usableSpot("an</A>", "approdato"), "an");
-  assert.strictEqual(usableSpot("<A>", "corredato"), "");
-  assert.strictEqual(usableSpot("B: work", "curro"), "work");
 });
 
 test("a suffix is no synonym", () => {
   assert.deepStrictEqual(syn("-tional", "Constitutional"), []);
 });
 
-test("brackets opened in one spot field and closed in the other are dropped", () => {
-  assert.strictEqual(usableSpot("<gekürzt", "decurtato"), "gekürzt");
-  assert.strictEqual(usableSpot("reduced>", "decurtato"), "reduced");
-});
-
 test("an infinitive named in one field, or in the tense field, still counts", () => {
   const line = (f1) => `${f1} | beheben | Erklärung dazu.`;
-  assert.strictEqual(marked(line("subsanar"), "", "subsanar", "es", "", "infinitivo").infinitive, "subsanar");
-  const it = parseMarkedWord({ meaningRaw: "sgranare | enthülsen | note", spotRaw: "", term: "sgranare", code: "it", thirdRaw: "", grammarRaw: "infinito", lang: "de", codes: ["de", "en", "it"] });
+  assert.strictEqual(marked(line("subsanar"), "subsanar", "es", "", "infinitivo").infinitive, "subsanar");
+  const it = parseMarkedWord({ meaningRaw: "sgranare | enthülsen | note", term: "sgranare", code: "it", thirdRaw: "", grammarRaw: "infinito", lang: "de", codes: ["de", "en", "it"] });
   assert.strictEqual(it.infinitive, "sgranare");
-  const en = parseMarkedWord({ meaningRaw: "rejig | umstellen | note", spotRaw: "", term: "rejig", code: "en", thirdRaw: "", grammarRaw: "they | infinitive", lang: "de", codes: ["de", "en", "es"] });
+  const en = parseMarkedWord({ meaningRaw: "rejig | umstellen | note", term: "rejig", code: "en", thirdRaw: "", grammarRaw: "they | infinitive", lang: "de", codes: ["de", "en", "es"] });
   assert.strictEqual(en.infinitive, "rejig");
 });
 
@@ -551,49 +507,12 @@ test("half a sentence handed back as a term is no term", async () => {
 });
 
 test("a line written as a table row or wrapped whole in brackets keeps its fields", () => {
-  const row = marked("|rügen|anfechten|Juristendeutsch, formell|", "", "rügte", "de");
+  const row = marked("|rügen|anfechten|Juristendeutsch, formell|", "rügte", "de");
   assert.strictEqual(row.meaning, "anfechten");
   assert.strictEqual(row.note, "Juristendeutsch, formell");
-  const wrapped = marked("<Zuständigkeit | Kompetenz | juristisch>", "", "Zuständigkeit", "de");
+  const wrapped = marked("<Zuständigkeit | Kompetenz | juristisch>", "Zuständigkeit", "de");
   assert.strictEqual(wrapped.meaning, "Kompetenz");
   assert.strictEqual(wrapped.note, "juristisch");
-});
-
-/* ---- the paragraph before the markings ---- */
-
-test("a clicked word's paragraph arrives before the markings, whole", async () => {
-  let releaseSpot;
-  const spotHeld = new Promise((resolve) => { releaseSpot = resolve; });
-  const llm = {
-    async chat({ system }) {
-      if (system.includes("Locate it in both translations")) {
-        await spotHeld;
-        return "Unlust | reluctance";
-      }
-      if (system.includes("Name synonyms")) return "flojera, desgana";
-      if (system.includes("person and tense")) return "-";
-      return "pereza | Unlust | Umgangssprachlich für Antriebslosigkeit";
-    },
-  };
-  let paragraph = null;
-  const done = explainMarked(llm, {
-    term: "pereza",
-    text: "Hoy me da pereza salir de casa.",
-    source: "es",
-    reader: "de",
-    others: [{ code: "de", text: "Heute habe ich keine Lust rauszugehen." }, { code: "en", text: "Today I can't be bothered to go out." }],
-    onParagraph: (answer) => { paragraph = answer; },
-  });
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.ok(paragraph, "the paragraph did not wait for the spot question");
-  assert.strictEqual(paragraph.meaning, "Unlust");
-  assert.ok(paragraph.synonyms.length, "and it came with its synonyms");
-  assert.strictEqual(paragraph.a, "");
-
-  releaseSpot();
-  const whole = await done;
-  assert.strictEqual(whole.a, "Unlust");
-  assert.strictEqual(whole.note, paragraph.note);
 });
 
 /* ---- a marked passage ---- */
@@ -613,48 +532,39 @@ test("a passage is counted off the selection: more than six words, and punctuati
   }
 });
 
-test("a passage's answer is its translation and its two spots, nothing else", () => {
+test("a passage's answer is its translation, nothing else", () => {
   const row = parsePassage({
     translationRaw: "\"tat nichts, bis die Presse die Fotos veröffentlichte\"\n",
-    spotRaw: "did nothing until the press published the photos. | -",
     term: "no hizo nada hasta que la prensa publicó las fotos",
     target: "de",
   });
   assert.strictEqual(row.passage, true);
   assert.strictEqual(row.meaning, "tat nichts, bis die Presse die Fotos veröffentlichte");
-  assert.strictEqual(row.a, "did nothing until the press published the photos", "a closing stop is not part of the spot");
-  assert.strictEqual(row.b, "");
   assert.deepStrictEqual([row.infinitive, row.note, row.synonyms.length], ["", "", 0]);
-  assert.strictEqual(parsePassage({ translationRaw: "  ", spotRaw: "a | b", term: "x", target: "de" }), null);
+  assert.strictEqual(parsePassage({ translationRaw: "  ", term: "x", target: "de" }), null);
 });
 
-test("a marked passage is asked two questions with its text, not the four about a word", async () => {
+test("a marked passage is asked one question with its text, not the four about a word", async () => {
   const asked = [];
   const llm = {
     async chat({ system, user }) {
       asked.push({ system, user });
-      return system.includes("Find the words")
-        ? "Gestern focht die Regierung das Abkommen an | Yesterday the government challenged the agreement"
-        : "Gestern focht die Regierung das Abkommen an";
+      return "Gestern focht die Regierung das Abkommen an";
     },
   };
   const term = "Ayer el gobierno impugnó el acuerdo sin dudar";
-  const paragraphs = [];
   const row = await explainMarked(llm, {
     term,
     text: term + ".",
     source: "es",
     reader: "de",
     others: [{ code: "de", text: "Gestern focht die Regierung das Abkommen an." }, { code: "en", text: "Yesterday the government challenged the agreement." }],
-    onParagraph: (p) => paragraphs.push(p),
   });
-  assert.strictEqual(asked.length, 2);
-  assert.ok(asked.every((call) => call.user.startsWith("Text (Spanish): ")), "the text goes with both");
+  assert.strictEqual(asked.length, 1);
+  assert.ok(asked[0].user.startsWith("Text (Spanish): "), "the text goes with it");
   assert.ok(asked.some((call) => call.system.includes("German translation of the Passage")));
   assert.strictEqual(row.passage, true);
   assert.strictEqual(row.meaning, "Gestern focht die Regierung das Abkommen an");
-  assert.strictEqual(row.b, "Yesterday the government challenged the agreement");
-  assert.strictEqual(paragraphs.length, 1, "the translation before the markings");
 });
 
 test("a passage in the reader's own language is translated into the other panel's", async () => {
@@ -673,14 +583,14 @@ test("a passage in the reader's own language is translated into the other panel'
 test("a pick of several words is shown translated whole, a verb form keeps its infinitive", () => {
   const whole = parseMarkedWord({
     meaningRaw: "write | schreiben | bezieht sich auf das Aufzeichnen von Text",
-    spotRaw: "", term: "The label itself is not written", code: "en", thirdRaw: "", grammarRaw: "-",
+    term: "The label itself is not written", code: "en", thirdRaw: "", grammarRaw: "-",
     wholeRaw: "Die Beschriftung selbst wird nicht geschrieben", lang: "de", codes: ["en", "de", "es"],
   });
   assert.strictEqual(whole.meaning, "Die Beschriftung selbst wird nicht geschrieben");
 
   const form = parseMarkedWord({
     meaningRaw: "backen | backen | Zubereiten im Ofen",
-    spotRaw: "", term: "hat gebacken", code: "de", thirdRaw: "", grammarRaw: "3. Person Singular | Perfekt",
+    term: "hat gebacken", code: "de", thirdRaw: "", grammarRaw: "3. Person Singular | Perfekt",
     wholeRaw: "has baked", lang: "en", codes: ["de", "en", "es"],
   });
   assert.ok(form.infinitive, "still a verb");
@@ -713,7 +623,6 @@ test("a phrasal verb picked whole keeps its own base form", () => {
   const marked = parseMarkedWord({
     meaningRaw: "hold off | abwarten, aufschieben | bedeutet, etwas bewusst hinauszuzögern",
     grammarRaw: "infinitive | infinitive",
-    spotRaw: "zurückhalten | esperaría",
     term: "hold off", code: "en", lang: "de", codes: ["en", "de"],
   });
   assert.strictEqual(marked.infinitive, "hold off");
@@ -741,14 +650,14 @@ test("a word class stands only as far as it is on the list and fits the word", (
 test("a clicked word keeps its class unless it turned out to be a verb", () => {
   const noun = parseMarkedWord({
     meaningRaw: "hogar | Haushalt, Zuhause | Wohneinheit",
-    spotRaw: "", term: "hogar", code: "es", thirdRaw: "", grammarRaw: "-",
+    term: "hogar", code: "es", thirdRaw: "", grammarRaw: "-",
     kindRaw: "noun | singular | masculine", lang: "de", codes: ["es", "de"],
   });
   assert.deepStrictEqual(noun.wordClass, { kind: "noun", number: "singular", gender: "masculine" });
   assert.strictEqual(noun.meaning, "Haushalt, Zuhause");
   const verb = parseMarkedWord({
     meaningRaw: "impugnar | anfechten | Rechtssprache",
-    spotRaw: "", term: "impugnó", code: "es", thirdRaw: "", grammarRaw: "él/ella/usted | pretérito indefinido",
+    term: "impugnó", code: "es", thirdRaw: "", grammarRaw: "él/ella/usted | pretérito indefinido",
     kindRaw: "noun | singular | masculine", lang: "de", codes: ["es", "de"],
   });
   assert.strictEqual(verb.wordClass, null);
@@ -896,7 +805,7 @@ test("a word that is no verb is still asked about as the reader clicked it", asy
 test("a synonym that is only the base form again is the word itself", () => {
   const marked = parseMarkedWord({
     meaningRaw: "lograr | erreichen | Verb der Erfolgssphäre.",
-    spotRaw: "", term: "logró", code: "es", thirdRaw: "lograr | conseguir | obtener",
+    term: "logró", code: "es", thirdRaw: "lograr | conseguir | obtener",
     grammarRaw: "él/ella/usted | pretérito indefinido", lang: "de", codes: ["es", "de"],
   });
   assert.deepStrictEqual(marked.synonyms, ["conseguir", "obtener"]);

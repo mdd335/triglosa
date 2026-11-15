@@ -1,8 +1,8 @@
 /* Fetches the word aligner's model into src-tauri/resources/aligner, where
    the build packs it into the app (tauri.conf.json, `resources`).
 
-   The files are too large for the repository — one of them is 258 MB — so
-   they are attachments of a release of their own, `aligner-1`, and every
+   The files are too large for the repository — one of them is 174 MB — so
+   they are attachments of a release of their own, `aligner-2`, and every
    build fetches them once: `npm run app`, `npm run bundle` and the Windows
    workflow all start here. A file already there with the right checksum is
    left alone, so this costs nothing the second time. scripts/aligner-pack.py
@@ -19,15 +19,15 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { fetchOcrModels } from "./ocr-fetch.mjs";
 
-export const RELEASE = "https://github.com/mdd335/triglosa/releases/download/aligner-1";
+export const RELEASE = "https://github.com/mdd335/triglosa/releases/download/aligner-2";
 
 /* What the app was measured with; anything else is not packed. */
 export const FILES = {
-  "model.onnx": "a45c17f3b749faf19b4999dabd377d03627e561f91d14aa1a38c6932ffe83882",
-  "model.data": "4d269afc65736ed6663a2914c06ce859c581b11d7d4ac9651889fd3b2cebe7ca",
+  "model.onnx": "93d562bb99f16a3a1b869d0bcced963ddb7f48ac92578d8a2290480cf8dee55e",
+  "model.data": "d5ab26e53c157ba34496307ae5632f87feaa4bfc728473292b0a0fb31990b69c",
   "tokenizer.json": "91f49831963db775c5891264360e8d9e27e5b4a927c68a2b7e060b996b23de36",
   "pieces.txt": "62fce312d72594ad30235447483680a6d1bbce5d7e219bbe29a241539e449f92",
-  "NOTICE.txt": "7452aaa4732d73ea100e22f06aa6d6b521121de017fe7888a0238fff54232aaa",
+  "NOTICE.txt": "daea348b6f55f8ce0e9101677884e407a729f560024d48341f81c1fbcfe921a5",
   "LICENSE.txt": "c781204cd8d1df2a4a8b0b72d70e3e35e603294c201576bb2a36ce5bd63a522a",
 };
 

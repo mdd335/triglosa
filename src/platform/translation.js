@@ -18,7 +18,7 @@ export const HELPER_URL = "http://127.0.0.1:51737";
 /* Which shape of answers this code expects. The helper outlives the app and
    keeps the port, so a new window can meet an old helper; when the two do
    not match, the window retires it and starts its own. */
-export const PROTOCOL = 6;
+export const PROTOCOL = 8;
 
 export function readProtocol(answer) {
   const match = String(answer || "").trim().match(/^ok(?:\s+(\d+))?$/);
@@ -158,20 +158,54 @@ export function readLeader(answer) {
   return leader;
 }
 
+/* How much weight the recognizer gives each language it names, by code:
+   for whoever wants another opinion held against its own. */
+export function readShares(answer) {
+  const shares = {};
+  for (const line of String(answer || "").trim().split("\n")) {
+    const match = line.trim().match(/^([a-z]{2,3})(?:-[a-zA-Z]+)?\s+([0-9.]+)$/);
+    if (match) shares[match[1]] = Math.max(shares[match[1]] || 0, parseFloat(match[2]));
+  }
+  return shares;
+}
+
 const trimSlash = (s) => String(s || "").replace(/\/+$/, "");
 
-/* The helper's answer to /recognize, as lines: "left top right bottom", a
-   tab, the text, and after another tab each character's "left right",
-   comma-separated — one a line. */
+/* The helper's answer to /recognize, as lines: "left top right bottom" and
+   the line's slope (pixels of drop in a thousand across), a tab, the text,
+   and after another tab each character's "left right", comma-separated —
+   one a line, after a first one with the piece's "width height", which
+   each line then carries as `f`. */
 export function readRecognized(answer) {
   const lines = [];
+  let frame = null;
   for (const row of String(answer || "").split("\n")) {
-    const match = row.match(/^(-?\d+) (-?\d+) (-?\d+) (-?\d+)\t([^\t]*)(?:\t(.*))?$/);
-    if (!match || !match[5].trim()) continue;
-    const c = (match[6] || "").split(",").filter(Boolean).map((pair) => pair.split(" ").map(Number));
-    lines.push({ t: match[5], b: match.slice(1, 5).map(Number), c });
+    const size = row.match(/^(\d+) (\d+)$/);
+    if (size) {
+      frame = [Number(size[1]), Number(size[2])];
+      continue;
+    }
+    const match = row.match(/^(-?\d+) (-?\d+) (-?\d+) (-?\d+)(?: (-?\d+))?\t([^\t]*)(?:\t(.*))?$/);
+    if (!match || !match[6].trim()) continue;
+    const c = (match[7] || "").split(",").filter(Boolean).map((pair) => pair.split(" ").map(Number));
+    const line = { t: match[6], b: match.slice(1, 5).map(Number), c };
+    if (match[5] !== undefined) line.s = Number(match[5]);
+    if (frame) line.f = frame;
+    lines.push(line);
   }
   return lines;
+}
+
+/* The helper's answer to /words: every word of the text with its base form
+   and its word class as Apple's tagger read them, its place in the window's
+   own units. A line that does not read is left out. */
+export function readWords(answer) {
+  const words = [];
+  for (const row of String(answer || "").split("\n")) {
+    const match = row.match(/^(\d+)\t(\d+)\t([^\t]*)\t([^\t]*)$/);
+    if (match) words.push({ start: Number(match[1]), end: Number(match[2]), base: match[3], kind: match[4] });
+  }
+  return words;
 }
 
 /* Reading a piece of the screen takes longer than a probe: the first one
@@ -193,6 +227,7 @@ const ABSENT = {
   translate: async () => "",
   detect: async () => "",
   recognize: async () => null,
+  words: async () => [],
 };
 
 /* A phone's app cannot start a helper, so Apple's translation answers the
@@ -383,6 +418,18 @@ export function createTranslationBackend({ helperUrl, system = currentSystem() }
       }
     },
 
+    /* Every word of a text with its base form and word class, by Apple's
+       tagger (see base-form.js for what is believed of it). Nothing where
+       the helper does not answer. */
+    async words(code, text) {
+      if (!code || !String(text || "").trim() || !(await running())) return [];
+      try {
+        return readWords(await ask(`/words?lang=${encodeURIComponent(code)}`, { body: text }));
+      } catch {
+        return [];
+      }
+    },
+
     /* The second of the three detection stages. Costs about 40 ms including
        the process start, against 1.4 s for a model round trip. */
     async detect(text, candidates, preferred, report) {
@@ -392,7 +439,7 @@ export function createTranslationBackend({ helperUrl, system = currentSystem() }
         /* Both readings of the one answer, so that the caller needs no
            second question: what it thought likeliest, for a reader who
            corrects it, and what it would say if nothing else could. */
-        if (report) report({ guesses: readGuesses(answer), unsure: readDetection(answer, candidates, preferred, true), leader: readLeader(answer) });
+        if (report) report({ guesses: readGuesses(answer), unsure: readDetection(answer, candidates, preferred, true), leader: readLeader(answer), shares: readShares(answer) });
         return readDetection(answer, candidates, preferred);
       } catch {
         return "";

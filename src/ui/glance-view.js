@@ -16,8 +16,10 @@
    it never stands over the reader's own panel: a word there would be
    answered with itself. */
 
-import { glanceAt, glossOf, unitsOver, withoutHoles, withoutParts } from "../glance.js";
+import { glanceAt, glanceUnitsAt, glossOf, unitsOver, withoutHoles, withoutParts } from "../glance.js";
+import { onPhone } from "../system.js";
 import { element } from "./elements.js";
+import { onTouchMark } from "./selection.js";
 
 /* Long enough that a pointer travelling across the text does not trail signs
    behind it, short enough that a pointer resting on a word is answered
@@ -39,7 +41,9 @@ const WORD = ".words[data-panel] .w";
 const PIECE = ".words[data-panel] .w, .words[data-panel] .g";
 const SHADE = /^[vw]mark\d$/;
 
-export function watchGlance({ sheet, layer, reading }) {
+/* signs: whether the sign over a word is wanted (`settings.glance`); the
+   places light up either way. */
+export function watchGlance({ sheet, layer, reading, signs = () => true }) {
   const sign = element("div", "glance");
   sign.setAttribute("role", "tooltip");
   layer.append(sign);
@@ -50,6 +54,9 @@ export function watchGlance({ sheet, layer, reading }) {
   let timer = 0;
   let leaving = 0;
   let pressed = false;
+  /* On a phone, what a finger marked (selection.js), as { box, panel,
+     start, end, touching }: the sign and the lights stand for it. */
+  let marked = null;
   /* Whether the word under the pointer has been answered for, whatever the
      answer was — an answer arriving later is then drawn where it belongs. */
   let answered = false;
@@ -125,29 +132,38 @@ export function watchGlance({ sheet, layer, reading }) {
 
      The sign is the reader's own language wherever it appears, and it never
      appears over their own panel: there it would say what stands there. */
-  function resolve(state, reader, panel, word) {
+  /* Which panel is which: the two the alignment was asked about, and the
+     one holding the reader's own language — the original itself where the
+     text is in it. */
+  function columnsOf(state, reader) {
     const glance = state?.glance;
     if (!glance) return null;
-    /* Which panel is which: the two the alignment was asked about, and the
-       one holding the reader's own language — the original itself where the
-       text is in it. */
     const columns = glance.panels
       || [glance.panel ?? state.panels.findIndex((entry, index) => index > 0 && entry.code === reader)];
-    const own = glance.reader ?? columns[0];
     const [first, other = -1] = columns;
+    return { own: glance.reader ?? columns[0], first, other };
+  }
+
+  /* What the sign says: the reader's own words, wherever they stand. Over
+     their own panel nothing is written — a word there would be answered
+     with itself. */
+  function saidOver(state, { own, first, other }, panel, ranges) {
+    const textOf = (index) => state.panels[index]?.text || "";
+    if (panel === own) return "";
+    if (own === 0) return glossOf(textOf(0), ranges.source);
+    if (own === first) return glossOf(textOf(first), ranges.target);
+    return glossOf(textOf(other), ranges.extra);
+  }
+
+  function resolve(state, reader, panel, word) {
+    const glance = state?.glance;
+    const columns = columnsOf(state, reader);
+    if (!columns) return null;
+    const { own, first, other } = columns;
     const side = panel === 0 ? "source" : panel === first ? "target" : panel === other ? "second" : null;
     if (side === null || first < 1) return null;
     const textOf = (index) => state.panels[index]?.text || "";
-
-    /* What the sign says: the reader's own words, wherever they stand. Over
-       their own panel nothing is written — a word there would be answered
-       with itself. */
-    const said = (ranges) => {
-      if (panel === own) return "";
-      if (own === 0) return glossOf(textOf(0), ranges.source);
-      if (own === first) return glossOf(textOf(first), ranges.target);
-      return glossOf(textOf(other), ranges.extra);
-    };
+    const said = (ranges) => saidOver(state, columns, panel, ranges);
 
     const shade = [...(word.closest(".mark")?.classList || [])].find((name) => SHADE.test(name));
     if (shade) {
@@ -169,39 +185,64 @@ export function watchGlance({ sheet, layer, reading }) {
       }
     }
 
-    const unit = glanceAt(glance, side, Number(word.dataset.from));
+    const position = Number(word.dataset.from);
+    const unit = glanceAt(glance, side, position);
     if (!unit) return null;
     if (unit.pending) {
       return panel === own ? null : { first, other, source: [], target: [], extra: [], sign: "…", pending: true };
     }
-    const secondTo = unit.second?.to || [];
-    if (!unit.to.length && !secondTo.length && own !== 0) return null;
-    /* A unit of the third panel's own: its place there, what it became in
-       the reader's panel and the words of the source text it renders. */
-    const third = unit.third ? { source: unit.source, target: unit.to, extra: [{ start: unit.start, end: unit.end }] } : null;
-
-    /* A marked verb or term is one group, and nothing else's: where the
-       hover's unit runs into one — "del archipiélago canario" against the
-       term "archipiélago canario" — the unit keeps what lies outside the mark
-       in every panel, and the word under the pointer the piece it is in. */
-    const position = Number(word.dataset.from);
     const inside = (ranges) => ranges.filter((range) => position >= range.start && position < range.end);
-    const span = third ? third.source : [{ start: unit.start, end: unit.end }];
-    const shades = shadesIn(0).filter((name) =>
-      marks(0, name).some((range) => span.some((part) => range.start < part.end && range.end > part.start)));
-    const found = third || { source: [{ start: unit.start, end: unit.end }], target: unit.to, extra: secondTo };
-    if (shades.length) {
-      const holes = (at) => shades.flatMap((name) => marks(at, name));
-      const cut = third ? null : withoutParts(unit, holes(0), { source: textOf(0), target: textOf(first), extra: textOf(other) });
-      if (cut) Object.assign(found, cut, { extra: other === -1 ? [] : cut.extra });
-      found.source = withoutHoles(textOf(0), found.source, holes(0));
-      found.target = withoutHoles(textOf(first), found.target, holes(first));
-      found.extra = other === -1 ? [] : withoutHoles(textOf(other), found.extra, holes(other));
-      const mine = side === "source" ? found.source : side === "target" ? found.target : found.extra;
-      if (!inside(mine).length) return null;
-      if (side === "source") found.source = inside(found.source);
-      if (!found.source.length) return null;
-    }
+
+    /* What one unit says about the word. */
+    const foundOf = (unit) => {
+      const secondTo = unit.second?.to || [];
+      if (!unit.to.length && !secondTo.length && own !== 0) return null;
+      /* A unit of the third panel's own: its place there, what it became in
+         the reader's panel and the words of the source text it renders. */
+      const third = unit.third ? { source: unit.source, target: unit.to, extra: [{ start: unit.start, end: unit.end }] } : null;
+
+      /* A marked verb or term is one group, and nothing else's: where the
+         hover's unit runs into one — "del archipiélago canario" against the
+         term "archipiélago canario" — the unit keeps what lies outside the
+         mark in every panel, and the word under the pointer the piece it is
+         in. */
+      const span = third ? third.source : [{ start: unit.start, end: unit.end }];
+      const shades = shadesIn(0).filter((name) =>
+        marks(0, name).some((range) => span.some((part) => range.start < part.end && range.end > part.start)));
+      const found = third || { source: [{ start: unit.start, end: unit.end }], target: unit.to, extra: secondTo };
+      if (shades.length) {
+        const holes = (at) => shades.flatMap((name) => marks(at, name));
+        const cut = third ? null : withoutParts(unit, holes(0), { source: textOf(0), target: textOf(first), extra: textOf(other) });
+        if (cut) Object.assign(found, cut, { extra: other === -1 ? [] : cut.extra });
+        found.source = withoutHoles(textOf(0), found.source, holes(0));
+        found.target = withoutHoles(textOf(first), found.target, holes(first));
+        found.extra = other === -1 ? [] : withoutHoles(textOf(other), found.extra, holes(other));
+        const mine = side === "source" ? found.source : side === "target" ? found.target : found.extra;
+        if (!inside(mine).length) return null;
+        if (side === "source") found.source = inside(found.source);
+        if (!found.source.length) return null;
+      }
+      return found;
+    };
+
+    /* A word of a translation that renders several units of the original
+       answers for all of them, their places side by side. */
+    const all = glanceUnitsAt(glance, side, position).map(foundOf).filter(Boolean);
+    if (!all.length) return null;
+    const joined = (ranges) => ranges
+      .map((range) => ({ start: range.start, end: range.end }))
+      .sort((x, y) => x.start - y.start)
+      .reduce((out, range) => {
+        const last = out[out.length - 1];
+        if (last && range.start < last.end) last.end = Math.max(last.end, range.end);
+        else out.push(range);
+        return out;
+      }, []);
+    const found = all.length === 1 ? all[0] : {
+      source: joined(all.flatMap((one) => one.source)),
+      target: joined(all.flatMap((one) => one.target)),
+      extra: joined(all.flatMap((one) => one.extra)),
+    };
     return { first, other, ...found, sign: said(found) };
   }
 
@@ -228,16 +269,20 @@ export function watchGlance({ sheet, layer, reading }) {
 
   function place(word) {
     const box = anchor(word);
-    const width = sign.offsetWidth;
-    const height = sign.offsetHeight;
+    /* A phone's page is enlarged (`zoom` in style.css): the words' boxes
+       come in the screen's measure, and the sign's own size and place are
+       counted in the page's. */
+    const zoom = Number.parseFloat(window.getComputedStyle?.(layer).zoom) || 1;
+    const width = sign.offsetWidth * zoom;
+    const height = sign.offsetHeight * zoom;
     const room = window.innerWidth || document.documentElement.clientWidth || 0;
     const left = Math.max(8, Math.min(box.left + box.width / 2 - width / 2, room - width - 8));
     /* Over the word, the first line too — the sign may stand over the
        window's own line for as long as the pointer rests; under it only
        where the window ends above. */
     const top = box.top - height - GAP < 4 ? box.bottom + GAP : box.top - height - GAP;
-    sign.style.left = `${Math.round(left)}px`;
-    sign.style.top = `${Math.round(top)}px`;
+    sign.style.left = `${Math.round(left / zoom)}px`;
+    sign.style.top = `${Math.round(top / zoom)}px`;
   }
 
   function show() {
@@ -245,7 +290,8 @@ export function watchGlance({ sheet, layer, reading }) {
     unlight();
     const word = spot && wordAt(spot);
     const now = reading();
-    if (!word || !now || pressed || document.documentElement.classList.contains("pointer-stale")) {
+    const stale = document.documentElement.classList.contains("pointer-stale");
+    if (!word || !now || pressed || stale) {
       hide();
       return;
     }
@@ -260,7 +306,7 @@ export function watchGlance({ sheet, layer, reading }) {
       if (found.other >= 0) light(found.other, found.extra);
     }
     standing = !!sheet.querySelector(".glance-lit");
-    if (!found.sign) {
+    if (!found.sign || !signs()) {
       sign.classList.remove("shown", "pending");
       return;
     }
@@ -277,9 +323,13 @@ export function watchGlance({ sheet, layer, reading }) {
     spot = null;
     answered = false;
     hide();
+    showPick();
   }
 
-  sheet.addEventListener("mouseover", (event) => {
+  /* On a phone nothing hovers, and the mouse events the system makes up
+     after a tap would leave a sign standing over the word just picked: the
+     sign stands for what a finger marked instead (below). */
+  if (!onPhone()) sheet.addEventListener("mouseover", (event) => {
     const word = event.target.closest?.(WORD);
     if (!word) return;
     clearTimeout(leaving);
@@ -304,23 +354,157 @@ export function watchGlance({ sheet, layer, reading }) {
      between them would flicker across every line — and it flickered on every
      space, once the spaces became spans of their own. What the pointer sits
      on between two words is still the group it was on. */
-  sheet.addEventListener("mouseout", (event) => {
+  if (!onPhone()) sheet.addEventListener("mouseout", (event) => {
     if (!event.target.closest?.(PIECE) || event.relatedTarget?.closest?.(PIECE)) return;
     clearTimeout(leaving);
     leaving = setTimeout(leave, LEAVE_DELAY);
   });
   /* A press is a pick, and the picked word's area is what answers it. */
-  sheet.addEventListener("mousedown", () => { pressed = true; leave(); });
-  document.addEventListener("mouseup", () => { pressed = false; });
-  sheet.addEventListener("scroll", leave, { passive: true });
-  window.addEventListener("blur", leave);
+  if (onPhone()) watchMarks();
+  else {
+    sheet.addEventListener("mousedown", () => { pressed = true; leave(); });
+    document.addEventListener("mouseup", () => { pressed = false; });
+    sheet.addEventListener("scroll", leave, { passive: true });
+    window.addEventListener("blur", leave);
+  }
+
+  /* Tapped or swept (author 2026-11-11, in place of a finger held and
+     slid, which covered the words it was answering for): what a finger
+     marked stays lit in its panel, exactly those words, its places in the
+     others, and once the finger is lifted the sign over it says what it
+     became — one word or several, until the mark goes. */
+  function watchMarks() {
+    onTouchMark((mark) => {
+      /* Another sheet's words (the first steps hold one of their own), or
+         words that are no panel's: nothing for the sign. */
+      const ours = mark && mark.box.matches?.(".words[data-panel]") && (!mark.box.isConnected || sheet.contains(mark.box));
+      marked = ours ? mark : null;
+      settle();
+    });
+    /* The page scrolls under a mark that stays: the sign goes with it. */
+    document.addEventListener("scroll", () => { if (marked) placeMarked(); }, { passive: true, capture: true });
+  }
+
+  const wordsIn = (panel, start, end) => {
+    const body = bodyOf(panel);
+    return body ? [...body.querySelectorAll(".w")]
+      .filter((word) => Number(word.dataset.from) >= start && Number(word.dataset.to) <= end) : [];
+  };
+  const markedWords = () => (marked ? wordsIn(marked.panel, marked.start, marked.end) : []);
+
+  /* The places of a stretch of words in every panel, as the aligner knows
+     them: { columns, found, pending, own }, own being the stretch's own
+     side, or null where nothing is known. */
+  function placesOf(now, panel, start, end) {
+    const words = wordsIn(panel, start, end);
+    if (!words.length) return null;
+    const columns = columnsOf(now.state, now.reader);
+    const found = { source: [], target: [], extra: [] };
+    let pending = false;
+    for (const word of words) {
+      const one = resolve(now.state, now.reader, panel, word);
+      if (!one) continue;
+      if (one.pending) pending = true;
+      for (const side of ["source", "target", "extra"]) found[side].push(...(one[side] || []));
+    }
+    /* Sorted, and closed where only a space parts two: one stretch, as a
+       group is lit. */
+    const textOf = (index) => now.state.panels[index]?.text || "";
+    const merged = (ranges, text) => ranges
+      .map((range) => ({ start: range.start, end: range.end }))
+      .sort((x, y) => x.start - y.start)
+      .reduce((out, range) => {
+        const last = out[out.length - 1];
+        if (last && (range.start <= last.end || /^[\s'’-]*$/.test(text.slice(last.end, range.start)))) last.end = Math.max(last.end, range.end);
+        else out.push(range);
+        return out;
+      }, []);
+    const panelOf = { source: 0, target: columns?.first, extra: columns?.other };
+    for (const side of ["source", "target", "extra"]) found[side] = merged(found[side], textOf(panelOf[side]));
+    const own = !columns || columns.first < 1 ? null
+      : panel === 0 ? "source" : panel === columns.first ? "target" : panel === columns.other ? "extra" : null;
+    /* In its own panel the group the words belong to, the words themselves
+       always among it: on a phone the group stands lit faintly round what
+       the finger marked (author 2026-11-12), the sign saying what the group
+       became. */
+    if (own) found[own] = merged([...found[own], { start, end }], textOf(panel));
+    return { columns, found, pending, own };
+  }
+
+  function lightAll({ columns, found }, without = null) {
+    if (!columns || columns.first < 1) return;
+    if (without !== "source") light(0, found.source);
+    if (without !== "target") light(columns.first, found.target);
+    if (columns.other >= 0 && without !== "extra") light(columns.other, found.extra);
+  }
+
+  function showMarked() {
+    hide();
+    const now = reading();
+    const places = now && placesOf(now, marked.panel, marked.start, marked.end);
+    if (!places) return;
+    const { panel } = marked;
+    lightAll(places);
+    if (!places.own) light(panel, [{ start: marked.start, end: marked.end }]);
+    standing = true;
+    /* While the finger still sweeps, no sign: it would stand over words
+       still being chosen. */
+    if (marked.touching || !signs()) return;
+    const { columns, found, pending } = places;
+    const said = columns ? saidOver(now.state, columns, panel, found) : "";
+    const text = said || (pending && panel !== columns?.own ? "…" : "");
+    if (!text) return;
+    sign.textContent = text;
+    sign.classList.toggle("pending", !said);
+    sign.classList.add("shown");
+    placeMarked();
+  }
+
+  /* A word picked and its answer not in yet: its places in the other
+     panels stand lit as the aligner knows them until the answer says
+     where it went — they went out with the pointer or the mark and came
+     back only with the answer. Its own panel has its frame. */
+  function showPick() {
+    const now = reading();
+    const selection = now?.state?.selection;
+    if (!selection || selection.inSentence || selection.entry != null || now.state.marked || pressed) return;
+    const places = placesOf(now, selection.panel, selection.start, selection.end);
+    if (places?.own) lightAll(places, places.own);
+  }
+
+  function settle() {
+    if (marked) showMarked();
+    else if (spot) {
+      if (answered) show();
+    } else {
+      hide();
+      showPick();
+    }
+  }
+
+  function placeMarked() {
+    const word = markedWords()[0];
+    if (!word || !sign.classList.contains("shown")) return;
+    place(word);
+    /* Scrolled out of sight, or under the bar and the row laid over the
+       page's foot, the word has no sign standing over the bars instead:
+       a phone's whole page scrolls, so the sheet's own box says nothing of
+       what can be seen. What is at the word's middle says it. */
+    sign.style.visibility = inSight(word) ? "" : "hidden";
+  }
+
+  function inSight(word) {
+    if (typeof document.elementFromPoint !== "function") return true;
+    const box = word.getBoundingClientRect();
+    if (!box.width && !box.height) return true;
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return !!hit && word.contains(hit);
+  }
 
   return {
     /* After every drawing: the spans the lights were on are gone, and an
        answer may have arrived for the word the pointer is resting on. */
-    refresh() {
-      if (spot && answered) show();
-    },
+    refresh: settle,
     hide: leave,
   };
 }

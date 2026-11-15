@@ -6,9 +6,11 @@
    The lines are answered the way the Mac's helper answers them
    (sidecar/translator.swift, `recognize`), so the page reads them with the
    same code (`readRecognized` in src/platform/translation.js) and puts them
-   in order the same way (src/screen-text.js): "left top right bottom" in
-   the picture's pixels, a tab, the line's text, a tab. Where each character
-   stands is left out: only the word under a pointer needs it. */
+   in order the same way (src/screen-text.js): the picture's "width height"
+   first, then a line each, "left top right bottom" in the picture's pixels
+   and the line's slope, a tab, the line's text, a tab.
+   Where each character stands is left out: only the word under a pointer
+   needs it. */
 
 import CoreGraphics
 import ImageIO
@@ -59,11 +61,20 @@ func recognizedLines(_ picture: CGImage, _ wanted: [String]) async throws -> Str
   request.automaticallyDetectsLanguage = true
   let observations = try await request.perform(on: picture)
   let (width, height) = (Double(picture.width), Double(picture.height))
-  return observations.compactMap { observation -> String? in
+  return "\(picture.width) \(picture.height)\n" + observations.compactMap { observation -> String? in
     guard let candidate = observation.topCandidates(1).first else { return nil }
     let box = observation.boundingBox.cgRect
     let left = Int(box.minX * width), right = Int(box.maxX * width)
     let top = Int((1 - box.maxY) * height), bottom = Int((1 - box.minY) * height)
-    return "\(left) \(top) \(right) \(bottom)\t\(candidate.string.replacingOccurrences(of: "\n", with: " "))\t"
+    return "\(left) \(top) \(right) \(bottom) \(slope(observation, width, height))\t\(candidate.string.replacingOccurrences(of: "\n", with: " "))\t"
   }.joined(separator: "\n")
+}
+
+/* How a line slopes, in pixels of drop in a thousand across, as the Mac's
+   helper says it: the page lays a photographed text level by it. */
+private func slope(_ line: RecognizedTextObservation, _ width: Double, _ height: Double) -> Int {
+  let across = (line.topRight.x - line.topLeft.x) * width
+  let drop = (line.topLeft.y - line.topRight.y) * height
+  guard abs(across) > 0.5 else { return drop >= 0 ? 1_000_000 : -1_000_000 }
+  return Int(max(-1_000_000, min(1_000_000, (1000 * drop / across).rounded())))
 }

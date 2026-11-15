@@ -102,6 +102,24 @@ const FULL_STOP = /[。！？][”’」』）》]*$/u;
 const startsAfterFullStop = (text, i) =>
   i > 0 && /[^\s。！？”’」』）》]/u.test(text[i] || "") && FULL_STOP.test(text.slice(Math.max(0, i - 8), i));
 
+/* A text cut into its sentences by the same bounds a reading uses: a stop
+   that shortens a word ("Abs. 2", "Nr. 5") cuts nothing. For a paragraph a
+   model wrote, whose sentences are checked one by one. */
+export function sentencesOf(text) {
+  const all = String(text || "");
+  const out = [];
+  let start = 0;
+  for (let i = 1; i < all.length; i++) {
+    if (!boundary(all, i) && !startsAfterFullStop(all, i)) continue;
+    const piece = all.slice(start, i).trim();
+    if (piece) out.push(piece);
+    start = i;
+  }
+  const last = all.slice(start).trim();
+  if (last) out.push(last);
+  return out;
+}
+
 /* A page may give no space after a reference that is a link — Chrome gives
    "verwandelt.[12]Danach" (measured) — so a capital right after a stop and
    a reference starts a sentence of its own. */

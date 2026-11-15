@@ -61,7 +61,7 @@ export const APP_ICONS = ["menubar", "dock", "both"];
 
 /* How many readings stay behind the title bar's chevrons: five, ten, or none
    but the one on screen. */
-export const KEPT_READINGS = [5, 10, 20, 0];
+export const KEPT_READINGS = [0, 5, 10, 20];
 
 /* Who translates the panels first. The other one steps in where the first
    cannot — so both answers still translate without a model, where the
@@ -531,6 +531,21 @@ export function modelConsentFor(settings) {
   const host = modelHostOf(settings?.endpoint);
   if (!host) return null;
   return settings.modelConsent?.host === host ? settings.modelConsent.allowed : null;
+}
+
+/* The settings as a phone acts on them. It has no other program to read the
+   next sentence from, and it sends no text to
+   an AI model its reader has not allowed (phone-sheets.js): without the yes
+   the model is not there — and `modelDeclined` says one is set up, so the
+   reading points at the switch rather than at setting a model up. */
+export function phoneSettings(read) {
+  const allowed = modelConsentFor(read) === true;
+  return {
+    ...read,
+    nextSentence: false,
+    forceClick: false,
+    ...(allowed ? {} : { endpoint: "", modelDeclined: !!read.endpoint }),
+  };
 }
 
 export function explanationsAvailable(settings) {

@@ -52,7 +52,26 @@ export function ownLanguagesFirst(languages) {
   return ` If the input is a correct word or phrase in ${names}, reply with that language, even where it is also written that way in another language.`;
 }
 
-export function detectPrompt({ languages, reader }) {
+/* For an input of up to three words the reader's languages are gone through
+   one by one, after the hints about a language's look and before the line
+   about the answer's form: the hints had pulled "pronto" to Italian and
+   "sobremesa" to Portuguese for a reader learning Spanish. Its last clause
+   says again how a language outside the list is named — without it the
+   cloud model answered a Ukrainian or Galician word with the first example,
+   Dutch. Whole order replayed (run 87), shared words named as one of the
+   reader's: cloud model 192 → 227 of 252 on Windows, local 178 → 193; no
+   word of one language pulled into a reader's, words of languages without
+   a pack named as before on the cloud model. In place of the sentence
+   above, never beside it, and only for short inputs: a longer text is named
+   before the model as a rule, and its question stays as it was measured. */
+export function ownLanguagesChecked(languages) {
+  const own = (languages || []).filter(isChoosable);
+  if (!own.length) return "";
+  const names = own.map((c) => englishName(c)).join(", then ");
+  return ` Before judging its look, check the reader's languages in this order: ${names}. If the input is a correct word or phrase in one of them, reply with the first such language, even where another language writes it the same way. Only where it is correct in none of them, judge by its look; a language outside the list is named by its own name as told above, the examples there being examples only.`;
+}
+
+export function detectPrompt({ languages, reader, short = false }) {
   const inPlay = ordered(languages);
   const codes = inPlay.map((c) => `${c} (${englishName(c)})`).join(", ");
   const readerName = languagePack(reader).englishName;
@@ -67,11 +86,13 @@ export function detectPrompt({ languages, reader }) {
     .join("; ");
   return (
     `You are a language detector. Reply with exactly one lowercase code and nothing else: ${codes}.` +
-    ownLanguagesFirst(languages) + " " +
+    (short ? "" : ownLanguagesFirst(languages)) + " " +
     `For any other language reply instead with its ${readerName} name and nothing else: ${names}, ... ` +
     `The name is ALWAYS the ${readerName} one, never what the language calls itself and never the English name: ${pairs}. ` +
     "The input is often a single word or a short phrase with no context. Judge it by its spelling, accents and word endings, not by guessing: " +
     hints +
-    ". A rare or literary word is still judged the same way. No punctuation, no explanation."
+    ". A rare or literary word is still judged the same way." +
+    (short ? ownLanguagesChecked(languages) : "") +
+    " No punctuation, no explanation."
   );
 }

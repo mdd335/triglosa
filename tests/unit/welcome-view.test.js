@@ -3,6 +3,7 @@
 
 import test from "node:test";
 import assert from "node:assert";
+import fs from "node:fs";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=\"app\"></div>", { pretendToBeVisual: true });
@@ -10,10 +11,11 @@ globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.Node = dom.window.Node;
 globalThis.MouseEvent = dom.window.MouseEvent;
+globalThis.CustomEvent = dom.window.CustomEvent;
 
 const { welcomeView } = await import("../../src/ui/welcome-view.js");
 const { INTERFACE_LANGUAGES, labels } = await import("../../src/ui/labels.js");
-const { exampleState, exampleView } = await import("../../src/ui/example-view.js");
+const { exampleView, snapshotFor } = await import("../../src/ui/example-view.js");
 
 const draw = (code, system, more = {}, handlers = {}) => welcomeView(
   { text: labels(code, system), system, key: system === "windows" ? "Ctrl+Alt+T" : "⌃⌥T", permission: false, hidden: false, ...more },
@@ -144,14 +146,8 @@ test("the window that asks puts the count as a question with two answers, and sa
 test("the example is a reading: the original, the reader's own language and one more, the terms and the verb marked in all three", () => {
   for (const code of INTERFACE_LANGUAGES) {
     const example = labels(code).welcome.example;
-    const state = exampleState(example, code);
     assert.notStrictEqual(example.source, code, `${code}: the original is foreign`);
-    assert.strictEqual(state.panels[1].code, code, `${code}: the reader's own first`);
-    assert.notStrictEqual(state.panels[2].code, code);
-    assert.ok(state.glance, `${code}: the aligner's links fit the example's texts (node scripts/example-links.mjs)`);
-    const [sentence] = state.glance.sentences;
-    assert.ok(sentence.units.every((unit) => unit.gloss), `${code}: every word of the original has the reader's words`);
-    assert.ok(sentence.third?.length, `${code}: the third panel has units of its own`);
+    assert.strictEqual(example.panels[0].code, code, `${code}: the reader's own first`);
     const node = exampleView(example, code);
     document.body.append(node);
     for (const panel of [0, 1, 2]) {
@@ -162,35 +158,132 @@ test("the example is a reading: the original, the reader's own language and one 
     /* Its buttons are there to be seen, and a press does nothing. */
     assert.ok(node.querySelectorAll(".row-actions button").length > 0, `${code}: buttons shown`);
     assert.strictEqual(node.querySelector(".fold"), null, `${code}: no fold`);
-    assert.strictEqual(node.querySelectorAll(".pane .label .name")[0].textContent, state.source.name, `${code}: the original is named`);
+    assert.ok(node.querySelectorAll(".pane .label .name")[0].textContent, `${code}: the original is named`);
     node.remove();
   }
 });
 
-test("pointing at a word of the example says what it became in the reader's language", async () => {
+test("the example is the snapshot of its texts, taken anew whenever a text changes", () => {
+  for (const code of INTERFACE_LANGUAGES) {
+    const example = labels(code).welcome.example;
+    assert.deepStrictEqual(snapshotFor(code).texts, [example.text, ...example.panels.map((panel) => panel.text)],
+      `${code}: node scripts/example-links.mjs, then node scripts/example-snapshot.mjs`);
+  }
+});
+
+test("the example draws itself: nothing of the reading window's drawing or of its hover", () => {
+  const source = fs.readFileSync(new URL("../../src/ui/example-view.js", import.meta.url), "utf8");
+  const imports = [...source.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1]);
+  assert.deepStrictEqual(imports.sort(), ["../system.js", "./elements.js", "./example-snapshot.js"]);
+});
+
+/* A word the reader's language has no word for ("it" in "it was raining",
+   for a Spanish reader) only lights its places, as in a reading. */
+test("every word of the example's original says what it became, or at least where it went", () => {
+  for (const code of INTERFACE_LANGUAGES) {
+    const node = exampleView(labels(code).welcome.example, code);
+    const shot = snapshotFor(code);
+    for (const word of node.querySelectorAll('.words[data-panel="0"] .w')) {
+      const found = shot.hover[`0:${word.dataset.from}`];
+      assert.ok(found, `${code}: "${word.textContent}" answered`);
+      assert.ok(found[1].some(([panel]) => panel !== 0), `${code}: "${word.textContent}" lit in a translation`);
+      if (found[0]) assert.ok(found[1].some(([panel]) => panel === 1), `${code}: "${word.textContent}" lit where its sign comes from`);
+    }
+  }
+});
+
+const pointAt = async (word) => {
+  word.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+};
+
+test("pointing at a word of the example says what it became in the reader's language, over the word", async () => {
   const node = exampleView(labels("de").welcome.example, "de");
   document.body.append(node);
   const word = [...node.querySelectorAll('.words[data-panel="0"] .w')].find((one) => one.textContent === "salimos");
-  word.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  assert.strictEqual(node.querySelector(".glance").textContent, "gingen");
+  await pointAt(word);
+  assert.strictEqual(node.querySelector(".glance.shown").textContent, "gingen");
+  assert.ok(node.querySelector('.words[data-panel="1"] .glance-lit'), "lit in the reader's panel");
+  assert.strictEqual(node.querySelector(".glance").parentNode, node, "the sign stands in the example");
+  /* Over a word of the reader's own panel: its places, no sign. */
+  const own = node.querySelector('.words[data-panel="1"] .w');
+  own.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: own }));
+  await pointAt(own);
+  assert.strictEqual(node.querySelector(".glance.shown"), null);
   node.remove();
 });
 
-test("on the phone a tap on a word of the example brings no hover", async () => {
+test("the sign stands over the word, also in the first line", async () => {
+  const node = exampleView(labels("de").welcome.example, "de");
+  document.body.append(node);
+  const word = node.querySelector('.words[data-panel="0"] .w');
+  const at = (box) => () => box;
+  node.getBoundingClientRect = at({ left: 0, top: 0, right: 400, bottom: 600, width: 400, height: 600 });
+  word.getBoundingClientRect = at({ left: 20, top: 30, right: 70, bottom: 46, width: 50, height: 16 });
+  const sign = node.querySelector(".glance");
+  Object.defineProperty(sign, "offsetHeight", { value: 22 });
+  await pointAt(word);
+  assert.strictEqual(sign.style.top, "8px", "its foot on the word's top");
+  node.remove();
+});
+
+/* A touch as the phone's web view sends it: one finger at a point. */
+const touchEvent = (type, target, x = 10, y = 10) => {
+  const event = new window.Event(type, { bubbles: true, cancelable: true });
+  const touches = type === "touchend" ? [] : [{ clientX: x, clientY: y, target }];
+  Object.defineProperty(event, "touches", { value: touches });
+  return event;
+};
+
+test("on the phone a tap on a word looks it up at once and says what it became; a sweep marks nothing", async () => {
   globalThis.TRIGLOSA_SYSTEM = "ios";
   try {
     const node = exampleView(labels("de").welcome.example, "de");
     document.body.append(node);
-    const word = [...node.querySelectorAll('.words[data-panel="0"] .w')].find((one) => one.textContent === "salimos");
-    word.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    assert.strictEqual(node.querySelector(".glance"), null);
+    const find = (text) => [...node.querySelectorAll('.words[data-panel="0"] .w')].find((one) => one.textContent === text);
+    assert.ok(node.querySelector('.words[data-panel="0"]').classList.contains("touch-words"), "no system selection");
+    /* No hover from the mouse events a tap brings. */
+    await pointAt(find("salimos"));
+    assert.strictEqual(node.querySelector(".glance.shown"), null);
+    /* A sweep is a scroll: nothing marked, nothing looked up. */
+    const pasear = find("pasear");
+    pasear.dispatchEvent(touchEvent("touchstart", pasear, 10, 10));
+    pasear.dispatchEvent(touchEvent("touchmove", pasear, 90, 12));
+    pasear.dispatchEvent(touchEvent("touchend", pasear));
+    assert.strictEqual(node.querySelector(".glance-lit, .glance.shown, .touch-marked"), null);
+    assert.strictEqual(node.querySelector('.row[data-hl="sel"]'), null);
+    /* A tap: the entry, the sign over the word, its places. */
+    const salimos = find("salimos");
+    salimos.dispatchEvent(touchEvent("touchstart", salimos));
+    const lifted = touchEvent("touchend", salimos);
+    salimos.dispatchEvent(lifted);
+    assert.ok(lifted.defaultPrevented, "no click after the tap");
+    assert.ok(node.querySelector('.row[data-hl="sel"]'), "looked up");
+    assert.strictEqual(node.querySelector(".glance.shown").textContent, "gingen");
+    assert.ok(node.querySelector('.words[data-panel="1"] .glance-lit'));
+    assert.ok(node.querySelector('.words[data-panel="0"]').classList.contains("touch-words"), "still after the pick");
+    /* Another word: one entry, the new one. */
+    const casco = find("casco");
+    casco.dispatchEvent(touchEvent("touchstart", casco));
+    casco.dispatchEvent(touchEvent("touchend", casco));
+    assert.strictEqual(node.querySelectorAll('.row[data-hl="sel"]').length, 1);
+    assert.strictEqual(node.querySelector('.row[data-hl="sel"] .term').textContent, "casco antiguo");
+    /* A tap beside the words lets the sign go. */
+    const beside = node.querySelector(".row");
+    beside.dispatchEvent(touchEvent("touchstart", beside));
+    beside.dispatchEvent(touchEvent("touchend", beside));
+    assert.strictEqual(node.querySelector(".glance.shown"), null);
     node.remove();
   } finally {
     delete globalThis.TRIGLOSA_SYSTEM;
   }
 });
+
+const click = (word) => {
+  word.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  word.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  word.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+};
 
 test("every word of the example's original can be picked: its entry, its synonyms and its spots in both translations", () => {
   for (const code of INTERFACE_LANGUAGES) {
@@ -200,18 +293,18 @@ test("every word of the example's original can be picked: its entry, its synonym
     const count = node.querySelectorAll('.words[data-panel="0"] .w').length;
     assert.ok(count > 5, code);
     for (let at = 0; at < count; at++) {
-      /* Each pick draws the sheet anew. */
+      /* Each pick draws the texts anew. */
       const word = node.querySelectorAll('.words[data-panel="0"] .w')[at];
-      word.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
-      word.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+      click(word);
+      assert.strictEqual(node.querySelectorAll('.row[data-hl="sel"]').length, 1, `${code}: "${word.textContent}" picked, once`);
       const row = node.querySelector('.row[data-hl="sel"]');
-      assert.ok(row, `${code}: "${word.textContent}" picked`);
       const lit = node.querySelectorAll('.words:not([data-panel="0"]) .sel');
       const entry = example.picks.find((pick) => pick.text === row.querySelector(".term").textContent);
       assert.ok(entry, `${code}: "${word.textContent}" has its entry`);
       const wanted = entry.in.filter(Boolean).length;
       assert.strictEqual(lit.length, wanted, `${code}: "${entry.text}" marked in ${wanted} translations`);
       if (entry.synonyms?.length) assert.strictEqual(row.querySelectorAll(".synonym").length, entry.synonyms.length, `${code}: synonyms`);
+      assert.ok(node.querySelector('.words[data-panel="0"] .sel'), `${code}: framed in the original`);
     }
     node.remove();
   }
@@ -220,20 +313,15 @@ test("every word of the example's original can be picked: its entry, its synonym
 test("a word of a translation in the example is not picked", () => {
   const node = exampleView(labels("de").welcome.example, "de");
   document.body.append(node);
-  const word = node.querySelector('.words[data-panel="1"] .w');
-  word.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
-  word.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  click(node.querySelector('.words[data-panel="1"] .w'));
   assert.strictEqual(node.querySelector('.row[data-hl="sel"]'), null);
   node.remove();
 });
 
 test("a word that stands twice in a translation is marked where it belongs", () => {
-  const example = labels("de").welcome.example;
-  const node = exampleView(example, "de");
+  const node = exampleView(labels("de").welcome.example, "de");
   document.body.append(node);
-  const por = [...node.querySelectorAll('.words[data-panel="0"] .w')].find((word) => word.textContent === "por");
-  por.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
-  por.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, button: 0 }));
+  click([...node.querySelectorAll('.words[data-panel="0"] .w')].find((word) => word.textContent === "por"));
   const lit = node.querySelector('.words[data-panel="1"] .sel');
   assert.strictEqual(lit.textContent, "in");
   const text = node.querySelector('.words[data-panel="1"]').textContent;

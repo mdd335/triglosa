@@ -60,9 +60,11 @@ export function pane({ title, status, body, rows, muted, plain, bare, name }) {
    `device` where Apple translated what stands there: the note says so
    first, in the one wording every such note has, and then what a model
    adds at this place — a reading, or a word looked up (`short`) (author
-   2026-11-05). */
-export function lockedNote(text, { device = false, short = false } = {}) {
-  return element("p", "hint locked-note", [device ? text.byApple : "", short ? text.lockedHowShort : text.lockedHow].filter(Boolean).join(" "));
+   2026-11-05). `declined` where a model is set up and its reader did not
+   let texts go to it (a phone): then the line says where to allow it. */
+export function lockedNote(text, { device = false, short = false, declined = false } = {}) {
+  const how = declined ? text.modelDeclined : short ? text.lockedHowShort : text.lockedHow;
+  return element("p", "hint locked-note", [device ? text.byApple : "", how].filter(Boolean).join(" "));
 }
 
 /* A heading inside the settings, above the rows it belongs to. Nine rows in

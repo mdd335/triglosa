@@ -8,7 +8,7 @@
    shortcut and the flashcards shape nothing in it. */
 export function readingKey(settings, choice = null) {
   return JSON.stringify([settings.languages, settings.levels, settings.show,
-    settings.endpoint, settings.model, settings.translator, settings.glance, choice]);
+    settings.endpoint, settings.model, settings.translator, choice]);
 }
 
 /* The oldest readings beyond what the settings keep, taken out of the list.

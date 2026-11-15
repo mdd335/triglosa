@@ -150,6 +150,22 @@ export function wordLanguage(text, verdicts, { source, languages }) {
   return whole.length || others.every(there) ? "" : null;
 }
 
+/* The one of the languages the reader learns whose dictionaries know every
+   word of a short text, where exactly one does — asked before the model is
+   asked to name the language (run 87): "sobremesa" is Spanish to a reader
+   learning Spanish and not Portuguese. "" where none or more than one knows
+   it, and where a learned language's dictionaries are not there to say:
+   Windows has them only for a language added to the system, and English
+   alone would then claim "pronto". */
+export function learnedLanguageKnowing(text, verdicts, learned) {
+  const words = spellingWords(text);
+  if (!words.length || !(learned || []).length) return "";
+  const there = (code) => words.every((word) => verdicts?.[word]?.[code]?.there || lettersInScriptOf(code, word) === "none");
+  if (!learned.every(there)) return "";
+  const whole = learned.filter((code) => words.every((word) => knows(verdicts?.[word]?.[code], code, word)));
+  return whole.length === 1 ? whole[0] : "";
+}
+
 /* The code out of the model's answer to the question about a word's
    language (prompts/word-language.js); "" where it names none of those
    offered. */

@@ -16,18 +16,15 @@ import { MAX_PHRASE_WORDS, MAX_WORDS, firstFieldLine, isPassage, parseMarkedWord
 import { isBaseForm } from "./parse/terms.js";
 import { asksForSynonyms } from "./parse/synonyms.js";
 import { abbreviationParts, looksLikeAbbreviation, parseAbbreviation, withoutSecondMeaning } from "./parse/abbreviations.js";
-import { parseAlign } from "./parse/align.js";
 import {
   findVerbsPrompt,
   annotateVerbsPrompt,
-  alignVerbsPrompt,
-  alignVerbsSinglePrompt,
-  fieldName,
 } from "./prompts/verbs.js";
 import { lookupInput, shownInput, wordsPrompt } from "./prompts/words.js";
-import { alignWordsPrompt, alignWordsSinglePrompt, alignWordsInput } from "./prompts/words-align.js";
 import {
   abbreviationPrompt,
+  checkFactsInput,
+  checkFactsPrompt,
   exampleSentenceInput,
   exampleSentencePrompt,
   explainMoreInput,
@@ -35,8 +32,6 @@ import {
   meaningPrompt,
   writtenIn,
   passagePrompt,
-  passageSpotPrompt,
-  spotPrompt,
   synonymPrompt,
   tenseNames,
   personNames,
@@ -57,7 +52,8 @@ import { readSpelling, readWordLanguage } from "./spelling.js";
 import { checkCardNotesInput, checkCardNotesPrompt, explainCardInput, explainCardPrompt, headwordPrompt, improveCardPrompt, improveCardInput } from "./prompts/card.js";
 import { parseCardExplanation, parseCardNotes, parseImprovedCard, parseNoteVerdicts, readerLines } from "./parse/card.js";
 import { parseHeadword } from "./parse/headword.js";
-import { parseExample, parseMore, readsAs } from "./parse/more.js";
+import { parseExample, parseFactVerdicts, parseMore, readsAs } from "./parse/more.js";
+import { sentencesOf } from "./sentence.js";
 import { faultForThrow } from "./faults.js";
 
 
@@ -485,22 +481,15 @@ export async function wordsFor(llm, { text, source, sourceName = "", languages, 
    explanation down with it. */
 export async function explainMarked(
   llm,
-  { term, text, source, reader, others, withoutSpot, spot: knownSpot = "", inText = true, onParagraph, identifier = null },
+  { term, text, source, reader, others = [], inText = true, identifier = null },
 ) {
   const head = `Text (${englishName(source)}): ${text}`;
   if (inText && isPassage(term)) {
-    return explainPassage(llm, { term, source, reader, others, withoutSpot, head, onParagraph });
+    return explainPassage(llm, { term, source, reader, others, head });
   }
   const meaningInput = inText
     ? [head, "Word: " + term].join("\n")
     : `Word (${englishName(source)}): ${term}`;
-  const spotInput = [
-    head,
-    `A (${others[0] ? englishName(others[0].code) : "another language"}): ${others[0]?.text || "-"}`,
-    `B (${others[1] ? englishName(others[1].code) : "another language"}): ${others[1]?.text || "-"}`,
-    "Word: " + term,
-  ].join("\n");
-
   const quiet = (promise) => promise.catch(() => "");
 
   /* An abbreviation has no synonyms, so the slot carries its expansion
@@ -524,15 +513,6 @@ export async function explainMarked(
      make it a verb, the verb's own line says more and the class is dropped. */
   const kind = asksForWordClass(term, source)
     ? quiet(llm.chat({ system: wordClassPrompt({ source: englishName(source), genders: languagePack(source).grammar?.genders, inText }), user: meaningInput, maxTokens: 30 }))
-    : Promise.resolve("");
-
-  /* A place the word aligner already found (match/links.js) is not asked
-     for, and the paragraph has nothing to wait on. */
-  const asksSpot = !withoutSpot && inText && !knownSpot;
-  const spot = knownSpot
-    ? Promise.resolve(knownSpot)
-    : asksSpot
-    ? quiet(llm.chat({ system: spotPrompt({ source: englishName(source), reader: englishName(reader) }), user: spotInput, maxTokens: 60 }))
     : Promise.resolve("");
 
   /* Several words are also translated whole, with the text: what the reader
@@ -588,10 +568,11 @@ export async function explainMarked(
       }))
       : "";
 
-  const parse = (spotRaw) => parseMarkedWord({
+  /* Where it stands in the other panels is the word aligner's alone
+     (app.js, run eighty-four): no question about it goes out. */
+  return parseMarkedWord({
     meaningRaw,
-    spotRaw,
-    placed: !!knownSpot,
+    spotRaw: "",
     term,
     code: source,
     thirdRaw,
@@ -600,49 +581,21 @@ export async function explainMarked(
     kindRaw,
     codes: [source, ...others.map((o) => o.code)],
   });
-
-  /* The paragraph is three of the four answers and the markings are the
-     fourth, so the paragraph need not wait for them. Measured on a cloud
-     model, the spot question was the last to come back in a third of the
-     clicks, by up to 1.3 s. The paragraph is shown whole, never piece by
-     piece: a row that grows a base form or a line of synonyms after it has
-     been read asks to be read again. */
-  if (asksSpot && onParagraph) {
-    const paragraph = parse("");
-    if (paragraph) onParagraph(paragraph);
-  }
-
-  return parse(await spot);
 }
 
 /* A passage is translated and located, and nothing else: see passagePrompt.
    Translated into the reader's language — unless it already is in it, and
    then into the language of the first other panel, which is the original
    wherever the reader picked in a translation. */
-async function explainPassage(llm, { term, source, reader, others, withoutSpot, head, onParagraph }) {
+async function explainPassage(llm, { term, source, reader, others, head }) {
   const target = source === reader ? others.find((o) => o.code && o.code !== reader)?.code : reader;
   if (!target) return null;
-  const spotInput = [
-    head,
-    `A (${others[0] ? englishName(others[0].code) : "another language"}): ${others[0]?.text || "-"}`,
-    `B (${others[1] ? englishName(others[1].code) : "another language"}): ${others[1]?.text || "-"}`,
-    "Passage: " + term,
-  ].join("\n");
-  const asksSpot = !withoutSpot;
-  const spot = asksSpot
-    ? llm.chat({ system: passageSpotPrompt({ source: englishName(source), reader: englishName(reader) }), user: spotInput, maxTokens: 400 }).catch(() => "")
-    : Promise.resolve("");
   const translationRaw = await llm.chat({
     system: passagePrompt({ source: englishName(source), target: englishName(target) }),
     user: [head, "Passage: " + term].join("\n"),
     maxTokens: 400,
   });
-  const parse = (spotRaw) => parsePassage({ translationRaw, spotRaw, term, target });
-  if (asksSpot && onParagraph) {
-    const first = parse("");
-    if (first) onParagraph(first);
-  }
-  return parse(await spot);
+  return parsePassage({ translationRaw, spotRaw: "", term, target });
 }
 
 /* The longer explanation of a picked word, on the reader's request. One
@@ -661,7 +614,37 @@ export async function explainMore(llm, { term, text, source, reader, level, mean
     user: explainMoreInput({ source: englishName(source), term, text, meaning, note, inText, examples }),
     maxTokens: 400,
   });
-  return parseMore(raw, { source, reader });
+  const answer = parseMore(raw, { source, reader });
+  if (!answer?.text && !answer?.examples.length) return answer;
+  const checked = await checkFacts(llm, {
+    term, text: inText ? text : "", source, reader, paragraph: answer.text, examples: answer.examples,
+  });
+  return checked.kept.length || checked.examples.length
+    ? { ...answer, text: checked.kept.join(" "), examples: checked.examples }
+    : null;
+}
+
+/* A longer explanation checked line by line (checkFactsPrompt): its
+   sentences and examples called TRUE, and the sentences set aside. In the
+   reader's own language about the thing's facts (run 80), for a learner
+   about the word and its examples (run 81). A failed check throws, as the
+   question before it would. */
+export async function checkFacts(llm, { term, text, source, reader = source, paragraph, examples = [] }) {
+  const sentences = sentencesOf(paragraph);
+  const count = sentences.length + examples.length;
+  if (!count) return { kept: [], dropped: [], examples: [] };
+  const raw = await llm.chat({
+    system: checkFactsPrompt({ source: englishName(source), reader: englishName(reader) }),
+    user: checkFactsInput({ source: englishName(source), term, text, sentences, examples }),
+    maxTokens: 12 * count,
+    temperature: 0,
+  });
+  const verdicts = parseFactVerdicts(raw, count);
+  return {
+    kept: sentences.filter((_, index) => verdicts[index]),
+    dropped: sentences.filter((_, index) => !verdicts[index]),
+    examples: examples.filter((_, index) => verdicts[sentences.length + index]),
+  };
 }
 
 /* One more example sentence for a term already explained, on the reader's
@@ -683,66 +666,6 @@ export async function addExample(llm, { term, source, reader, level, meaning, no
     temperature: 0.8,
   });
   return parseExample(raw, { source, reader });
-}
-
-/* The same words found again in the translations. With two panels there is
-   only one of them, and then the question has one column fewer. */
-export async function alignWords(llm, { text, list, source, sourceName = "", a, b, aText, bText }) {
-  const raw = await llm.chat({
-    system: b ? alignWordsPrompt() : alignWordsSinglePrompt(),
-    user: alignWordsInput({
-      sourceName: sourceName || englishName(source),
-      aName: englishName(a),
-      bName: b ? englishName(b) : "",
-      text,
-      aText,
-      bText,
-      words: list.map((word) => word.text),
-    }),
-    maxTokens: 250,
-  });
-  return parseAlign(raw, list.map((word) => word.text), "Word", [a, b].filter(Boolean), b ? 2 : 1);
-}
-
-/* And the same for the verb forms. With two panels there is one translation
-   instead of two, and the question has one column fewer.
-
-   Every form comes with its meaning in brackets: that meaning, not the
-   nearest auxiliary, is what the model anchors on. */
-export async function alignVerbs(llm, { text, verbs, source, a, b, aText, bText }) {
-  const system = b
-    ? alignVerbsPrompt({
-        source: englishName(source),
-        a: englishName(a),
-        b: englishName(b),
-        fieldSource: fieldName(source),
-        fieldA: fieldName(a),
-        fieldB: fieldName(b),
-      })
-    : alignVerbsSinglePrompt({
-        source: englishName(source),
-        a: englishName(a),
-        fieldSource: fieldName(source),
-        fieldA: fieldName(a),
-      });
-
-  const raw = await llm.chat({
-    system,
-    /* Labelled by language name, the way the examples in the prompt are, and
-       only the first meaning: a second one in brackets weakens the anchor
-       instead of sharpening it. */
-    user: [
-      `${englishName(source)}: ${text}`,
-      `${englishName(a)}: ${aText}`,
-      ...(b ? [`${englishName(b)}: ${bText}`] : []),
-      "Verbs: " + verbs.map((verb) => {
-        const meaning = String(verb.meaning || "").split(",")[0].trim();
-        return meaning ? `${verb.form} (${meaning})` : verb.form;
-      }).join(", "),
-    ].join("\n"),
-    maxTokens: 250,
-  });
-  return parseAlign(raw, verbs.map((verb) => verb.form), "Verb", [a, b].filter(Boolean), b ? 2 : 1);
 }
 
 /* The side of a card nobody wrote, filled before the card is improved: the

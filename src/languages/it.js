@@ -1,6 +1,7 @@
 /* Italian language pack. Function words only so far; see fr.js. */
 
 import { conjugationAt } from "./conjugation.js";
+import { stripDiacritics } from "../text.js";
 
 /* Everyday vocabulary a learner past the first weeks already has. An entry
    whose words are all in here is not worth a slot, and the filter in
@@ -74,9 +75,15 @@ export default {
   basicVerbs: "essere avere fare andare dire vedere venire sapere potere volere dare stare",
   basicWords: BASIC_WORDS,
   loanwordSuffixes: null,
+  verbs: {
+    /* An infinitive ends in -are, -ere, -ire or -rre, or without its e before a pronoun (accorgersi, andarsene, farcela): a grammar fact, not a calibration.
+       Asked of one word of the form, any, so that "avoir lieu" and "dar-se
+       conta" stand; it catches a noun's base form given for a verb (run
+       eighty-five). */
+    isInfinitive: (form) => stripDiacritics(String(form || "")).trim().toLowerCase()
+      .split(/\s+/).some((word) => /(are|ere|ire|rre|(ar|er|ir|r)(si|ci|ne|la|le|sene|cela|sela))$/.test(word)),
+  },
   /* How this language gives itself away in spelling — used by the
      detector prompt, where the input is often a single word. */
   spellingHints: "-zione, -mente, doubled consonants and words ending in a vowel point to Italian",
-  /* What the aligned tables call this language in their columns. */
-  columnName: "italiano",
 };

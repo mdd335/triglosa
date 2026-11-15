@@ -13,14 +13,14 @@
 import { onPhone, onWindows } from "../system.js";
 import { SHORT_MAX_WORDS, runText, sentenceFor } from "../run.js";
 import { wordAround, wordCount } from "../text.js";
-import { detectLanguage, keepsChosenLanguage } from "../detect.js";
+import { detectLanguage, keepsChosenLanguage, sentenceInChosen } from "../detect.js";
 import { freeCard } from "../card.js";
 import { addExample, explainMarked, explainMore } from "../ask.js";
 import { chooseLanguage as choosePanel, configuredCount, otherPanels } from "../panels.js";
-import { fragmentsAcross, rangesAcross } from "../match/links.js";
+import { rangesAcross } from "../match/links.js";
 import { HELPER_URL, PAIR_DOWNLOADABLE, createTranslationBackend } from "../platform/translation.js";
 import { createLlmBackend } from "../platform/llm.js";
-import { allowKeyboard, copyText, ensureTranslationHelper, insideApp, languageIdentifier, modelFetch, noteFault, noteJournal, onOpenedWith, openUrl, paintGround, pasteHeld, pastedText, searchName, searchUrl, spellingChecker, textHandedOver, trace, translationFetch, wordAligner } from "../platform/env.js";
+import { allowKeyboard, appleDictionary, copyText, ensureTranslationHelper, feelHeld, insideApp, languageIdentifier, modelFetch, noteFault, noteJournal, onOpenedWith, openUrl, paintGround, pasteHeld, pastedText, putAwayOverPage, searchName, searchUrl, spellingChecker, textHandedOver, trace, translationFetch, wordAligner } from "../platform/env.js";
 import { faultLine } from "../diagnostics.js";
 import { accessibilityGranted, insertText, keyLabels, useDirectSelection } from "../platform/capture.js";
 import { hotkeyLabel, menuAccelerator } from "../hotkey.js";
@@ -41,21 +41,18 @@ import { MARKED, renderHeading, renderReading } from "./reading-view.js";
 import { readRecognized } from "../platform/translation.js";
 import { labelsInside, nameButton, quietContextMenu } from "./elements.js";
 import { watchGlance } from "./glance-view.js";
+import { onTouchMark } from "./selection.js";
 import { glossOf } from "../glance.js";
-import { asHeadword, casedLike } from "../parse/alternatives.js";
+import { casedLike } from "../parse/alternatives.js";
+import { deviceBaseForm, deviceHeadword, verbInTranslation, verbMeaning } from "../base-form.js";
+import { citationForm } from "../languages/index.js";
 import { iconPaths } from "./icons.js";
 import { roomForExample, withExamples, withExplanationExamples } from "../examples.js";
-import { cardLanguages, levelFor, modelConsentFor, neededPairs, offersCard, usesPermission } from "../settings.js";
+import { cardLanguages, levelFor, modelConsentFor, neededPairs, offersCard, phoneSettings, usesPermission } from "../settings.js";
 import { dropOldest, handOver, keptReading, lastPlace, readingKey, takeOver } from "../history.js";
 
-/* A phone has no pointer to hover with and no other program to read the
-   next sentence from: what the settings say about those is not acted on
-   there. */
-/* Nor does a phone send a text to an AI model its reader has not allowed
-   (phone-sheets.js): without the yes the model is not there. */
-const forSystem = (read) => (onPhone()
-  ? { ...read, glance: false, nextSentence: false, forceClick: false, ...(modelConsentFor(read) === true ? {} : { endpoint: "" }) }
-  : read);
+/* What a phone acts on of the settings (settings.js). */
+const forSystem = (read) => (onPhone() ? phoneSettings(read) : read);
 
 let settings = forSystem(await loadSettings());
 /* The panels chosen in the window (chooseTarget), and the languages picked
@@ -94,8 +91,6 @@ const FORWARD = barIcon(iconPaths("next"));
    the app; the cross stands after it, where a window's own close button
    stands on every other window. */
 const FRESH = barIcon(iconPaths("add"));
-/* On a phone: what was copied in another app, read at once. */
-const PASTE = barIcon(iconPaths("paste"));
 /* On a phone: a card that is not there yet. */
 const CARD = barIcon(iconPaths("newCard"));
 const CLOSE = barIcon(iconPaths("close"));
@@ -118,7 +113,6 @@ root.innerHTML = `
     <div class="window-actions">
       <button id="back" class="icon">${BACK}<span class="pill-label"></span></button>
       <button id="forward" class="icon">${FORWARD}<span class="pill-label"></span></button>
-      <button id="paste" class="icon">${PASTE}<span class="pill-label"></span></button>
       <button id="fresh" class="icon">${FRESH}<span class="pill-label"></span></button>
       <button id="new-card" class="icon">${CARD}<span class="pill-label"></span></button>
       <button id="open-settings" class="icon">${GEAR}<span class="pill-label"></span></button>
@@ -132,7 +126,6 @@ root.innerHTML = `
 
 const settingsButton = root.querySelector("#open-settings");
 const freshButton = root.querySelector("#fresh");
-const pasteButton = root.querySelector("#paste");
 const cardButton = root.querySelector("#new-card");
 const closeButton = root.querySelector("#close");
 const pinButton = root.querySelector("#pin");
@@ -151,6 +144,7 @@ const glance = watchGlance({
   sheet,
   layer: root,
   reading: () => (current && !editing ? { state: current, reader: settings.languages[0] } : null),
+  signs: () => settings.glance !== false,
 });
 
 const say = (message) => { statusLine.textContent = message || ""; fitSoon(); };
@@ -360,7 +354,6 @@ async function nameTitleBar() {
   nameButton(settingsButton, text.settingsOpen, WINDOW_KEYS.settings);
   nameButton(closeButton, text.closeWindow, WINDOW_KEYS.close);
   nameButton(freshButton, text.newReading);
-  nameButton(pasteButton, onPhone() ? text.translateClipboard : text.paste);
   nameButton(cardButton, text.trayCardBlank);
   if (!settings.freshHotkey || onPhone()) return;
   keyLayout = keyLayout || keyLabels();
@@ -390,7 +383,6 @@ async function applyMenu() {
     settings: text.settings,
     updates: text.trayUpdates,
     help: text.trayHelp,
-    problem: text.trayProblem,
     restart: text.trayRestart,
     quit: text.trayQuit,
   };
@@ -472,14 +464,17 @@ function makeTools() {
        their own list. Asked per row, because the language is the word's and
        not the text's. */
     cardFor: (code) => offersCard(settings, code),
+    /* Apple's dictionary for a word no model explains, where the word stands
+       (`at`, in the window's points) — see platform/dictionary.js. */
+    dictionary: async (term, at) => (await appleDictionary())?.show(term, at),
     speak: speech.speak,
     canSpeak: speech.canSpeak,
-    /* On a phone, the buttons under a new translation's field: a picture's
-       text ("camera", "library" or "files"), and what was copied, greyed as
-       the bar's button is. */
+    /* On a phone, the buttons under a new translation's field: what was
+       copied, greyed while nothing was, and a picture's text ("camera",
+       "library" or "files"). */
     picture: onPhone() ? recognisePicture : null,
     paste: onPhone() ? pasteClipboard : null,
-    copied: () => !pasteButton.disabled,
+    copied: () => copiedHeld,
     /* On a computer a picture dropped on the window is read (onImageDropped). */
   };
 }
@@ -502,13 +497,17 @@ function learnSearchEngine() {
 }
 learnSearchEngine();
 
+/* Whether something was copied on a phone, asked of the system (see
+   refreshPaste below); until it has answered, as if something were. */
+let copiedHeld = true;
+
 let tools = { reader: settings.languages[0], copy: copyText, open: openUrl,
               search: async (term) => openUrl(searchLink(await searchUrl(settings.search), term)),
               searchName: () => searchEngine,
               translations: () => openSettingsWindow("translation"),
               card: null, cardFor: () => false, insert: null,
               speak: speech.speak, canSpeak: speech.canSpeak, picture: onPhone() ? recognisePicture : null,
-              paste: onPhone() ? pasteClipboard : null, copied: () => !pasteButton.disabled };
+              paste: onPhone() ? pasteClipboard : null, copied: () => copiedHeld };
 
 /* What the line under the sheet says while a reading is on screen: the one
    reason nothing came of it, or what the run is doing, or nothing at all.
@@ -541,6 +540,16 @@ if (onPhone()) {
   };
   root.addEventListener("scroll", edge, { passive: true });
   new ResizeObserver(edge).observe(sheet);
+  /* The sheets over the reading — the settings, a card, the first steps —
+     have their bar divided from the page the same way: only while
+     something has gone up under it (author 2026-11-13). Each scrolls in
+     the part under its bar. */
+  document.addEventListener("scroll", (event) => {
+    const scroller = event.target;
+    const over = scroller?.parentElement;
+    if (!over?.classList?.contains("settings-sheet") || scroller.classList.contains("settings-sheet-bar")) return;
+    over.classList.toggle("scrolled", scroller.scrollTop > 2);
+  }, { capture: true, passive: true });
 
   /* The keyboard covers the lower part of the page without making the page
      any shorter, so the system would let the whole of it be pushed up and
@@ -829,7 +838,12 @@ async function translate() {
      while this is still being worked out has to be able to walk forward into
      it again — and it goes on filling itself in the meantime, so what they
      come back to is further along than what they left. */
-  const entry = { draft: body, source, state: null, key: keyNow(), sentence: lookedUp,
+  /* A word whose language the reader corrected before is read in it again,
+     and its sentence with it where the two were named alike. */
+  const sentence = chosen.has(body) && lookedUp
+    ? sentenceInChosen(lookedUp, chosen.get(body).code, lookedUp.code !== lookedUp.detected?.code)
+    : lookedUp;
+  const entry = { draft: body, source, state: null, key: keyNow(), sentence,
     recognized: recognized?.text === body ? recognized.by : null };
   remember(entry);
   draw();
@@ -927,14 +941,17 @@ function rememberChoice(text, choice) {
 
 /* The reader says the original is in another language. The reading is made
    again in it, in the place of the one that was wrong: every panel, row and
-   marking hung on the language, so nothing of the old one carries over. A
-   run of the old one still under way fills an entry nobody is shown. */
+   marking hung on the language, so nothing of the old one carries over but
+   the sentence a looked-up word came with. A run of the old one still under
+   way fills an entry nobody is shown. */
 async function chooseLanguage(code) {
   const old = showing();
   if (!old || editing) return;
   rememberChoice(old.draft, { code, guesses: old.state?.source?.guesses || [] });
   recentChoices = [code, ...recentChoices.filter((c) => c !== code)].slice(0, MOST_RECENT);
-  const entry = { draft: old.draft, source: old.source, state: null, key: keyNow() };
+  const apart = old.state?.sentence ? Boolean(old.state.sentence.apart) : old.sentence?.code !== old.sentence?.detected?.code;
+  const entry = { draft: old.draft, source: old.source, state: null, key: keyNow(),
+                  sentence: sentenceInChosen(old.sentence, code, apart) };
   if (walked()) walk.entries[walk.at] = entry;
   history[history.indexOf(old)] = entry;
   draft = old.draft;
@@ -1014,6 +1031,7 @@ async function read(entry) {
       aligner: await wordAligner(),
       identifier,
       speller,
+      dictionary: llm ? null : await appleDictionary(),
       asTyped: asTyped.has(entry.draft),
       choice: panelChoice,
       kept: entry.kept || null,
@@ -1141,6 +1159,10 @@ sheet.addEventListener("click", (event) => {
   if (!lit) root.dataset.hl = row.dataset.hl;
   else if (!event.target.closest("button, a")) delete root.dataset.hl;
 });
+/* Something new marked by a finger: a row lit by a tap goes out, as the
+   word looked up before steps back (selection.js) — one thing lit at a
+   time, and the same whichever was tapped before. */
+onTouchMark((mark) => { if (mark) delete root.dataset.hl; });
 
 /* A translation, the verbs, the terms or the picked word folded away or
    back. Kept with the reading, so one stepped back to is as it was left, and
@@ -1492,43 +1514,22 @@ async function pick(choice) {
   draw();
   revealMarked();
 
-  const codes = current.panels.map((entry) => entry.code);
   const others = otherTexts(choice.panel);
 
-  /* A single word the aligner has a place for in both other panels is not
-     asked about: an expression of several words is, like a term. */
-  const places = wordCount(term) === 1 && current.links
-    ? otherPanels(choice.panel, codes, settings.languages[0])
-      .filter((index) => current.panels[index])
-      .map((index) => fragmentsAcross(current.links, current.panels.map((entry) => entry.text), choice.panel,
-        { start: choice.start, end: choice.end }, index).join(" + "))
-    : [];
-  const knownSpot = places.length && places.every(Boolean) ? `${places[0]} | ${places[1] || "-"}` : "";
+  /* Where it went in the other panels is the word aligner's alone, one word
+     or several (author 2026-11-13, run eighty-four): no model is asked. */
+  const ranges = placesOfPick(current, choice);
 
   const asked = term;
   const identifier = await languageIdentifier();
   try {
     const marked = await explainMarked(currentLlm, {
-      spot: knownSpot,
       term,
       text: from,
       source: choice.inSentence && current.sentence?.apart ? current.sentence.code : askedLanguage(panel),
       reader: settings.languages[0],
       identifier,
       others,
-      /* In short mode the other panels hold a list of translations rather
-         than a sentence, so there is no text to find the word in over there
-         and the spot question would be asked about a hyphen. */
-      withoutSpot: !!current.short,
-      /* The paragraph as soon as it is whole, with the heading saying the
-         markings are still being looked for. */
-      onParagraph: (paragraph) => {
-        if (current.selection?.term !== asked) return;
-        current.marked = paragraph;
-        current.markedStatus = "linking";
-        draw();
-        revealMarked();
-      },
     });
     /* A slower answer to a word the reader has already left must not
        overwrite the newer one. */
@@ -1536,7 +1537,7 @@ async function pick(choice) {
     const shown = current.marked;
     /* Who explained it and who placed it in the other panels, for the
        heading's hint. */
-    const credited = marked && { ...marked, model: settings.model || "", assignedBy: knownSpot ? "aligner" : current.short ? "" : "model" };
+    const credited = marked && { ...marked, ranges, model: settings.model || "", assignedBy: Object.values(ranges).some(Boolean) ? "aligner" : "" };
     current.marked = credited && shown?.moreStatus !== undefined
       ? { ...credited, more: shown.more, moreStatus: shown.moreStatus,
           examples: shown.examples, exampleStatus: shown.exampleStatus }
@@ -1559,6 +1560,20 @@ async function pick(choice) {
   revealMarked();
 }
 
+/* Where a picked word or stretch stands in every other panel, as the word
+   aligner knows it, by panel number; null where it found no place. A word
+   of a dictionary line or of the sentence under a short text has none. */
+function placesOfPick(reading, choice) {
+  const texts = reading.panels.map((entry) => entry.text || "");
+  const ranges = Object.fromEntries(reading.panels.map((_, index) => [index, null]).filter(([index]) => index !== choice.panel));
+  if (!reading.links || choice.entry != null || choice.inSentence) return ranges;
+  for (const index of Object.keys(ranges).map(Number)) {
+    const found = rangesAcross(reading.links, texts, choice.panel, { start: choice.start, end: choice.end }, index);
+    ranges[index] = found.length ? found : null;
+  }
+  return ranges;
+}
+
 /* A word picked where no AI model is set up (author 2026-11-05): nothing
    explains it, and still the reader sees what it became — its places in
    the other panels where the word aligner knows them, what it is in their
@@ -1569,50 +1584,86 @@ async function pickWithoutModel(choice, term, panel) {
   const reader = settings.languages[0];
   const language = choice.inSentence && reading.sentence?.apart ? reading.sentence.code : askedLanguage(panel);
   const texts = reading.panels.map((entry) => entry.text || "");
-  /* Every other panel says where it stands there, nothing where nobody
-     knows: nothing is searched for by the model's answer, there is none. */
-  const ranges = Object.fromEntries(reading.panels.map((_, index) => [index, null]).filter(([index]) => index !== choice.panel));
+  const ranges = placesOfPick(reading, choice);
   let meaning = "";
   let meaningBy = "";
-  if (reading.links && choice.entry == null && !choice.inSentence) {
-    reading.panels.forEach((entry, index) => {
-      if (index === choice.panel) return;
-      const found = rangesAcross(reading.links, texts, choice.panel, { start: choice.start, end: choice.end }, index);
-      ranges[index] = found.length ? found : null;
-      if (found.length && entry.code === reader && !meaning) {
-        meaning = glossOf(texts[index], found);
-        meaningBy = "aligner";
-      }
-    });
-  }
+  let glossAt = null;
+  reading.panels.forEach((entry, index) => {
+    const found = ranges[index];
+    if (found && entry.code === reader && !meaning) {
+      meaning = glossOf(texts[index], found);
+      meaningBy = "aligner";
+      glossAt = { text: texts[index], found };
+    }
+  });
   reading.marked = { text: term, meaning, note: "", synonyms: [], bare: true, ranges, meaningBy,
                      placedBy: Object.values(ranges).some(Boolean) ? "aligner" : "" };
   reading.markedStatus = "";
   draw();
   revealMarked();
+  const left = () => current !== reading || reading.selection?.term !== term;
+  const device = await deviceBackend();
+  const speller = await spellingChecker();
+  /* A verb's base form by Apple's tagger (base-form.js), its meaning as a
+     base form too, and Apple's dictionary in place of an explanation where
+     one the reader has holds the word (author 2026-11-12). */
+  const base = language && !/\s/.test(term)
+    ? await deviceBaseForm({ text: pickedText(choice, panel, reading) || term, start: choice.start, end: choice.end,
+                             code: language, translation: device, speller })
+    : "";
+  /* What the aligner found in the reader's panel, where it holds up there
+     as a verb (author 2026-11-12, run 86): read word by word, "es …
+     verwenden" gives "verwenden", "sich bücken" "bücken", a separable "baut
+     … auf" nothing, a noun nothing. */
+  const found = base && glossAt
+    ? await verbInTranslation({ text: glossAt.text, pieces: glossAt.found, code: reader, translation: device, speller })
+    : "";
+  if (base) meaning = found ? citationForm(reader, found) : "";
+  const dictionary = await appleDictionary();
+  const held = !dictionary ? ""
+    : (await dictionary.has(term)) ? term
+    : base && (await dictionary.has(base)) ? base : "";
+  if (left()) return;
+  reading.marked = { ...reading.marked, meaning, ...(base ? { infinitive: base } : {}), dictionary: held,
+                     basedBy: base ? "device" : "" };
+  draw();
   if (!language || language === reader) return;
+  /* A verb's meaning is its base form's, as a model gives it (base-form.js):
+     the reader's panel's verb where it holds up, then Apple's translation of
+     the base form. */
+  if (base) {
+    const meant = await verbMeaning({ base, from: language, reader, translation: device, speller });
+    const fold = (value) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    if (left() || !meant || fold(meant) === fold(meaning)) return;
+    reading.marked = meaning
+      ? { ...reading.marked, meaning: `${meaning}, ${meant}`, meaningBy: "both" }
+      : { ...reading.marked, meaning: meant, meaningBy: "device" };
+    draw();
+    return;
+  }
   /* Apple's translation of the word alone as well, where the aligner found
      it in the reader's panel: two words of which one may be wrong say more
      than one that may be (author 2026-11-05). */
-  const device = await deviceBackend();
+  const asked = term;
   let translated = "";
   try {
-    translated = await device.translate(language, reader, term);
+    translated = await device.translate(language, reader, asked);
   } catch {
     /* Nothing from Apple: the word stands without a meaning. */
   }
-  if (current !== reading || reading.selection?.term !== term) return;
+  if (left()) return;
   if (!translated && meaning) return;
   if (!translated) {
     /* A pack that can be downloaded is said where the meaning would stand,
        with the way to it; a pair Apple cannot do at all is left unsaid. */
     const pair = await Promise.resolve(device.pairStatus?.(language, reader)).catch(() => "");
-    if (pair !== PAIR_DOWNLOADABLE || current !== reading || reading.selection?.term !== term) return;
+    if (pair !== PAIR_DOWNLOADABLE || left()) return;
     reading.marked = { ...reading.marked, missingPair: [language, reader] };
     draw();
     return;
   }
-  const alone = casedLike(asHeadword(translated, term, reader), meaning, reader);
+  const alone = casedLike(await deviceHeadword(translated, asked, reader, device), meaning, reader);
+  if (left()) return;
   const fold = (value) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (meaning && fold(meaning) === fold(alone)) return;
   reading.marked = meaning
@@ -1621,15 +1672,42 @@ async function pickWithoutModel(choice, term, panel) {
   draw();
 }
 
+/* A press does one thing; on a phone a finger held on the button the
+   other, felt as it starts (author 2026-11-13), and the press that ends the
+   hold does nothing more. */
+const HELD_MS = 500;
+function holdable(node, onPress, onHeld) {
+  let held = null;
+  let wasHeld = false;
+  if (onPhone()) {
+    node.addEventListener("touchstart", () => {
+      wasHeld = false;
+      held = setTimeout(() => {
+        wasHeld = true;
+        feelHeld();
+        onHeld();
+      }, HELD_MS);
+    }, { passive: true });
+    for (const over of ["touchend", "touchcancel", "touchmove"]) {
+      node.addEventListener(over, () => clearTimeout(held), { passive: true });
+    }
+    node.addEventListener("contextmenu", (event) => event.preventDefault());
+  }
+  node.addEventListener("click", () => {
+    if (wasHeld) { wasHeld = false; return; }
+    onPress();
+  });
+}
+
 backButton.addEventListener("click", () => goTo(place - 1));
 forwardButton.addEventListener("click", () => goTo(place + 1));
 settingsButton.addEventListener("click", () => openSettingsWindow());
 /* A blank sheet to write in, which is what the shortcut pressed with nothing
    selected gives — reachable without the shortcut, because the window is
    often already in front. What stood there before is one chevron away. */
-freshButton.addEventListener("click", () => { startFresh(); say(""); });
-/* Drawn only on a phone (style.css): what was copied is read straight away,
-   and an empty clipboard leaves the sheet as it is. */
+/* On a phone a finger held on the plus reads what was copied at once, as
+   one held on the card's button makes a card of it (holdable). */
+holdable(freshButton, () => { startFresh(); say(""); }, () => pasteClipboard());
 /* A card out of what was copied, as the card shortcut makes one out of
    what is selected. Nothing copied is a blank card. */
 async function cardFromCopied() {
@@ -1644,22 +1722,7 @@ async function cardFromCopied() {
 
 /* A press is a blank card; a finger held on the button is a card out of
    what was copied (the card's own sheet has a button for the same). */
-const HELD_MS = 500;
-let held = null;
-let wasHeld = false;
-cardButton.addEventListener("touchstart", () => {
-  wasHeld = false;
-  held = setTimeout(() => {
-    wasHeld = true;
-    cardFromCopied();
-  }, HELD_MS);
-}, { passive: true });
-for (const over of ["touchend", "touchcancel", "touchmove"]) {
-  cardButton.addEventListener(over, () => clearTimeout(held), { passive: true });
-}
-cardButton.addEventListener("contextmenu", (event) => event.preventDefault());
-cardButton.addEventListener("click", () => {
-  if (wasHeld) { wasHeld = false; return; }
+holdable(cardButton, () => {
   /* A phone brings the keyboard up only for a caret set during the press
      itself, and the card's sheet is drawn a moment later: a field nobody
      sees takes the caret until the card's word field is there (card-layer.js). */
@@ -1671,7 +1734,7 @@ cardButton.addEventListener("click", () => {
     hold.focus();
   }
   openFreeCard("");
-});
+}, () => cardFromCopied());
 /* A text that arrives whole and is read at once: what was copied, or what
    another app handed over. */
 function readAtOnce(arrived) {
@@ -1684,8 +1747,8 @@ function readAtOnce(arrived) {
   toTop();
   translate();
 }
-/* What was copied, read at once: the bar's button, and on a phone the one
-   under a new translation's field. A picture copied rather than a text has
+/* What was copied, read at once: on a phone the first button under a new
+   translation's field, and a finger held on the plus. A picture copied rather than a text has
    its text read (recognisePicture). */
 async function pasteClipboard() {
   if ((await pasteHeld().catch(() => "text")) === "picture") return recognisePicture("pasteboard");
@@ -1705,7 +1768,9 @@ async function noticeAsked() {
   const noted = await saveSettings({ ...stored, pasteAsked: stored.pasteAsked + 1 });
   if (noted.pasteAsked === 2) (await import("./phone-sheets.js")).offerPasteSetting(noted);
 }
-pasteButton.addEventListener("click", pasteClipboard);
+
+/* How often a reading from outside put away what stood over the page. */
+let handedOver = 0;
 
 /* A picture's text on the phone, read like a screenshot's: taken with the
    camera or chosen in the photo library or the Files app (the buttons under
@@ -1713,8 +1778,11 @@ pasteButton.addEventListener("click", pasteClipboard);
    first, in a frame round all of it. Nothing chosen leaves the sheet as it
    was; what came of the rest stands under it. */
 async function recognisePicture(source) {
+  const asked = handedOver;
   const found = await readPicture(source, settings.languages.filter(Boolean), () => say(text.screenReading),
     { cancel: text.cancel, done: text.translate });
+  /* A reading handed over meanwhile put the camera or the picker away. */
+  if (asked !== handedOver) return undefined;
   if (found.none) return say("");
   if (found.failed) return say(text.screenNoAnswer);
   const read = textOfLines(found.lines);
@@ -1723,14 +1791,14 @@ async function recognisePicture(source) {
   recognized = { text: read, by: found.by };
   readAtOnce(read);
 }
-/* On a phone the button is greyed while nothing was copied: asked of the
+/* On a phone the clipboard's button is greyed while nothing was copied: asked of the
    system without reading what was copied, which iOS would answer with its
    question whether the app may. Asked again whenever the app is in front,
    and every moment while it is — another app copies while this one waits. */
 if (onPhone()) {
   const refreshPaste = async () => {
-    const empty = !(await pasteHeld().catch(() => "text"));
-    for (const node of [pasteButton, ...sheet.querySelectorAll('[data-source="clipboard"]')]) node.disabled = empty;
+    copiedHeld = Boolean(await pasteHeld().catch(() => "text"));
+    for (const node of sheet.querySelectorAll('[data-source="clipboard"]')) node.disabled = !copiedHeld;
   };
   refreshPaste();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshPaste(); });
@@ -1751,18 +1819,22 @@ if (onPhone()) {
   onOpenedWith(async (address) => {
     const handed = textHandedOver(address);
     if (!handed) return;
-    /* A reading from outside is shown, not drawn under a sheet: a card or
-       the settings standing over it go (author 2026-11-06) — not where
-       nothing was copied, which leaves the app as it was. A card asked for
-       replaces the one standing anyway. */
+    /* What comes from outside is shown, never under anything: whatever
+       stands over the reading goes — the camera and every system sheet,
+       the frame, a card, the settings, the first steps (author 2026-11-06,
+       2026-11-14) — not where nothing was copied, which leaves the app as
+       it was. A card asked for replaces the one standing. */
     if (handed.from === "clipboard") {
       const held = await pasteHeld().catch(() => "");
-      if (handed.what === "card") return held === "text" ? cardFromCopied() : openFreeCard("");
+      if (handed.what === "card") {
+        await putSheetsAway({ keepCard: true });
+        return held === "text" ? cardFromCopied() : openFreeCard("");
+      }
       if (!held) return undefined;
       await putSheetsAway();
       return pasteClipboard();
     }
-    if (handed.what !== "card") await putSheetsAway();
+    await putSheetsAway({ keepCard: handed.what === "card" });
     if (handed.from === "camera") return recognisePicture("camera");
     if (handed.blank && handed.what === "card") return openFreeCard("");
     /* The caret in the field and the keyboard up, as after the bar's plus. */
@@ -2148,7 +2220,7 @@ async function readFramed() {
    assigned: an address another app opened this one with is answered while
    the page is still being set up. */
 function textOfLines(lines) {
-  return screenText(lines, { rtl: rightToLeft(lines) }).trim();
+  return screenText(lines, { rtl: rightToLeft(lines), frame: lines[0]?.f }).trim();
 }
 
 const failedSaying = (failed) => ({ absent: text.screenAbsent, nothing: text.screenNothing })[failed] || text.screenNoAnswer;
@@ -2171,12 +2243,17 @@ async function showCard(title, card) {
 }
 
 /* A card already standing, answered further (see updateCard). */
-async function putSheetsAway() {
-  const [{ closeCardLayer }, { closeSettingsSheet }] = await Promise.all([
-    import("./card-layer.js"), import("./settings-sheet.js"),
+async function putSheetsAway({ keepCard = false } = {}) {
+  handedOver += 1;
+  const [{ closeCardLayer }, { closeSettingsSheet }, { closePhoneSheets }] = await Promise.all([
+    import("./card-layer.js"), import("./settings-sheet.js"), import("./phone-sheets.js"),
   ]);
-  closeCardLayer();
+  /* A language list open in a pop-up closes with its focus. */
+  document.activeElement?.blur?.();
+  await putAwayOverPage();
+  if (!keepCard) closeCardLayer();
   closeSettingsSheet();
+  closePhoneSheets();
 }
 
 async function refreshCard(card) {
@@ -2200,15 +2277,24 @@ async function openFreeCard(selected) {
 
   await showCard(title, { ...build(""), detecting: true });
   let detected = "";
+  let base = "";
   try {
-    const { translation, llm, identifier } = await backends();
+    const { translation, llm, identifier, speller } = await backends();
     detected = (await detectLanguage(selected, {
-      languages: settings.languages, reader, translation, llm, identifier,
+      languages: settings.languages, reader, translation, llm, identifier, speller,
     })).code;
+    /* Without a model a verb goes on the card as its base form, as a card
+       from a reading's row does (author 2026-11-13): by Apple's tagger, the
+       word taken alone (base-form.js). With a model the card is improved by
+       it instead. */
+    if (!llm && detected && detected !== reader && !/\s/.test(selected) && (await appleDictionary())) {
+      base = await deviceBaseForm({ text: selected, start: 0, end: selected.length, code: detected, translation, speller });
+    }
   } catch {
     /* Not named: the text goes on the word side, as any foreign word. */
   }
-  await refreshCard(build(detected));
+  const card = build(detected);
+  await refreshCard(base ? { ...card, term: citationForm(detected, base) } : card);
 }
 
 await onCardCapture({

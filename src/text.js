@@ -221,7 +221,8 @@ export function cleanLine(line) {
   return String(line || "")
     .trim()
     .replace(/^(?:[-*]\s+|•\s*)/, "")
-    .replace(/^\d+[.)]\s*/, "");
+    /* Not where a digit follows the point: "49.3" is a term, not item 49. */
+    .replace(/^\d+[.)](?!\d)\s*/, "");
 }
 
 /* Trim first: otherwise the $ anchor misses a closing quote that has
@@ -337,6 +338,11 @@ export function sentenceWith(text, word, at = null) {
   if (at && at.index >= 0 && at.total === sentences.length) return sentences[at.index];
   return sentences.length === 1 ? sentences[0] : "";
 }
+
+/* Up to this many words the run takes the short path: a dictionary entry
+   instead of a translation. Above it a text has a context of its own, and one
+   rendering of it is the answer. */
+export const SHORT_MAX_WORDS = 3;
 
 export function wordCount(s) {
   return wordPieces(s).length;

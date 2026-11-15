@@ -26,8 +26,8 @@ function sheetWith(title, button) {
 }
 
 /* What the first steps say on a phone, drawn: what to set up once, then the
-   ways a text gets in, the button that translates what was copied first,
-   then the example. On a screen this small the steps come first: the example
+   ways a text gets in, the plus first (what was copied and a photograph are
+   behind it), then the example. On a screen this small the steps come first: the example
    is what they lead to. */
 export function phoneWelcomeView(text, reader) {
   const words = text.welcomePhone;
@@ -51,7 +51,7 @@ export function phoneWelcomeView(text, reader) {
     element("p", "label", words.setup),
     list("ol", [words.languages, words.model]),
     element("p", "label", words.start),
-    list("ul", [words.paste(inline("paste")), words.share, words.plus(inline("add")), words.control]),
+    list("ul", [words.plus(inline("add")), words.share, words.control]),
     element("p", "welcome-example-hint", words.exampleHint),
     exampleView(text.welcome.example, reader),
   );
@@ -59,6 +59,19 @@ export function phoneWelcomeView(text, reader) {
 }
 
 let shown = null;
+let pasteSheet = null;
+let consent = null;
+
+/* The first steps and the note about pasting put away for a reading handed
+   over from outside — not as seen: the first steps come back at the next
+   start. The question before the model stays: the reading coming in waits
+   on the same answer. */
+export function closePhoneSheets() {
+  shown?.remove();
+  shown = null;
+  pasteSheet?.remove();
+  pasteSheet = null;
+}
 
 /* At the first start, and from the settings' "show first steps". Closing
    it is the reader having seen it: it does not come back by itself. */
@@ -86,6 +99,8 @@ export function offerPasteSetting(settings) {
   const text = labels(settings.languages[0]);
   const { sheet, body, done } = sheetWith(text.pasteSetting, text.pasteLater);
   done.remove();
+  pasteSheet?.remove();
+  pasteSheet = sheet;
   const view = element("div", "phone-consent");
   view.append(element("p", null, text.pasteHint));
   const open = element("button", "phone-consent-allow", text.pasteOpen);
@@ -104,12 +119,13 @@ export function offerPasteSetting(settings) {
 
 /* Whether texts may go to the AI model at the address in use, answered in a
    sheet and kept with the address. Resolves with the answer once it is
-   written. */
+   written; a reading asking while the sheet stands waits on the same. */
 export function askModelConsent(settings) {
+  if (consent) return consent;
   const host = modelHostOf(settings.endpoint);
   const text = labels(settings.languages[0]);
   const words = text.modelConsent;
-  return new Promise((resolve) => {
+  consent = new Promise((resolve) => {
     const { sheet, body, done } = sheetWith(words.title, words.allow);
     done.remove();
     const view = element("div", "phone-consent");
@@ -117,6 +133,7 @@ export function askModelConsent(settings) {
     const answer = async (allowed) => {
       await saveSettings({ ...(await loadSettings()), modelConsent: { host, allowed } });
       sheet.remove();
+      consent = null;
       settingsChanged();
       resolve(allowed);
     };
@@ -130,4 +147,5 @@ export function askModelConsent(settings) {
     body.append(view);
     document.body.append(sheet);
   });
+  return consent;
 }

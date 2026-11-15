@@ -16,7 +16,10 @@ export function createAligner(invoke) {
     ready: () => invoke("aligner_ready").then((answer) => !!answer, () => false),
 
     /* For every { source, target } the pairs [word of the source, word of
-       the target], by their numbers among the words of each. */
+       the target], by their numbers among the words of each — and, as
+       `best`, for every word of the target the word of the source it holds
+       on to most (null where none), which lets a mark grow by a neighbour
+       no link reached (match/links.js). */
     align: (pairs) => invoke("align_words", {
       pairs: pairs.map(({ source, target }) => ({
         source,
@@ -24,6 +27,6 @@ export function createAligner(invoke) {
         source_words: wordsOf(source),
         target_words: wordsOf(target),
       })),
-    }),
+    }).then((found) => (found || []).map((one) => (Array.isArray(one) ? { links: one, best: null } : one))),
   };
 }

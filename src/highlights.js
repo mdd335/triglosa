@@ -7,9 +7,7 @@
    Words before verbs: where both point at the same spot, the colour belongs
    to the term. First come, first coloured. */
 
-import { distributeSpots } from "./match/columns.js";
-import { rangesOf, spotsFor } from "./match/positions.js";
-import { otherPanels } from "./panels.js";
+import { spotsFor } from "./match/positions.js";
 import { namesTheLookup } from "./parse/words.js";
 
 export function fragmentsForPanel(state, index) {
@@ -70,45 +68,14 @@ export function fragmentsForSentence(state) {
 /* Where the word the reader picked out stands, panel by panel.
 
    In the panel it came from it is the selection itself. In the others the
-   model said where it went, A and B in the order otherPanels() gives — the
-   reader's own language first, because every example in the prompt shows A
-   that way and the model follows the examples more reliably than the labels. */
-export function selectionForPanel(state, index, languages) {
+   word aligner said where it went (`marked.ranges`, worked out in app.js
+   from the reading's links, run eighty-four); where it found no place the
+   panel shows none — no model is asked. */
+export function selectionForPanel(state, index) {
   const selection = state.selection;
   /* Picked in the sentence under a short text, it stands in no panel. */
   if (!selection || selection.inSentence) return null;
   if (selection.panel === index) return [{ start: selection.start, end: selection.end }];
-  if (!state.marked) return null;
-  /* An entry that already knows where it stands in a panel — the first
-     steps' example, written beforehand — is not searched for. */
-  if (state.marked.ranges && index in state.marked.ranges) return state.marked.ranges[index];
-
-  const others = otherPanels(selection.panel, state.panels.map((panel) => panel.code), (languages || [])[0]);
-  const position = others.indexOf(index);
-  if (position === -1) return null;
-
-  const codes = state.panels.map((panel) => panel.code).filter(Boolean);
-  const pair = distributeSpots(
-    state.marked,
-    state.panels[others[0]]?.text || "",
-    state.panels[others[1]]?.text || "",
-    codes,
-  );
-  return pair[position] || fromEquivalent(state, index, languages, codes);
-}
-
-/* The spot question fails on one panel often enough to be worth catching: the
-   model gives up on the harder half and writes the label back, or names words
-   that are not in that text. For the reader's own panel there is a second
-   answer already in hand — the equivalent from the meaning question, written
-   in exactly that language. It is what the reader would look for anyway.
-
-   Only there. In a panel of a third language nothing else is known, and a
-   guess would be worse than no colour. */
-function fromEquivalent(state, index, languages, codes) {
-  const reader = (languages || [])[0];
-  if (state.panels[index]?.code !== reader) return null;
-  const equivalent = state.marked?.meaning;
-  if (!equivalent) return null;
-  return rangesOf(state.panels[index].text || "", equivalent, state.marked.text, codes, { passage: !!state.marked.passage });
+  const ranges = state.marked?.ranges?.[index];
+  return ranges?.length ? ranges : null;
 }

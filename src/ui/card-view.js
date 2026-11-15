@@ -16,6 +16,7 @@
 import { CARD_FIELDS, bothSides, cardLine, hasCard, spokenWord } from "../card.js";
 import { languageLabel, writingDirection } from "../languages/index.js";
 import { popupChoice } from "./language-choice.js";
+import { onPhone } from "../system.js";
 import { button, buttonRow, element, nameButton, relabel, reportOn, rowButton, select } from "./elements.js";
 
 /* How far a field may grow before it scrolls after all, in lines and in the
@@ -305,9 +306,12 @@ export function renderCard(host, card, { text, reader, anki, copy, improve, impr
   for (const grow of grown) grow();
 
   /* The word is what the reader came for, so the caret goes there and a
-     correction is one keystroke away. */
-  boxes.term.focus();
-  boxes.term.select();
+     correction is one keystroke away. Not on a phone: there a field with the
+     caret means the keyboard, and a card is mostly written by improving it. */
+  if (!onPhone()) {
+    boxes.term.focus();
+    boxes.term.select();
+  }
 
   /* A card from the shortcut whose language is still being found: shown
      already, closed like a card being improved, and replaced by the window

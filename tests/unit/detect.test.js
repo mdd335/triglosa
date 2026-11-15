@@ -3,8 +3,8 @@ import assert from "node:assert";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { IDENTIFIER_THRESHOLD, MIN_WORDS, agreedForeign, asConfigured, chosenLanguage, detectByModel, detectByStopwords, detectLanguage, keepsChosenLanguage, ownWhereAnotherIsNamed, readIdentified } from "../../src/detect.js";
-import { readLeader } from "../../src/platform/translation.js";
+import { DICTIONARY_FLOOR, IDENTIFIER_THRESHOLD, MIN_WORDS, agreedForeign, asConfigured, chosenLanguage, detectByModel, detectByStopwords, detectLanguage, keepsChosenLanguage, ownWhereAnotherIsNamed, readIdentified, sentenceInChosen } from "../../src/detect.js";
+import { readLeader, readShares } from "../../src/platform/translation.js";
 import { SUPPORTED, lettersInScriptOf } from "../../src/languages/index.js";
 import { detectPrompt } from "../../src/prompts/detect.js";
 
@@ -209,7 +209,7 @@ test("the identifier decides only where it is sure, and of a language the app of
 test("a language the identifier is sure of is asked of nobody else", async () => {
   let asked = 0;
   const found = await detectLanguage("tramonto", {
-    languages: ["de", "en"],
+    languages: ["de", "it"],
     reader: "de",
     identifier: { identify: async () => [["it", 0.99]] },
     translation: { detect: async () => { asked++; return "pt"; } },
@@ -217,6 +217,29 @@ test("a language the identifier is sure of is asked of nobody else", async () =>
   });
   assert.deepStrictEqual(found, { code: "it", name: "Italienisch", guesses: [], by: "text" });
   assert.strictEqual(asked, 0);
+});
+
+test("a short input sure to be in a language the reader does not read goes on to the reader's", async () => {
+  /* "cosa" is Spanish and Italian; the identifier is sure of Italian. */
+  assert.deepStrictEqual(readIdentified([["it", 1]], { languages: ["de", "es", "en"], text: "cosa" }),
+    { code: "", foreign: false, passed: "it" });
+  assert.deepStrictEqual(readIdentified([["it", 1]], { languages: ["de", "it"], text: "cosa" }), { code: "it", foreign: false },
+    "one of the reader's languages is taken");
+  assert.deepStrictEqual(readIdentified([["it", 1]], { languages: ["de", "es"], text: "Che cosa fai stasera dopo cena?" }),
+    { code: "it", foreign: false }, "a sentence is taken as before");
+  const options = (llm, device = "") => ({
+    languages: ["de", "es", "en"], reader: "de",
+    identifier: { identify: async () => [["it", 1]] },
+    translation: { detect: async () => device },
+    llm,
+  });
+  const byModel = await detectLanguage("cosa", options({ chat: async () => "es" }));
+  assert.strictEqual(byModel.code, "es");
+  assert.strictEqual(byModel.by, "model");
+  const byDevice = await detectLanguage("cosa", options(null, "es"));
+  assert.strictEqual(byDevice.code, "es", "the recognizer weighs the reader's languages");
+  const alone = await detectLanguage("cosa", options(null));
+  assert.deepStrictEqual([alone.code, alone.by], ["it", "text"], "nobody else answering, the identifier's answer stands");
 });
 
 test("an identifier that is unsure, absent or failing leaves the question to the others", async () => {
@@ -371,4 +394,45 @@ test("a looked-up word named as some third language goes to the reader's own wit
   /* Two such languages: the one named stays where it is one of them. */
   const both = { languages: ["en", "zh", "ja"], reader: "en" };
   assert.strictEqual(ownWhereAnotherIsNamed({ code: "", name: "Japanese", tag: "ja" }, "可決", both).code, "");
+});
+
+test("a corrected language keeps the sentence the word came with", () => {
+  const sentence = { text: "La empresa cerró ayer.", start: 3, end: 10, code: "it", detected: { code: "it" } };
+  assert.deepStrictEqual(sentenceInChosen(sentence, "es", false), { ...sentence, code: "es" },
+    "named in the sentence's language: the sentence takes the reader's language too");
+  const apart = { text: "Please encender the light.", start: 7, end: 15, code: "en", detected: { code: "es" } };
+  assert.strictEqual(sentenceInChosen(apart, "pt", true), apart, "a word apart from its sentence leaves it as it was");
+  assert.strictEqual(sentenceInChosen(sentence, "fa", false).code, "", "a language without a pack names no code");
+  assert.strictEqual(sentenceInChosen(null, "es", false), null);
+});
+
+test("the recognizer's weight for every language it names", () => {
+  assert.deepStrictEqual(readShares("pt 0.600\nes 0.280\nzh-Hans 0.010"), { pt: 0.6, es: 0.28, zh: 0.01 });
+  assert.deepStrictEqual(readShares(""), {});
+});
+
+test("a word or three only one learned language knows is theirs before the model is asked", async () => {
+  let asked = 0;
+  const llm = { chat: async () => { asked++; return "pt"; } };
+  const speller = (known) => ({
+    check: async (words, languages) => Object.fromEntries(words.map((word) => [word,
+      Object.fromEntries(languages.map((code) => [code, { there: true, known: known.includes(code) }]))])),
+  });
+  /* Apple: Portuguese 0.60, Spanish 0.15 — not enough for its own rule. */
+  const device = (answer) => ({
+    detect: async (text, candidates, preferred, report) => { report({ guesses: [], unsure: "", leader: null, shares: readShares(answer) }); return ""; },
+  });
+  const options = (extra) => ({ languages: ["de", "es", "en"], reader: "de", identifier: null, llm, ...extra });
+  const found = await detectLanguage("sobremesa", options({ translation: device("pt 0.60\nes 0.15"), speller: speller(["es", "pt"]) }));
+  assert.deepStrictEqual([found.code, found.by, asked], ["es", "text", 0]);
+  const faint = await detectLanguage("sobremesa", options({ translation: device(`pt 0.90\nes ${DICTIONARY_FLOOR / 2}`), speller: speller(["es"]) }));
+  assert.deepStrictEqual([faint.code, faint.by], ["pt", "model"], "Apple gives Spanish next to nothing: the model decides");
+  const both = await detectLanguage("fiesta", options({ translation: device("es 0.50\nen 0.30"), speller: speller(["es", "en"]) }));
+  assert.strictEqual(both.by, "model", "two learned languages know it");
+  const windows = await detectLanguage("sobremesa", options({ translation: { detect: async () => "" }, speller: speller(["es"]) }));
+  assert.strictEqual(windows.by, "model", "no recognizer, no dictionary step");
+  const alone = await detectLanguage("sobremesa", options({ llm: null, translation: device("pt 0.60\nes 0.15"), speller: speller(["es"]) }));
+  assert.deepStrictEqual([alone.code, alone.by], ["es", "text"], "without a model it stands in for Apple's guess");
+  const sentence = await detectLanguage("La sobremesa duró horas y nadie quería irse a casa todavía", options({ translation: device("pt 0.60\nes 0.15"), speller: speller(["es"]) }));
+  assert.strictEqual(sentence.by, "model", "a sentence is not asked of the dictionaries");
 });

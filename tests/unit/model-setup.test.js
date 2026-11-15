@@ -117,7 +117,15 @@ for (const code of ["de", "en"]) {
       "what the way is good and bad at stands outside the fold");
     assert.strictEqual(again.view.querySelector(".setup-steps").tagName, "DETAILS");
     assert.ok(again.view.querySelector(".setup-steps").open, "open while no key is stored");
-    assert.ok(again.view.querySelector(".hint").textContent.endsWith(text.setupChatbot), "the chatbot after the README");
+    const help = again.view.querySelector(".setup-help");
+    assert.strictEqual(help.tagName, "DETAILS");
+    assert.strictEqual(help.querySelector("summary").textContent, text.setupHelp);
+    assert.strictEqual(again.view.firstElementChild, help, "first");
+    assert.strictEqual(help.nextElementSibling.textContent, `${text.modelQuestion} ${text.modelWays}`, "then the question the ways answer");
+    assert.ok(!help.open, "shut until opened");
+    assert.deepStrictEqual([...help.querySelectorAll(".hint")].map((node) => node.textContent.endsWith(text.setupChatbot)),
+      [false, true], "the chatbot in a paragraph of its own, after the README");
+    assert.strictEqual(help.querySelector("button").textContent, text.setupPromptCopy, "the prompt inside the fold");
   });
 
   test(`online offers the free model to try, and the recommended one back (${code})`, async () => {

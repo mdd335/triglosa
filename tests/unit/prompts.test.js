@@ -7,15 +7,13 @@ import { shownInput, wordsPrompt } from "../../src/prompts/words.js";
 import {
   abbreviationPrompt,
   meaningPrompt,
-  spotPrompt,
   synonymPrompt,
   tenseNames,
   personNames,
   verbFormPrompt,
   wordClassPrompt,
 } from "../../src/prompts/marked.js";
-import { alignVerbsPrompt, annotateVerbsPrompt, fieldName, findVerbsPrompt } from "../../src/prompts/verbs.js";
-import { alignWordsPrompt } from "../../src/prompts/words-align.js";
+import { annotateVerbsPrompt, findVerbsPrompt } from "../../src/prompts/verbs.js";
 import { alternativesInput, alternativesPrompt, readerSpelling } from "../../src/prompts/translation.js";
 import { detectPrompt } from "../../src/prompts/detect.js";
 import { SUPPORTED, languagePack } from "../../src/languages/index.js";
@@ -74,6 +72,22 @@ test("a native reader gets a bar of their own and rates each term", () => {
   assert.ok(learner.includes("very much including everyday domains"));
   assert.ok(!own.includes("very much including everyday domains"));
   assert.ok(own.includes("Rare, literary, old-fashioned or archaic words"));
+});
+
+/* In their own language the reader knows the word; what they lack is the
+   thing it refers to (run 80). A learner's notes keep the field and register. */
+test("an explanation in the reader's own language is about the thing, not the word", () => {
+  const own = wordsPrompt({ code: "de", languages: ["de", "en"], levels: {} });
+  const learner = wordsPrompt({ code: "de", languages: ["en", "de"], levels: { de: "C2" } });
+  assert.ok(own.includes("Never its field, its register or how it differs from other words"));
+  assert.ok(!own.includes("then the field or register after a semicolon"));
+  assert.ok(learner.includes("then the field or register after a semicolon"));
+  const ownClick = meaningPrompt({ source: "German", reader: "German" });
+  const learnerClick = meaningPrompt({ source: "German", reader: "English" });
+  assert.ok(ownClick.includes("Explain what the TERM refers to, not the word"));
+  assert.ok(!ownClick.includes("its register, its connotation"));
+  assert.ok(learnerClick.includes("its register, its connotation"));
+  for (const text of [own, ownClick]) assert.ok(text.includes("Only facts you are sure of"));
 });
 
 test("a dictionary lookup asks the same question for one term", () => {
@@ -196,7 +210,6 @@ test("the clicked word is asked in English and answered in the reader's language
     const source = languagePack(code).englishName;
     for (const text of [
       meaningPrompt({ source, reader: "English" }),
-      spotPrompt({ source, reader: "English" }),
       abbreviationPrompt({ source, reader: "English" }),
       synonymPrompt({ source }),
     ]) {
@@ -299,24 +312,6 @@ const dynamic = JSON.parse(fs.readFileSync(path.join(here, "..", "fixtures", "pr
    original was fixed to. */
 const RUN = { source: "Spanish", reader: "German", target: "German", a: "German", b: "English" };
 
-test("the alignment prompts name their columns and carry no sentence", () => {
-  /* The last of the three to be generalised. What it answers is checked
-     against the two translations in front of it before anything is drawn, so
-     it never leaked measurably — but it asserted things about the language
-     being read: rule 5a called llevar + gerundio "a Russian periphrasis"
-     under a Russian text, which is not an example in the wrong language but
-     an untruth about the one at hand. */
-  for (const code of ["fr", "ru", "ar", "es"]) {
-    const source = languagePack(code).englishName;
-    const text = alignVerbsPrompt({ source, a: "German", b: "English",
-      fieldSource: fieldName(code), fieldA: "deutsch", fieldB: "english" });
-    assert.ok(!/\bExample\b/.test(text), `${code}: no example`);
-    assert.ok(!text.includes("gerundio"), `${code}: no Spanish periphrasis`);
-    assert.ok(text.includes(`A ${source} periphrasis`), `${code}: rule 5a names the text's language`);
-    assert.ok(text.includes(`${fieldName(code)} | deutsch | english`), `${code}: names its columns`);
-  }
-});
-
 test("the verb prompts carry the text's own grammar and no example", () => {
   /* Every Spanish tense measured under a text that was not Spanish came from
      the examples these two prompts used to carry: 20 over four models,
@@ -346,15 +341,6 @@ test("the verb prompts carry the text's own grammar and no example", () => {
      hears about. */
   assert.ok(findVerbsPrompt({ source: "German" }).includes("joined by a plus sign"));
   assert.ok(!/\bExample\b/.test(findVerbsPrompt({ source: "German" })));
-});
-
-test("the word alignment prompt names no language at all", () => {
-  /* Its panels are labelled in the user line, so the one thing to pin is
-     that nothing put a language back into the question. */
-  const text = alignWordsPrompt();
-  assert.ok(!/\bExample\b/.test(text));
-  assert.ok(!text.includes("Spanish") && !text.includes("German"));
-  assert.ok(text.includes("<original> | <A> | <B>"));
 });
 
 test("a word looked up with its article is asked for translations with theirs, and no other is", async () => {
@@ -418,13 +404,6 @@ test("the dictionary note is the reader's language, and its pack says how to wri
   }
 });
 
-test("the column names come from the packs", () => {
-  assert.strictEqual(fieldName("es"), "espanol");
-  assert.strictEqual(fieldName("de"), "deutsch");
-  /* A pack that names no column falls back to its English name. */
-  assert.strictEqual(fieldName("ru"), "russian");
-});
-
 test("the detector may name every supported language, the user's first", () => {
   /* The original offered three codes, because it had three languages. It now
      offers all eight: a text in a language the user has not configured keeps a
@@ -438,9 +417,22 @@ test("the detector may name every supported language, the user's first", () => {
 });
 
 test("a short input that fits several languages is answered with one of the reader's", () => {
-  /* Measured in run fifteen: named, not pointed at by list order. */
-  assert.ok(detectPrompt({ languages: ["en", "pt"], reader: "en" })
-    .includes("If the input is a correct word or phrase in English, Portuguese, reply with that language"));
+  /* Measured in run fifteen: named, not pointed at by list order. A longer
+     text keeps that sentence after the codes. */
+  const long = detectPrompt({ languages: ["en", "pt"], reader: "en" });
+  assert.ok(long.includes("If the input is a correct word or phrase in English, Portuguese, reply with that language"));
+  assert.ok(!long.includes("Before judging its look"));
+  /* Run 87: up to three words, the reader's languages are checked one by
+     one after the hints, in place of that sentence, before the last line —
+     closing with how a language outside the list is named, or the cloud
+     model answered Ukrainian with the first example. */
+  const short = detectPrompt({ languages: ["de", "es", "en"], reader: "de", short: true });
+  assert.ok(!short.includes("reply with that language, even where"));
+  assert.ok(short.endsWith("A rare or literary word is still judged the same way. " +
+    "Before judging its look, check the reader's languages in this order: German, then Spanish, then English. " +
+    "If the input is a correct word or phrase in one of them, reply with the first such language, even where another language writes it the same way. " +
+    "Only where it is correct in none of them, judge by its look; a language outside the list is named by its own name as told above, " +
+    "the examples there being examples only. No punctuation, no explanation."));
 });
 
 test("everything around the language list is the fixture's, word for word", () => {

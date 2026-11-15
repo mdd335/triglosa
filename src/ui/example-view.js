@@ -1,217 +1,220 @@
-/* The example in the first steps: a reading made beforehand and drawn the
-   way the reading window draws one — the original, the translation into the
-   reader's own language and one more, the terms and the verb marked in all
-   three, and what each word became under the pointer. Nothing is asked of a
-   model or of the device, so it stands at once, on a first start with
-   nothing set up, on every system.
+/* The example in the first steps: a reading made beforehand — the original,
+   the translation into the reader's own language and one more, the terms
+   and the verb marked in all three, what each word became, and an entry for
+   every word of the original. Nothing is asked of a model or of the device,
+   so it stands at once, on a first start with nothing set up, on every
+   system.
 
-   What it holds is written in the reader's interface language, in its label
-   file (`welcome.example`): the original, the two translations, the terms
-   and the verb with where each went. The hover is the word aligner's, as in
-   a reading: its links, made once by scripts/example-links.mjs, go through
-   the same functions a reading's do. Its buttons come with the pointer as
-   they do in a reading, to show what there is; none of them does
-   anything. */
+   It is a snapshot (example-snapshot.js), taken from the reading window by
+   scripts/example-snapshot.mjs, and drawn here without it: a change to the
+   reading window leaves the example as it is (author 2026-11-13). Only the
+   stylesheet is shared, so it looks like the window around it.
 
-import { renderReading } from "./reading-view.js";
-import { watchGlance } from "./glance-view.js";
+   What it does, all of it here: a word under the pointer gets the sign over
+   it saying what it became and its places lit; a word of the original
+   clicked brings its entry under the translations and its spots in them. On
+   a phone a tap does both at once — one word at a time, no sweep over
+   several (author 2026-11-13). The sign always stands over the word. Its
+   buttons are there to be seen; none of them does anything. */
+
 import { element } from "./elements.js";
-import { glancePairs, placeThird, placeUnits } from "../glance.js";
-import { unitsFromLinks, unitsOfThird } from "../parse/glance.js";
-import { EXAMPLE_LINKS } from "./example-links.js";
-import { languageLabel } from "../languages/index.js";
 import { onPhone } from "../system.js";
+import { EXAMPLE_SNAPSHOT } from "./example-snapshot.js";
 
-/* The hover over the example as a reading's: the aligner's links for its
-   texts, laid out by the same functions. Nothing where the links were made
-   for other texts — an example changed since, which a test catches. */
-function exampleGlance(example, reader) {
-  const [mine, other] = example.panels;
-  const linked = EXAMPLE_LINKS[reader];
-  if (!linked || linked.texts.join("\n") !== [example.text, mine.text, other.text].join("\n")) return null;
-  const codes = [example.source, mine.code, other.code];
-  const [pair] = glancePairs(example.text, mine.text);
-  const [second] = glancePairs(example.text, other.text);
-  const sentence = { ...pair, second: second.to };
-  const units = unitsFromLinks(example.text, mine.text, linked.own, [codes[0], codes[1]],
-    { text: other.text, links: linked.other, codes: [codes[0], codes[2]] }, { fill: true });
-  if (!units) return null;
-  const third = unitsOfThird({ original: example.text, own: mine.text, other: other.text,
-    links: { own: linked.own, other: linked.other, between: linked.between }, codes });
-  return {
-    panels: [1, 2],
-    reader: 1,
-    by: "aligner",
-    sentences: [{ ...sentence, status: "done", units: placeUnits(sentence, units, { to: second.to }),
-                  ...(third ? { third: placeThird(sentence, third) } : {}) }],
-  };
-}
+/* As in a reading: long enough that a pointer travelling across the text
+   trails no signs, short enough to answer before the reader clicks; once a
+   sign stands, the next word is answered at once. */
+const DELAY = 150;
+const LEAVE = 90;
+/* How far a finger moves before a tap is a scroll. */
+const SLOP = 10;
 
-/* The reading the example stands for, in the shape a finished run leaves. */
-export function exampleState(example, reader) {
-  const [mine, other] = example.panels;
-  const named = (code) => languageLabel(code, reader) || code;
-  const without = ({ in: _, ...rest }) => rest;
-  return {
-    text: example.text,
-    short: false,
-    sentence: null,
-    source: { code: example.source, name: named(example.source) },
-    panels: [
-      { code: example.source, name: named(example.source), status: "ready", text: example.text },
-      { code: mine.code, name: named(mine.code), status: "ready", text: mine.text },
-      { code: other.code, name: named(other.code), status: "ready", text: other.text },
-    ],
-    words: example.terms.map(without),
-    verbs: example.verbs.map(without),
-    forms: example.verbs.map((verb) => verb.form),
-    wordAlign: { a: example.terms.map((term) => [term.in[0]]), b: example.terms.map((term) => [term.in[1]]) },
-    verbAlign: { a: example.verbs.map((verb) => [verb.in[0]]), b: example.verbs.map((verb) => [verb.in[1]]) },
-    glance: exampleGlance(example, reader),
-    links: null,
-    status: { words: "", verbs: "", panels: "" },
-    spelling: null,
-    fault: null,
-    busy: false,
-    model: "",
-  };
-}
-
-/* The settings the example is drawn with: the reader's own language first,
-   the other two after it, every section shown, and a model standing behind
-   it — without one the reading window draws neither terms nor verbs. */
-function exampleSettings(example, reader) {
-  return {
-    languages: [reader, example.source, example.panels[1].code],
-    levels: {},
-    show: { verbs: "foreign", terms: "foreign" },
-    endpoint: "https://example.invalid/v1",
-    model: "",
-    glance: true,
-    underline: true,
-    cards: { mode: "learned", anki: { enabled: false, decks: {}, sync: false } },
-  };
-}
-
-const NOTHING = () => {};
-const TOOLS = (reader) => ({
-  reader, copy: NOTHING, open: NOTHING, search: NOTHING, card: NOTHING, cardFor: () => true,
-  insert: null, speak: NOTHING, canSpeak: () => true,
-});
-
-/* A word picked in the original, as a finished pick leaves it: the entry
-   written beforehand for it (`example.picks`), its spots in the two
-   translations where the reading window would have asked for them. */
-const folded = (words) => String(words || "").toLocaleLowerCase().replace(/\s+/g, " ").trim();
-
-/* Where a spot stands in a translation. A word can stand there more than
-   once — "in" twice in the German sentence — and the first is not always
-   the one meant: the one whose place in its sentence is nearest to the
-   picked word's place in the original. */
-function placeOf(text, spot, near) {
-  if (!spot) return null;
-  const found = [];
-  const lower = text.toLocaleLowerCase();
-  const wanted = spot.toLocaleLowerCase();
-  const letter = /[\p{L}\p{N}]/u;
-  for (let at = lower.indexOf(wanted); at !== -1; at = lower.indexOf(wanted, at + 1)) {
-    const end = at + wanted.length;
-    if (letter.test(text[at - 1] || "") || letter.test(text[end] || "")) continue;
-    found.push({ start: at, end });
-  }
-  if (!found.length) return null;
-  const distance = (range) => Math.abs(range.start / text.length - near);
-  return [found.reduce((best, range) => (distance(range) < distance(best) ? range : best))];
-}
-
-/* The entry for a word without one of its own: that of the marked term it
-   stands in, the whole term then picked — the example has no entry for
-   "casco" alone, and a click on it answering nothing would look broken. */
-function around(example, choice) {
-  const text = example.text.toLocaleLowerCase();
-  for (const pick of example.picks || []) {
-    const words = pick.text.trim();
-    const at = text.indexOf(words.toLocaleLowerCase());
-    if (at === -1 || !/\s/.test(words)) continue;
-    const end = at + words.length;
-    if (choice.start >= at && choice.end <= end) return { entry: pick, start: at, end };
-  }
-  return null;
-}
-
-export function pickedState(example, state, picked) {
-  if (!picked || picked.panel !== 0 || picked.dragging || picked.entry != null || picked.inSentence) return null;
-  let choice = picked;
-  let term = example.text.slice(choice.start, choice.end).trim();
-  let entry = (example.picks || []).find((pick) => folded(pick.text) === folded(term));
-  if (!entry) {
-    const whole = around(example, choice);
-    if (!whole) return null;
-    choice = { ...choice, start: whole.start, end: whole.end };
-    term = example.text.slice(whole.start, whole.end).trim();
-    entry = whole.entry;
-  }
-  const { in: spots = [], ...said } = entry;
-  const near = choice.start / example.text.length;
-  const ranges = {};
-  spots.forEach((spot, at) => {
-    /* No spot written is nothing to mark, not a spot to guess. */
-    const place = placeOf(state.panels[at + 1].text, spot, near);
-    if (place || !spot) ranges[at + 1] = place;
-  });
-  return {
-    ...state,
-    selection: { panel: 0, start: choice.start, end: choice.end, term },
-    marked: {
-      infinitive: "", person: "", tense: "", note: "", synonyms: [], ...said,
-      text: term, meaningLanguage: example.panels[0].code, a: spots[0] || "", b: spots[1] || "", ranges,
-    },
-    markedStatus: "",
-    markedTrail: null,
-  };
-}
+/* The snapshot for an interface language; English for one without. */
+export const snapshotFor = (reader) => EXAMPLE_SNAPSHOT[reader] || EXAMPLE_SNAPSHOT.en;
 
 export function exampleView(example, reader, { onResize = () => {} } = {}) {
+  const shot = snapshotFor(reader);
   const holder = element("div", "welcome-example");
   const sheet = element("div", "sheet welcome-example-sheet");
-  holder.append(sheet);
-  let state = exampleState(example, reader);
-  const settings = exampleSettings(example, reader);
+  sheet.innerHTML = shot.sheet;
+  const sign = element("div", "glance");
+  sign.setAttribute("role", "tooltip");
+  holder.append(sheet, sign);
+  const unpicked = [0, 1, 2].map((panel) => boxOf(panel).innerHTML);
+  const phone = onPhone();
 
-  /* A word of the original picked: its entry under the translations and its
-     spots in them, as in a reading. Several words at once, a translation's
-     words or a synonym are not part of the example. */
-  const onPick = (choice) => {
-    const picked = pickedState(example, state, choice);
-    if (!picked) return;
-    state = picked;
-    draw();
-    onResize();
-  };
+  function boxOf(panel) {
+    return sheet.querySelector(`.words[data-panel="${panel}"]`);
+  }
+  const keyOf = (word) => `${word.closest(".words").dataset.panel}:${word.dataset.from}`;
 
-  const draw = () => {
-    renderReading(sheet, state, {
-      settings,
-      tools: TOOLS(reader),
-      edit: { editing: false, draft: example.text, onDraft: NOTHING, onEdit: NOTHING, onTranslate: NOTHING },
-      onPick, onLookUp: NOTHING, onStep: NOTHING, onFold: null, onMore: NOTHING, onExample: NOTHING,
+  function frame() {
+    /* No system selection under a finger, the page still scrolling. */
+    if (phone) for (const panel of [0, 1, 2]) boxOf(panel)?.classList.add("touch-words");
+  }
+  frame();
+
+  /* A word of the original picked: its texts and its entry as the snapshot
+     holds them, the entry after the three texts. */
+  function pick(word) {
+    const at = shot.picks[word.dataset.from];
+    if (at == null) return false;
+    const entry = shot.entries[at];
+    [0, 1, 2].forEach((panel) => {
+      const [front, back, middle] = entry.boxes[panel];
+      const was = unpicked[panel];
+      boxOf(panel).innerHTML = was.slice(0, front) + middle + was.slice(was.length - back);
     });
-    /* A picture to look at: no fold to close. */
-    for (const node of sheet.querySelectorAll(".fold")) node.remove();
-    /* The heading over the original stands over the sheet in the reading
-       window, in its first line; here it is the first pane's own. */
-    const original = sheet.querySelector(".pane");
-    if (original && !original.querySelector(".label")) {
-      const label = element("div", "label");
-      label.append(element("span", "name", state.source.name), element("span", "status", ""));
-      original.prepend(label);
+    sheet.querySelector(".pane.example-picked")?.remove();
+    const wrap = document.createElement("div");
+    wrap.innerHTML = entry.pane;
+    const pane = wrap.firstElementChild;
+    pane.classList.add("example-picked");
+    sheet.querySelectorAll(":scope > .pane")[2].after(pane);
+    frame();
+    onResize();
+    return true;
+  }
+
+  function unlight() {
+    for (const node of sheet.querySelectorAll(".glance-lit")) node.classList.remove("glance-lit", "glance-start", "glance-end");
+  }
+
+  /* Words and the spaces between them, so that a group reads as one
+     stretch the way a marked term does — its ends rounded. */
+  function light(stretches) {
+    for (const panel of [0, 1, 2]) {
+      const ranges = stretches.filter(([at]) => at === panel);
+      if (!ranges.length) continue;
+      const pieces = [...boxOf(panel).querySelectorAll(".w, .g")];
+      const lit = pieces.map((piece) => ranges.some(([, start, end]) =>
+        Number(piece.dataset.from) >= start && Number(piece.dataset.to) <= end));
+      pieces.forEach((piece, i) => {
+        if (!lit[i]) return;
+        piece.classList.add("glance-lit");
+        piece.classList.toggle("glance-start", !lit[i - 1]);
+        piece.classList.toggle("glance-end", !lit[i + 1]);
+      });
     }
-  };
-  draw();
+  }
+
+  function hide() {
+    sign.classList.remove("shown");
+    unlight();
+  }
+
+  /* Over the middle of the word's lit stretch on its line — one place for a
+     group, whichever of its words is pointed at — and always over it. */
+  function place(word) {
+    const pieces = [...word.closest(".words").querySelectorAll(".w, .g")];
+    let first = pieces.indexOf(word);
+    let last = first;
+    if (word.classList.contains("glance-lit")) {
+      while (first > 0 && !pieces[first].classList.contains("glance-start")) first--;
+      while (last < pieces.length - 1 && !pieces[last].classList.contains("glance-end")) last++;
+    }
+    const own = word.getBoundingClientRect();
+    const boxes = pieces.slice(first, last + 1).map((piece) => piece.getBoundingClientRect())
+      .filter((box) => (box.width || box.height) && Math.abs(box.top - own.top) < 2);
+    const left = Math.min(own.left, ...boxes.map((box) => box.left));
+    const right = Math.max(own.right, ...boxes.map((box) => box.right));
+    /* The page may be enlarged (a phone's sheet): boxes come in the
+       screen's measure, the sign is placed in the holder's own. */
+    const outer = holder.getBoundingClientRect();
+    const scale = holder.offsetWidth ? outer.width / holder.offsetWidth : 1;
+    const middle = ((left + right) / 2 - outer.left) / scale;
+    const width = sign.offsetWidth;
+    const x = Math.max(0, Math.min(middle - width / 2, holder.clientWidth - width));
+    sign.style.left = `${Math.round(x)}px`;
+    sign.style.top = `${Math.round((own.top - outer.top) / scale - sign.offsetHeight)}px`;
+  }
+
+  /* What the snapshot says about a word: its sign and its places. */
+  function answer(word) {
+    hide();
+    const found = shot.hover[keyOf(word)];
+    if (!found) return false;
+    const [said, stretches] = found;
+    light(stretches);
+    if (!said) return !!stretches.length;
+    sign.textContent = said;
+    sign.classList.add("shown");
+    place(word);
+    return true;
+  }
+
+  const wordIn = (target) => target?.closest?.(".words[data-panel] .w") || null;
+
+  if (phone) {
+    let down = null;
+    sheet.addEventListener("touchstart", (event) => {
+      const touch = event.touches?.[0];
+      down = event.touches?.length === 1 && touch ? { x: touch.clientX, y: touch.clientY, word: wordIn(event.target) } : null;
+    }, { passive: true });
+    sheet.addEventListener("touchmove", (event) => {
+      const touch = event.touches?.[0];
+      if (down && touch && Math.hypot(touch.clientX - down.x, touch.clientY - down.y) > SLOP) down = null;
+    }, { passive: true });
+    sheet.addEventListener("touchend", (event) => {
+      const tapped = down;
+      down = null;
+      if (!tapped) return;
+      if (!tapped.word) {
+        hide();
+        return;
+      }
+      /* A tap is the whole answer: no click after it. */
+      event.preventDefault();
+      const key = keyOf(tapped.word);
+      if (key.startsWith("0:")) pick(tapped.word);
+      const [panel, from] = key.split(":");
+      const word = boxOf(panel).querySelector(`.w[data-from="${from}"]`);
+      if (word) answer(word);
+    });
+    /* A tap anywhere else on the page lets the sign go. */
+    document.addEventListener("touchstart", (event) => {
+      if (!sheet.contains(event.target)) hide();
+    }, { passive: true, capture: true });
+  } else {
+    let spot = "";
+    let timer = 0;
+    let leaving = 0;
+    sheet.addEventListener("mouseover", (event) => {
+      const word = wordIn(event.target);
+      if (!word) return;
+      clearTimeout(leaving);
+      const key = keyOf(word);
+      if (key === spot) return;
+      spot = key;
+      clearTimeout(timer);
+      if (sign.classList.contains("shown") || sheet.querySelector(".glance-lit")) answer(word);
+      else timer = setTimeout(() => answer(word), DELAY);
+    });
+    /* The space between two words is still the text. */
+    sheet.addEventListener("mouseout", (event) => {
+      const piece = ".words[data-panel] .w, .words[data-panel] .g";
+      if (!event.target.closest?.(piece) || event.relatedTarget?.closest?.(piece)) return;
+      clearTimeout(leaving);
+      leaving = setTimeout(() => {
+        clearTimeout(timer);
+        spot = "";
+        hide();
+      }, LEAVE);
+    });
+    sheet.addEventListener("mousedown", () => {
+      clearTimeout(timer);
+      spot = "";
+      hide();
+    });
+    sheet.addEventListener("click", (event) => {
+      const word = wordIn(event.target);
+      if (word && word.closest(".words").dataset.panel === "0") pick(word);
+    });
+  }
 
   /* A press on a button says nothing, not even "copied". */
   sheet.addEventListener("click", (event) => {
-    if (!event.target.closest?.(".actions button, .row-actions button, .synonym")) return;
+    if (!event.target.closest?.("button")) return;
     event.preventDefault();
     event.stopPropagation();
   }, true);
@@ -226,8 +229,5 @@ export function exampleView(example, reader, { onResize = () => {} } = {}) {
   sheet.addEventListener("mouseout", (event) => {
     if (event.target.closest?.(".row[data-hl]") && root()) delete root().dataset.hl;
   });
-  /* The phone has no hover: a tap is turned into a pointer passing over,
-     and the word's bubble flashed up under the finger. */
-  if (!onPhone()) watchGlance({ sheet, layer: holder, reading: () => ({ state, reader }) }).refresh();
   return holder;
 }

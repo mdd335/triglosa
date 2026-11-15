@@ -55,6 +55,7 @@ import {
   openLanguageSettings,
   prepareLanguages,
   openPhoneSettings,
+  appleDictionary,
 } from "../platform/env.js";
 import {
   accessibilityGranted,
@@ -124,7 +125,11 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
     content.append(page);
     const entry = element("button", "settings-entry");
     entry.dataset.page = key;
-    entry.append(icon(PAGE_ICONS[key]), element("span", null, entryName));
+    /* The name a second time, bold and unseen, so the list is as wide as its
+       longest entry chosen and no name breaks or shifts when it is. */
+    const name = element("span", null, entryName);
+    name.dataset.name = entryName;
+    entry.append(icon(PAGE_ICONS[key]), name);
     /* On a phone the list is a screen of its own, each entry leading on to
        its page, as the system's own settings do. */
     if (phone) entry.append(icon("next"));
@@ -264,8 +269,7 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
 
   /* What the whole group is for, then the two ways to a model
      (model-setup.js), which fill in the fields below them. */
-  page.append(element("p", "hint group-hint", text.modelIntro),
-    element("p", "hint group-hint", `${text.modelQuestion} ${text.modelWays}`));
+  page.append(element("p", "hint group-hint", text.modelIntro));
   page.append(modelSetup({ text, settings, onChange, link: textLink }));
 
   /* Under each field only what matters on the way chosen: OpenRouter's
@@ -375,19 +379,10 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
 
   startPage("translation", text.groupTranslation);
   /* On Windows there is no translation on the device: the model is the only
-     translator, and the group holds nothing but the hover and the kept
-     readings. A phone has Apple's translation and no hover — nothing hovers
-     there — and nothing of what follows that belongs to a window, a keyboard
-     or another program. */
+     translator, and the group holds nothing but the hover's sign and the
+     kept readings. A phone has Apple's translation, and nothing of what
+     follows that belongs to a window, a keyboard or another program. */
   const onDevice = !onWindows();
-  /* What a word became, on hover — a translation too, of one word at a time,
-     and after it how many readings stay to step back to — both
-     about every translation, so above who makes it. */
-  if (!phone) page.append(field({
-    label: text.glance,
-    hint: text.glanceHint,
-    control: switchFor(settings.glance, (on) => onChange({ ...settings, glance: on })),
-  }));
   /* How many readings the title bar's chevrons step back through. */
   const kept = select(
     KEPT_READINGS.map((count) => ({ value: String(count), label: count ? text.keptLast(count) : text.optionOff })),
@@ -395,12 +390,10 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
   );
   kept.classList.add("short");
   kept.addEventListener("change", () => onChange({ ...settings, kept: Number(kept.value) }));
-  page.append(field({ label: text.kept, hint: text.keptHint, control: kept }));
   /* Apple's translation is not set up anywhere: it is part of the system and
      wants nothing but a language pack per pair, which is what this list is
-     about. Under the hover and the kept readings the group says that first,
-     then which packs are there, then who translates by default and that the
-     other steps in. */
+     about. The group says that first, then which packs are there, then who
+     translates by default and that the other steps in. */
   /* What the device can translate, and what it cannot yet. The three answers
      are different in kind and only one of them is actionable: a pair that is
      merely not downloaded can be fetched from here, while a pair the device
@@ -427,6 +420,15 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
     translatorField.append(element("p", "hint", text.translatorShort));
   }
   if (onDevice) page.append(translatorField);
+  /* Last (author 2026-11-11): the sign over a word, saying what it became —
+     its places light up either way — and how many readings stay to step
+     back to. */
+  page.append(field({
+    label: text.glance,
+    hint: text.glanceHint,
+    control: switchFor(settings.glance, (on) => onChange({ ...settings, glance: on })),
+  }));
+  page.append(field({ label: text.kept, hint: text.keptHint, control: kept }));
   let fetchButton = null;
   let gaps = false;
   if (onDevice) showPairs();
@@ -569,6 +571,17 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
   search.classList.add("short");
   search.addEventListener("change", () => onChange({ ...settings, search: search.value }));
   page.append(field({ label: text.searchEngine, hint: text.searchHint, control: search }));
+  /* Apple's dictionary, which stands in for an explanation where no model
+     gives one (author 2026-11-12): what it does, and the way to the
+     dictionaries — the Mac's Dictionary app, the phone's own sheet. Not on
+     Windows, which has none. */
+  if (onDevice) {
+    const manage = element("button", null, text.dictionaryManage);
+    manage.addEventListener("click", async () => (await appleDictionary())?.manage());
+    /* Where the dictionaries are chosen is said before the button, in the
+       same paragraph (author 2026-11-13). */
+    page.append(field({ label: text.dictionaryHeading, lead: [text.dictionaryIntro, text.dictionaryManageHint].filter(Boolean).join(" "), control: manage }));
+  }
 
   if (!phone) {
     /* ---- the window ---- */
@@ -697,7 +710,6 @@ export function settingsView({ settings, apiKey }, { onChange, onKeyChange, onPl
     onChange({ ...settings, cards: { ...settings.cards, mode: howMany.value } }));
   page.append(field({
     label: text.cardsEnabled,
-    hint: text.cardsEnabledHint,
     control: howMany,
   }));
   /* Offered whatever the answer above: a card out of the selection is made
@@ -1182,10 +1194,10 @@ function ankiFields(settings, text, onChange) {
     const saveDeck = (next) => (next.deck === config.deck ? save(next)
       : save({ ...next, noteType: "", fields: { term: "", meaning: "", note: "" } }));
     body.append(deckField(anki.decks, config, text, saveDeck, draw, phone));
-    /* The lists are as Anki had them when they were fetched; a deck made
-       since is one trip away, offered right under the list it would be
-       missing from. */
-    if (phone) {
+    /* The lists are as Anki had them when they were fetched; fetching them
+       again is one trip there, offered last, under everything it fills. */
+    const refresh = () => {
+      if (!phone) return [];
       const again = element("button", null, text.ankiRecheck);
       again.addEventListener("click", async () => {
         again.disabled = true;
@@ -1193,14 +1205,14 @@ function ankiFields(settings, text, onChange) {
         anki = null;
         draw();
       });
-      const row = element("div", "with-presets");
-      row.append(again);
+      const buttons = element("div", "with-presets");
+      buttons.append(again);
       /* A field without a label: the line under the button in a button's
          grey, and what the last fetch came to under that. */
       const holder = element("div", "field");
-      holder.append(row, element("p", "hint", text.ankiRecheckHint), ...toldLine());
-      body.append(holder);
-    }
+      holder.append(buttons, element("p", "hint", text.ankiRecheckHint), ...toldLine());
+      return [holder];
+    };
     /* A deck was chosen since this was last asked, and what the deck is built
        out of is the answer to the next question. */
     if (anki.forDeck !== config.deck) {
@@ -1211,8 +1223,9 @@ function ankiFields(settings, text, onChange) {
     }
     /* The note type is a question about a deck, asked once there is one. */
     if (config.deck) body.append(noteTypeField(anki, config, named, text, save, backend));
-    if (config.deck && config.noteType) body.append(mappingField(config, text, save, backend));
+    if (config.deck && config.noteType) body.append(mappingField(config, named, text, save, backend));
     if (sync && !row) body.append(sync);
+    body.append(...refresh());
   }
 
   draw();
@@ -1372,12 +1385,13 @@ function noteTypeField(anki, config, named, text, save, backend) {
 }
 
 /* Three lists, one per field of a card. */
-function mappingField(config, text, save, backend) {
-  /* Named generically here and by their language on the card itself. A
-     setting covers every language the reader learns, and naming one of them
-     would be right for one card in two. */
+function mappingField(config, [reader, code], text, save, backend) {
+  /* The word's line is named by its language: the mapping belongs to that
+     language's deck. The meaning's is not — a deck is not the reader's, and
+     a reader who changes their first language keeps deck and mapping. */
+  const learned = languageLabel(code, reader) || text.cardTerm;
   const roles = [
-    ["term", text.cardTerm],
+    ["term", learned],
     ["meaning", text.cardMeaning],
     ["note", text.cardNote],
   ];
@@ -1415,7 +1429,7 @@ function mappingField(config, text, save, backend) {
        have to work out why it filled itself. */
     const first = names[0];
     const claimed = CARD_FIELDS.some((role) => config.fields[role] === first);
-    note.textContent = claimed ? "" : text.ankiFirstField(first);
+    note.textContent = claimed ? "" : text.ankiFirstField(first, learned);
   });
   const box = field({ label: text.ankiFields, hint: text.ankiFieldsHint, control: row });
   box.append(note);

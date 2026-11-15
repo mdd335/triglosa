@@ -149,14 +149,51 @@ export function refusesReasoning(status, detail) {
   return status === 400 && /reason/i.test(String(detail || ""));
 }
 
-export function chatPayload({ model, system, user, maxTokens, temperature, reasoning }) {
+/* Fields of the request a service may refuse by name, and what is sent
+   instead: nothing, or the same value under the name it wants. Anthropic's
+   newer models answer 400, "`temperature` is deprecated for this model";
+   OpenAI's reasoning models "'max_tokens' is not supported with this model.
+   Use 'max_completion_tokens' instead." A model that refuses one is asked
+   again without it and never offered it again; every other model keeps it,
+   since the prompts were measured with it.
+
+   The thinking field goes only where the service does not know it at all
+   (author 2026-11-10): a model that must think says so, and climbs the
+   ladder above instead. Left out, nothing is added for thinking — a model
+   that thinks anyway still runs out of room and is refused by name. */
+export const REFUSABLE = {
+  temperature: null,
+  max_tokens: "max_completion_tokens",
+  reasoning_effort: null,
+};
+
+const UNKNOWN_FIELD = /unrecognized|unknown|unsupported|not supported|not permitted|not allowed|extra (inputs|fields)|unexpected/i;
+const MUST_THINK = /mandatory|required|cannot be disabled|must/i;
+
+/* Which of those a 400 names, or nothing. */
+export function refusedField(status, detail) {
+  if (status !== 400) return "";
+  const said = String(detail || "");
+  return Object.keys(REFUSABLE).find((field) => new RegExp(`\\b${field}\\b`, "i").test(said)
+    && (field !== "reasoning_effort" || (UNKNOWN_FIELD.test(said) && !MUST_THINK.test(said)))) || "";
+}
+
+export function chatPayload({ model, system, user, maxTokens, temperature, reasoning, refused = new Set() }) {
   const mode = reasoning || "none";
-  return {
-    model,
+  const fields = {
     temperature: typeof temperature === "number" ? temperature : DEFAULT_TEMPERATURE,
     max_tokens: maxTokens,
-    stream: false,
     reasoning_effort: mode,
+  };
+  const sent = {};
+  for (const [field, value] of Object.entries(fields)) {
+    if (!refused.has(field)) sent[field] = value;
+    else if (REFUSABLE[field]) sent[REFUSABLE[field]] = value;
+  }
+  return {
+    model,
+    ...sent,
+    stream: false,
     messages: [
       { role: "system", content: system },
       { role: "user", content: user },
@@ -191,6 +228,8 @@ export function createLlmBackend({ endpoint, apiKey, model }, fetchImpl = fetch)
   const base = trimSlash(endpoint);
   let chosen = model || "";
   let reasoning = REASONING_LADDER[0];
+  /* The fields this endpoint refused (REFUSABLE), found once and kept. */
+  let refused = new Set();
 
   const headers = () => ({
     "Content-Type": "application/json",
@@ -248,6 +287,7 @@ export function createLlmBackend({ endpoint, apiKey, model }, fetchImpl = fetch)
       );
       error.status = response.status;
       error.reasoningRefused = refusesReasoning(response.status, detail);
+      error.refusedField = refusedField(response.status, detail);
       throw error;
     }
   }
@@ -265,13 +305,21 @@ export function createLlmBackend({ endpoint, apiKey, model }, fetchImpl = fetch)
     return chosen;
   }
 
-  return {
+  const backend = {
     listModels,
     /* Used by the connection test in the settings window: it says what
-       answered, which saves half the support traffic. */
+       answered, which saves half the support traffic. A named model is asked
+       a question of its own, the one route every reading takes: some
+       services answer the common shape there and list their models only in
+       their own (Anthropic, which wants a header of its own for the list).
+       Only without a name is the endpoint asked what it has. */
     async test() {
+      if (chosen) {
+        await backend.chat({ system: "Reply with OK.", user: "OK?", maxTokens: 32, temperature: 0 });
+        return { reachable: true, models: [chosen], chosen };
+      }
       const ids = await listModels();
-      return { reachable: true, models: ids, chosen: chosen || pickModel(ids) };
+      return { reachable: true, models: ids, chosen: pickModel(ids) };
     },
     /* Which rung of the reasoning ladder this endpoint turned out to want.
        Found once and kept: a model does not change its mind between two
@@ -290,20 +338,25 @@ export function createLlmBackend({ endpoint, apiKey, model }, fetchImpl = fetch)
            neighbour climbed it first — measured, the verb list of a Russian
            text. */
         const used = reasoning;
+        const without = refused;
         try {
           const body = await request(
             "/chat/completions",
             {
               method: "POST",
               body: JSON.stringify(
-                chatPayload({ model: name, system, user, maxTokens, temperature, reasoning: used }),
+                chatPayload({ model: name, system, user, maxTokens, temperature, reasoning: used, refused: without }),
               ),
             },
             REQUEST_TIMEOUT_MS,
           );
           return readAnswer(body);
         } catch (error) {
-          if (reasoning !== used) continue;
+          if (reasoning !== used || refused !== without) continue;
+          if (error.refusedField && !without.has(error.refusedField)) {
+            refused = new Set([...without, error.refusedField]);
+            continue;
+          }
           const next = nextReasoningMode(used, error);
           if (next) {
             reasoning = next;
@@ -329,4 +382,5 @@ export function createLlmBackend({ endpoint, apiKey, model }, fetchImpl = fetch)
       }
     },
   };
+  return backend;
 }

@@ -57,6 +57,9 @@ function guide(text, { title, model }, current, parts, folded, onFold) {
   return box;
 }
 
+/* Whether the help fold stands open, in this window only. */
+let helpOpen = false;
+
 export function modelSetup({ text, settings, onChange, link }) {
   const root = element("div", "model-setup");
   const chosen = settings.way;
@@ -65,15 +68,24 @@ export function modelSetup({ text, settings, onChange, link }) {
   choices.setAttribute("role", "group");
   const below = element("div", "setup-below");
   const more = element("p", "hint");
-  more.append(...text.setupMore((word) => link(word, MODEL_HELP_URL)), " ", text.setupChatbot);
+  more.append(...text.setupMore((word) => link(word, MODEL_HELP_URL)));
+  const chatbot = element("p", "hint", text.setupChatbot);
   /* The prompt is not shown: it is read where it is pasted. */
   const copy = element("button", null, text.setupPromptCopy);
   copy.type = "button";
   copy.addEventListener("click", () => reportOn(copy, async () => copyText(await helpPrompt(text)), text.copied));
-  /* The button right under the sentence that offers it. */
-  const help = element("div", "setup-prompt");
-  help.append(more, copy);
-  root.append(choices, below, help);
+  /* Where to read more, and the prompt's button right under the sentence
+     that offers it: a fold above the ways, shut until opened, and open
+     past the redraw every change causes while this window stands. */
+  const help = element("details", "setup-help");
+  help.open = helpOpen;
+  help.addEventListener("toggle", () => { helpOpen = help.open; });
+  const inside = element("div", "setup-prompt");
+  inside.append(more, chatbot, copy);
+  help.append(element("summary", null, text.setupHelp), inside);
+  /* The question the two ways answer, between the help and the ways. */
+  const question = element("p", "hint group-hint setup-question", `${text.modelQuestion} ${text.modelWays}`);
+  root.append(help, question, choices, below);
 
   /* What the way in use holds is put by, and the chosen one's brought
      back: what it held, or its preset where it never held an address. */

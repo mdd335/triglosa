@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert";
 import { unitsFromLinks } from "../../src/parse/glance.js";
 import { parseGlance, parseGlanceWide } from "../glance-answers.mjs";
-import { glanceAt, glancePairs, placeUnits, unitsOver } from "../../src/glance.js";
+import { glanceAt, glancePairs, glanceUnitsAt, placeUnits, unitsOver } from "../../src/glance.js";
 
 const shown = (sentence, units) => units.map((unit) => `${sentence.slice(unit.start, unit.end)} → ${unit.gloss}`);
 
@@ -253,3 +253,21 @@ test("links to words that are not there are left out, and no words is no answer"
   assert.deepStrictEqual(shown("Hola mundo", units), ["Hola → Hallo", "mundo → Welt"]);
 });
 
+
+test("a word of a translation rendering two units of the original stands under both", () => {
+  /* author 2026-11-12: "ab" lit "se retira", "se retira" lit only "zieht". */
+  const text = "zieht die Front ab";
+  const translation = "el frente se retira";
+  const at = (whole, part) => ({ start: whole.indexOf(part), end: whole.indexOf(part) + part.length });
+  const unit = (part, ...to) => ({ ...at(text, part), to: to.map((one) => at(translation, one)) });
+  const glance = {
+    panel: 1,
+    sentences: [{ start: 0, end: text.length, to: { start: 0, end: translation.length }, status: "done",
+      units: [unit("zieht", "se retira"), unit("die Front", "el frente"), unit("ab", "se retira")] }],
+  };
+  const retira = translation.indexOf("retira");
+  assert.deepStrictEqual(glanceUnitsAt(glance, "target", retira).map((one) => text.slice(one.start, one.end)), ["zieht", "ab"]);
+  assert.deepStrictEqual(glanceUnitsAt(glance, "target", translation.indexOf("frente")).map((one) => text.slice(one.start, one.end)), ["die Front"]);
+  assert.deepStrictEqual(glanceUnitsAt(glance, "source", text.indexOf("ab")).map((one) => text.slice(one.start, one.end)), ["ab"]);
+  assert.deepStrictEqual(glanceUnitsAt(glance, "target", translation.length + 4), []);
+});

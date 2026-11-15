@@ -146,7 +146,7 @@ for (const code of ["de", "en"]) {
       document.body.append(view);
       await new Promise((resolve) => setTimeout(resolve, 20));
       const labelsShown = [...view.querySelectorAll(".field > label")].map((node) => node.textContent);
-      for (const macOnly of [text.permission, text.directSelection, text.devicePairs, text.translator]) {
+      for (const macOnly of [text.permission, text.directSelection, text.devicePairs, text.translator, text.dictionaryHeading]) {
         assert.ok(!labelsShown.includes(macOnly), `${macOnly} is not offered`);
       }
       assert.strictEqual(view.querySelector("button.force-click"), null, "no force click to write into a field");
@@ -256,7 +256,7 @@ for (const code of ["de", "en"]) {
     view.remove();
   });
 
-  test(`how many readings are kept is a choice of five, ten, twenty or none, until the app quits (${code})`, async () => {
+  test(`how many readings are kept is a choice of none, five, ten or twenty, until the app quits (${code})`, async () => {
     const text = labels(code);
     const changes = [];
     const view = settingsView({ settings: normalizeSettings({ languages: [code, "es"] }), apiKey: "" },
@@ -268,7 +268,7 @@ for (const code of ["de", "en"]) {
     assert.strictEqual(names.indexOf(text.kept), names.indexOf(text.glance) + 1, "with the translations");
     const control = row.querySelector("select");
     assert.deepStrictEqual([...control.options].map((option) => option.textContent),
-      [text.keptLast(5), text.keptLast(10), text.keptLast(20), text.optionOff]);
+      [text.optionOff, text.keptLast(5), text.keptLast(10), text.keptLast(20)], "off first");
     assert.strictEqual(row.querySelector(".hint")?.textContent, text.keptHint);
     assert.strictEqual(control.value, "5");
     control.value = "0";
@@ -415,6 +415,26 @@ test("improving a card is on, and switched off in the flashcard group", () => {
   /* A reader who makes no cards out of a reading still makes them from the
      selection, so the question is asked either way. */
   assert.ok(draw({ cards: { mode: "never" } }), "offered whatever the answer above");
+});
+
+test("the verbs and terms page ends with Apple's dictionary and the way to its dictionaries", async () => {
+  /* author 2026-11-12: what stands in for an explanation without a model,
+     and where the dictionaries are loaded — the Mac's Dictionary app, the
+     phone's own sheet. */
+  for (const system of ["mac", "ios"]) {
+    globalThis.TRIGLOSA_SYSTEM = system;
+    try {
+      const text = labels("de", system);
+      const view = settingsView({ settings: normalizeSettings({ languages: ["de", "es"] }), apiKey: "" },
+        { onChange: () => {}, onKeyChange: () => {} });
+      const box = [...view.querySelectorAll(".field")].find((node) => node.querySelector("label")?.textContent === text.dictionaryHeading);
+      assert.ok(box, system);
+      assert.strictEqual(box.querySelector("button").textContent, system === "ios" ? "Wörterbücher verwalten" : "Lexikon öffnen");
+      assert.ok(box.textContent.includes(text.dictionaryIntro));
+    } finally {
+      delete globalThis.TRIGLOSA_SYSTEM;
+    }
+  }
 });
 
 test("the search engine is the Mac's own unless another is chosen", async () => {
@@ -569,11 +589,11 @@ for (const code of ["de", "en", "fr"]) {
       document.body.append(view);
       await new Promise((resolve) => setTimeout(resolve, 20));
       const labelsShown = [...view.querySelectorAll(".field > label")].map((node) => node.textContent);
-      for (const absent of [text.permission, text.glance, text.fitWindow,
+      for (const absent of [text.permission, text.fitWindow,
         text.appIcon, text.hotkey, text.cardHotkey, text.wordHotkey, text.withSentence]) {
         assert.ok(!labelsShown.includes(absent), `${absent} is not offered`);
       }
-      for (const kept of [text.devicePairs, text.translator, text.showTerms, text.showVerbs, text.underline, text.searchEngine, text.kept,
+      for (const kept of [text.glance, text.devicePairs, text.translator, text.showTerms, text.showVerbs, text.underline, text.searchEngine, text.kept,
         text.cardsEnabled, text.cardsImprove, text.ankiEnabled]) {
         assert.ok(labelsShown.includes(kept), `${kept} stays`);
       }
@@ -586,7 +606,6 @@ for (const code of ["de", "en", "fr"]) {
       /* Another app's text comes copied or shared: its page holds how iOS
          stops asking at every paste, and nothing else. */
       assert.strictEqual(text.groupReading, labels(code, "ios").groupReading);
-      assert.notStrictEqual(text.groupReading, labels(code, "mac").groupReading, "apps, not programs");
       const reading = view.querySelector('.settings-page[data-page="reading"]');
       assert.deepStrictEqual([...reading.querySelectorAll(".field > label")].map((node) => node.textContent), [text.pasteSetting]);
       assert.ok(!view.querySelector('.settings-page[data-page="translation"]').textContent.includes(text.pasteHint));
@@ -640,7 +659,7 @@ test("syncing after every card is a switch under Anki's fields, off until set", 
   assert.strictEqual(changes.at(-1).cards.anki.sync, true);
 });
 
-test("the phone's lists are fetched anew from right under the deck list", async (t) => {
+test("the phone's Anki information is fetched anew from a button at the very end, under the fields", async (t) => {
   globalThis.TRIGLOSA_SYSTEM = "ios";
   const stored = new Map([["triglosa.anki-info", JSON.stringify({
     decks: ["Spanisch"], notetypes: [{ name: "Basic", fields: ["Front", "Back"] }],
@@ -659,9 +678,40 @@ test("the phone's lists are fetched anew from right under the deck list", async 
   /* What an earlier test left of Anki's answer is asked again. */
   const again = () => [...view.querySelectorAll(".anki-body button")].find((node) => node.textContent === text.ankiRecheck);
   for (let tries = 0; tries < 20 && !again(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
-  const deck = fieldNamed(view, text.ankiDeck);
   assert.ok(again(), "offered");
-  assert.strictEqual(deck.nextElementSibling, again().closest(".field"), "right under the deck list");
+  assert.strictEqual(text.ankiRecheck, "Anki-Informationen aktualisieren", "worded so");
+  for (let tries = 0; tries < 20 && !fieldNamed(view, text.ankiFields); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  const body = view.querySelector(".anki-body");
+  assert.strictEqual(body.lastElementChild, again().closest(".field"), "last of all");
+  assert.ok(fieldNamed(view, text.ankiFields), "the fields stand above it");
+});
+
+test("Anki's word field is named by the deck's language, the meaning's by its role", async (t) => {
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  const stored = new Map([["triglosa.anki-info", JSON.stringify({
+    decks: ["Spanisch"], notetypes: [{ name: "Basic", fields: ["Front", "Back"] }],
+  })]]);
+  globalThis.localStorage = { getItem: (key) => stored.get(key) ?? null, setItem: (key, value) => stored.set(key, value) };
+  t.after(() => {
+    delete globalThis.TRIGLOSA_SYSTEM;
+    delete globalThis.localStorage;
+  });
+  const text = labels("de");
+  const settings = normalizeSettings({ languages: ["de", "es"], cards: { anki: { enabled: true,
+    decks: { es: { deck: "Spanisch", noteType: "Basic", fields: { term: "Front", meaning: "Back", note: "" } } } } } });
+  const view = settingsView({ settings, apiKey: "" }, { onChange: () => {}, onKeyChange: () => {} });
+  document.body.append(view);
+  t.after(() => view.remove());
+  for (let tries = 0; tries < 20 && !view.querySelector(".mapping-row"); tries += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  const names = [...view.querySelectorAll(".mapping-row .name")].map((node) => node.textContent);
+  assert.deepStrictEqual(names, ["Spanisch", text.cardMeaning, text.cardNote], "a deck keeps its mapping when the first language changes");
+  assert.ok(!fieldNamed(view, text.ankiFields).textContent.includes("Zeilen"), "a note is no line");
+  for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
+    const said = labels(code).ankiFirstField("ID", "Xyz");
+    assert.ok(said.includes("xyz") || said.includes("Xyz"), `${code}: the first field's line names the language`);
+  }
+  assert.strictEqual(text.ankiFirstField("ID", "Spanisch"),
+    "Das erste Feld des Notiztyps („ID“) bekommt zusätzlich das Wort auf Spanisch. Anki nimmt Notizen mit leerem erstem Feld nicht an.");
 });
 
 test("the phone's Anki is fetched from on a button, and names no add-on", async () => {
@@ -895,6 +945,8 @@ test("each group is a page of its own, one shown at a time, chosen in the list b
     text.groupShortcuts, text.groupReadingEntry, text.groupCards, text.groupAbout,
   ]);
   assert.ok(entries().every((node) => node.querySelector("svg")), "each with its symbol");
+  assert.ok(entries().every((node) => node.querySelector("span").dataset.name === node.textContent),
+    "each name held once more for its width in bold");
   assert.deepStrictEqual(pages().map((node) => node.querySelector("h2.group").textContent),
     entries().map((node) => node.textContent).map((name) => (name === text.groupReadingEntry ? text.groupReading : name)),
     "each page under its own name, the list naming one shorter");
@@ -928,7 +980,7 @@ test("each group is a page of its own, one shown at a time, chosen in the list b
   openPage("languages");
 });
 
-test("the languages' page says what the list decides; the hover and the kept readings stand above who translates", () => {
+test("the languages' page says what the list decides; the hover and the kept readings stand last on the translations' page", () => {
   for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
     const text = labels(code);
     assert.ok(text.languagesIntro && text.showTerms && text.showVerbs, `${code} has the words`);
@@ -941,8 +993,8 @@ test("the languages' page says what the list decides; the hover and the kept rea
     text.languagesIntro, "three paragraphs, under the rows");
   const names = [...view.querySelectorAll('.settings-page[data-page="translation"] .field > label')]
     .map((node) => node.textContent);
-  assert.deepStrictEqual(names.slice(0, 2), [text.glance, text.kept]);
-  assert.ok(names.indexOf(text.devicePairs) > names.indexOf(text.kept));
+  assert.deepStrictEqual(names.slice(-2), [text.glance, text.kept]);
+  assert.ok(names.indexOf(text.devicePairs) < names.indexOf(text.glance));
 });
 
 test("a setting with two answers is a switch beside its name, turned only by a click on itself", () => {
@@ -1013,17 +1065,16 @@ test("the switch that improves cards says a card can always be improved on its b
   const row = fieldNamed(view, text.cardsImprove);
   assert.ok(row.textContent.includes(text.cardsImproveHint));
   assert.strictEqual(text.cardsImproveHint, "Karten können immer per Knopfdruck mit KI verbessert werden.", "worded so");
-  assert.strictEqual(text.cardsEnabled, "Knopf für Lernkarten anzeigen", "worded so");
+  assert.strictEqual(text.cardsEnabled, "Lernkarten anbieten", "worded so: about more than the button");
+  assert.strictEqual(text.ankiEnabled, "Speichern in Anki anbieten", "worded so: nothing goes to Anki by itself");
 });
 
-test("the card button's setting says what copying a card gives, naming the button by its own label", () => {
+test("the card button's setting stands without a sentence under it", () => {
   for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
     const text = labels(code);
     const view = settingsView({ settings: normalizeSettings({ languages: [code, code === "es" ? "en" : "es"] }), apiKey: "" },
       { onChange: () => {}, onKeyChange: () => {} });
-    const row = fieldNamed(view, text.cardsEnabled);
-    assert.ok(row.textContent.includes(text.cardsEnabledHint), code);
-    assert.ok(text.cardsEnabledHint.includes(text.cardCopyAll), `${code}: the button as it is called`);
+    assert.strictEqual(fieldNamed(view, text.cardsEnabled).querySelector(".hint"), null, code);
   }
 });
 

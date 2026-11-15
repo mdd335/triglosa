@@ -7,10 +7,11 @@
    through the Objective-C runtime (mobile.rs), the way it reaches the
    pasteboard — nothing is linked by symbol.
 
-   Two routes are the phone's own: what was copied (`/pasteboard`) and the
+   Some routes are the phone's own: what was copied (`/pasteboard`), the
    text in a picture from the camera, the photo library, the Files app or
    the pasteboard (`/pick?from=…`, cut in Crop.swift, then `/recognize`,
-   Recognition.swift).
+   Recognition.swift), and Apple's dictionary: whether it holds a word
+   (`/dictionary`) and its sheet for it (`/look-up`).
 
    Raise PROTOCOL together with translator.swift and translation.js whenever
    a route's answer changes shape. */
@@ -24,7 +25,7 @@ import UIKit
 import UniformTypeIdentifiers
 import WebKit
 
-private let PROTOCOL = 6
+private let PROTOCOL = 8
 
 private func statusWord(_ status: LanguageAvailability.Status) -> String {
   switch status {
@@ -71,6 +72,25 @@ private func hypothesisLines(of text: String) -> String {
     .sorted { $0.value > $1.value }
     .map { "\($0.key.rawValue) \(String(format: "%.3f", $0.value))" }
     .joined(separator: "\n")
+}
+
+/* Every word of a text in a language, as Apple's tagger reads it in its
+   sentence: one line each, "start\tend\tbase form\tword class", in UTF-16
+   units — as the computer's helper answers (sidecar/translator.swift). */
+private func wordLines(_ text: String, _ code: String) -> String {
+  let tagger = NLTagger(tagSchemes: [.lemma, .lexicalClass])
+  tagger.string = text
+  let whole = text.startIndex..<text.endIndex
+  tagger.setLanguage(NLLanguage(rawValue: code), range: whole)
+  var lines: [String] = []
+  tagger.enumerateTags(in: whole, unit: .word, scheme: .lexicalClass,
+                       options: [.omitWhitespace, .omitPunctuation]) { tag, range in
+    let base = tagger.tag(at: range.lowerBound, unit: .word, scheme: .lemma).0?.rawValue ?? ""
+    let span = NSRange(range, in: text)
+    lines.append("\(span.location)\t\(span.location + span.length)\t\(base)\t\(tag?.rawValue ?? "")")
+    return true
+  }
+  return lines.joined(separator: "\n")
 }
 
 /* The sessions kept, and one translation at a time: two callers must not be
@@ -144,10 +164,17 @@ private func prepare(from: String, targets: [String]) async -> Bool {
   await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
     var host: UIViewController?
     var over = false
+    var held = 0
     let view = PrepareView(from: from, targets: targets) {
       guard !over else { return }
       over = true
+      noLongerStanding(held)
       host?.dismiss(animated: false) { done.resume() }
+    }
+    held = whileStanding {
+      guard !over else { return }
+      over = true
+      done.resume()
     }
     let holder = UIHostingController(rootView: view)
     holder.view.backgroundColor = .clear
@@ -157,6 +184,21 @@ private func prepare(from: String, targets: [String]) async -> Bool {
   }
   await Sessions.shared.forget()
   return true
+}
+
+/* ---- What stands over the page ---- */
+
+/* Everything presented over the page closed, each wait on it ended with
+   nothing. */
+@MainActor
+private func putEverythingAway() async {
+  giveUpEverything()
+  let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+  guard let root = scenes.compactMap({ $0.keyWindow }).first?.rootViewController,
+        root.presentedViewController != nil else { return }
+  await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+    root.dismiss(animated: false) { done.resume() }
+  }
 }
 
 /* ---- A picture's text ---- */
@@ -181,6 +223,8 @@ private final class CameraTaking: NSObject, UIImagePickerControllerDelegate, UIN
     finish = nil
   }
 
+  func giveUp() { end(nil) }
+
   func imagePickerController(_ picker: UIImagePickerController,
                              didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
     let picture = (info[.originalImage] as? UIImage).flatMap(uprightPicture)
@@ -203,6 +247,8 @@ private final class LibraryPicking: NSObject, PHPickerViewControllerDelegate, UI
     finish?(picture)
     finish = nil
   }
+
+  func giveUp() { end(nil) }
 
   func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
     picker.dismiss(animated: true)
@@ -230,6 +276,8 @@ private final class FilePicking: NSObject, UIDocumentPickerDelegate {
     finish?(picture)
     finish = nil
   }
+
+  func giveUp() { end(nil) }
 
   func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
     end(urls.first.flatMap { try? Data(contentsOf: $0) }.flatMap(uprightPicture))
@@ -287,10 +335,13 @@ private func picture(from source: String) async -> CGImage? {
     return await withCheckedContinuation { (done: CheckedContinuation<CGImage?, Never>) in
       /* Held by its own ending, the picker holding its delegate weakly. */
       var taking: CameraTaking?
+      var held = 0
       taking = CameraTaking { picture in
+        noLongerStanding(held)
         done.resume(returning: picture)
         taking = nil
       }
+      held = whileStanding { taking?.giveUp() }
       let picker = UIImagePickerController()
       picker.sourceType = .camera
       picker.delegate = taking
@@ -300,10 +351,13 @@ private func picture(from source: String) async -> CGImage? {
     guard let top = uppermost() else { return nil }
     return await withCheckedContinuation { (done: CheckedContinuation<CGImage?, Never>) in
       var picking: LibraryPicking?
+      var held = 0
       picking = LibraryPicking { picture in
+        noLongerStanding(held)
         done.resume(returning: picture)
         picking = nil
       }
+      held = whileStanding { picking?.giveUp() }
       var configuration = PHPickerConfiguration()
       configuration.filter = .images
       configuration.selectionLimit = 1
@@ -316,10 +370,13 @@ private func picture(from source: String) async -> CGImage? {
     guard let top = uppermost() else { return nil }
     return await withCheckedContinuation { (done: CheckedContinuation<CGImage?, Never>) in
       var picking: FilePicking?
+      var held = 0
       picking = FilePicking { picture in
+        noLongerStanding(held)
         done.resume(returning: picture)
         picking = nil
       }
+      held = whileStanding { picking?.giveUp() }
       let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.image], asCopy: true)
       picker.allowsMultipleSelection = false
       picker.delegate = picking
@@ -360,8 +417,18 @@ private func answer(_ route: String, _ body: String) async -> (Int32, String) {
     await MainActor.run { allowKeyboard() }
     return (200, "ok")
   }
+  if path == "/put-away" {
+    await putEverythingAway()
+    return (200, "ok")
+  }
   if path == "/ground" {
     await paintGround(values["color"] ?? "")
+    return (200, "ok")
+  }
+  /* A finger held long enough on a button to do its other thing: the light
+     tap a held thing gets everywhere on the system. */
+  if path == "/held" {
+    await MainActor.run { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }
     return (200, "ok")
   }
   if path == "/settings" {
@@ -374,10 +441,12 @@ private func answer(_ route: String, _ body: String) async -> (Int32, String) {
      to be read where the page names the buttons for it (Crop.swift); 404
      where none came of it or the reader cancelled. */
   if path == "/pick" {
+    let began = await MainActor.run { putAways }
     var found = await picture(from: values["from"] ?? "")
     if let whole = found, let done = values["done"], !done.isEmpty {
       found = await cropped(whole, over: { uppermost() }, cancel: values["cancel"] ?? "", done: done)
     }
+    if await MainActor.run(body: { putAways }) != began { found = nil }
     let kept = found
     await MainActor.run { pickedPicture = kept }
     return kept == nil ? (404, "no picture") : (200, "ok")
@@ -392,6 +461,28 @@ private func answer(_ route: String, _ body: String) async -> (Int32, String) {
     } catch {
       return (500, "recognition failed: \(error)")
     }
+  }
+  if path == "/words" {
+    guard let code = values["lang"] else { return (400, "lang missing") }
+    return (200, wordLines(body, code))
+  }
+  /* Whether a dictionary the reader loaded in the system's settings holds
+     the word; then the system's own sheet for it. */
+  if path == "/dictionary" {
+    let term = body.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !term.isEmpty else { return (400, "empty term") }
+    let held = await MainActor.run { UIReferenceLibraryViewController.dictionaryHasDefinition(forTerm: term) }
+    return (200, held ? "yes" : "no")
+  }
+  if path == "/look-up" {
+    let term = body.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !term.isEmpty else { return (400, "empty term") }
+    let shown = await MainActor.run { () -> Bool in
+      guard let top = uppermost() else { return false }
+      top.present(UIReferenceLibraryViewController(term: term), animated: true)
+      return true
+    }
+    return shown ? (200, "shown") : (500, "no window")
   }
   if path == "/detect" {
     let text = body.trimmingCharacters(in: .whitespacesAndNewlines)

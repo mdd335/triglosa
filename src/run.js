@@ -11,18 +11,16 @@
 
 import { asConfigured, detectLanguage, chosenLanguage } from "./detect.js";
 import { faultOf } from "./faults.js";
+import { PAIR_DOWNLOADABLE } from "./platform/translation.js";
 import { showsSection } from "./settings.js";
 import { panelLanguages } from "./panels.js";
-import { displayName, isSupported } from "./languages/index.js";
+import { citationForm, displayName, isSupported } from "./languages/index.js";
 import { withoutVerbs, VERB_CANDIDATES, selectVerbForms } from "./parse/verbs.js";
 import { containsWord } from "./text.js";
-import { fixSwappedColumns } from "./match/columns.js";
 import {
   findVerbForms,
   annotateVerbs,
   wordsFor,
-  alignWords,
-  alignVerbs,
   translateText,
   alternativesFor,
   spellingFor,
@@ -32,15 +30,13 @@ import { checkerOffer, inAnotherLanguage, languageByDictionaries, mayBeMisspelle
 import { glancePairs, glossOf, placeThird, placeUnits } from "./glance.js";
 import { asHeadword, casedLike } from "./parse/alternatives.js";
 import { unitsFromLinks, unitsOfThird } from "./parse/glance.js";
-import { fragmentsAcross, rangesAcross } from "./match/links.js";
+import { rangesAcross } from "./match/links.js";
 import { spotsFor } from "./match/positions.js";
-import { wordCount } from "./text.js";
+import { SHORT_MAX_WORDS, wordCount } from "./text.js";
 import { sentenceAround } from "./sentence.js";
+import { deviceBaseForm, deviceBaseOfWord, deviceHeadword, verbMeaning } from "./base-form.js";
 
-/* Up to this many words the run takes the short path: a dictionary entry
-   instead of a translation. Above it a text has a context of its own, and one
-   rendering of it is the answer. */
-export const SHORT_MAX_WORDS = 3;
+export { SHORT_MAX_WORDS };
 
 
 /* A looked-up word's spelling (see spelling.js). The checker answers in a
@@ -185,7 +181,7 @@ function untangle(state, only = "") {
 /* `later`, where the window offers it, holds the verbs and the terms back
    while their section is folded away: `folded(key)` says whether it is as
    the reading starts, and `unfolded(key)` settles once it is opened. */
-export async function runText(text, { settings, translation, llm, aligner = null, identifier = null, speller = null, onChange, language = "", languageBy = "", guesses = [], sentence = null, asTyped = false, choice = null, kept = null, later = null }) {
+export async function runText(text, { settings, translation, llm, aligner = null, identifier = null, speller = null, dictionary = null, onChange, language = "", languageBy = "", guesses = [], sentence = null, asTyped = false, choice = null, kept = null, later = null }) {
   const state = emptyState();
   const blame = (error) => {
     const found = faultOf(error);
@@ -232,6 +228,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
       translation,
       llm,
       identifier,
+      speller,
     }).catch((error) => {
       blame(error);
       return { code: "", name: "" };
@@ -289,7 +286,8 @@ export async function runText(text, { settings, translation, llm, aligner = null
      say what is missing only where there is none.
 
      What is skipped below the panels is what only a language pack can
-     answer: the verb table and the hover. The terms are still asked. */
+     answer: the verb table. The terms are still asked, and the aligner
+     needs no pack: it places marks and the hover in every language. */
   const named = !!detected.code;
   /* What the device is asked to translate from: it knows more languages
      than the app has packs for, so a language known by its code alone —
@@ -309,7 +307,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
      which word became which as soon as the translations stand, and asks no
      model. The hover reads its answer, and so do the marks of every term,
      verb form and picked word that is a single word. */
-  const aligning = !!aligner && !state.short && named && targets.length > 0 && await aligner.ready();
+  const aligning = !!aligner && !state.short && targets.length > 0 && await aligner.ready();
 
   /* The hover says, over a word of a language the reader is learning, what it
      is in their own — so it wants a translated panel and the aligner to say
@@ -318,8 +316,10 @@ export async function runText(text, { settings, translation, llm, aligner = null
      cases it works in: their language is the original, and the sign over a
      translation is the source text's own words. Said as coming from the
      first moment, so that a word hovered while the panels are still filling
-     shows it will answer. */
-  const glanceWanted = aligning && settings.glance !== false;
+     shows it will answer. Worked out whether or not the sign is wanted
+     (`settings.glance`, glance-view.js): the places lit are the hover too
+     (author 2026-11-11). */
+  const glanceWanted = aligning;
   if (glanceWanted) {
     state.glance = { pending: true };
     tell();
@@ -345,21 +345,28 @@ export async function runText(text, { settings, translation, llm, aligner = null
      in their sentence they belong to, where it is hard enough for this
      reader to explain — the terms' own question, held to one. */
   /* What a panel nobody filled says. With an endpoint the model has just
-     tried and failed too, so the device's language downloads are not the
-     cause. Without one the device was the only engine there was — and then
+     tried and failed too, and the reason stands once under the sheet; the
+     panel says only that nothing came — unless Apple, which steps in for
+     the model, could not because this pair's pack is not downloaded: that
+     is what the reader can fix, offline above all, where the model cannot
+     be reached (author 2026-11-15). Without one the device was the only
+     engine there was — and then
      it matters whether it refused this pair, which the reader can fix by
      downloading it, or whether it was not answering at all, which no
      download helps. Naming the wrong one of those sends somebody into
      System Settings after a language that is already there; and for a
      language the app has no pack for there is no download to name. */
+  const pairOf = (to) => Promise.resolve(translation.pairStatus?.(from, to)).catch(() => "");
   const emptyStatus = async (to) => {
-    if (llm) return "no-answer";
+    if (llm) {
+      const missing = named && from && translation && (await translation.running?.()) && (await pairOf(to)) === PAIR_DOWNLOADABLE;
+      return missing ? "missing" : "no-answer";
+    }
     if (!named) return "unknown-source";
     if (!(await translation?.running?.())) return "no-device";
     /* A pair Apple cannot translate at all is no download away: telling
        the reader to load its pack sent them after one that does not exist. */
-    const pair = await Promise.resolve(translation.pairStatus?.(from, to)).catch(() => "");
-    return pair === "unsupported" ? "unsupported" : "missing";
+    return (await pairOf(to)) === "unsupported" ? "unsupported" : "missing";
   };
 
   if (state.short) {
@@ -435,8 +442,8 @@ export async function runText(text, { settings, translation, llm, aligner = null
         if (!(await aligner.ready())) return "";
         const translated = String(await translation.translate(from, code, came.text) || "");
         if (!translated) return "";
-        const [links] = await aligner.align([{ source: came.text, target: translated }]);
-        const reading = { panels: [1], codes: [from, code], sentences: [{ start: 0, end: came.text.length, to: { start: 0, end: translated.length }, links: [links || []] }] };
+        const [answer] = await aligner.align([{ source: came.text, target: translated }]);
+        const reading = { panels: [1], codes: [from, code], sentences: [{ start: 0, end: came.text.length, to: { start: 0, end: translated.length }, links: [linksIn(answer)], best: [bestIn(answer)] }] };
         const found = rangesAcross(reading, [came.text, translated], 0, { start: came.start, end: came.end }, 1);
         return found.length ? asHeadword(glossOf(translated, found).replace(/^[\p{P}\s]+|[\p{P}\s]+$/gu, ""), words, code) : "";
       } catch {
@@ -468,7 +475,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
         panel.alternatives = undefined;
         /* Apple writes a word alone as though it began a sentence:
            "Gelangweilt" is German's to keep, "Rug" for "tapis" is not. */
-        const translated = from ? asHeadword(await translation?.translate(from, code, words) || "", words, code) : "";
+        const translated = from ? await deviceHeadword(await translation?.translate(from, code, words) || "", words, code, translation) : "";
         /* Looked up in its sentence: what the word became where Apple
            translated the sentence, found by the aligner, stands first, as a
            model's meaning there does, and the word alone under it — two
@@ -533,6 +540,29 @@ export async function runText(text, { settings, translation, llm, aligner = null
         });
     };
 
+    /* The looked-up words as a term, without a model: see below. */
+    const deviceTerm = async (words) => {
+      const came = state.sentence && !state.sentence.apart ? askedSentence() : null;
+      const base = await deviceBaseForm({
+        ...(came ? { text: came.text, start: came.start, end: came.end } : { text: words, start: 0, end: words.length }),
+        code: from, translation, speller,
+      });
+      const own = state.panels.find((panel, index) => index && panel.code === reader);
+      let meaning = from === reader ? "" : String(own?.alternatives?.[0]?.text || own?.text || "").trim();
+      /* A verb's meaning is its base form's, as a model writes it: Apple's
+         translation of the base form, else the panel's word as a base form. */
+      const said = base ? await verbMeaning({ base, from, reader, translation, speller }) : "";
+      const meant = !said && base && meaning ? await deviceBaseOfWord({ word: meaning, code: reader, translation, speller }) : "";
+      const fromPanel = said && base && meaning ? await deviceBaseOfWord({ word: meaning, code: reader, translation, speller }) : "";
+      const fold = (value) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+      if (said) {
+        const own = fromPanel ? citationForm(reader, fromPanel) : "";
+        meaning = own && fold(own) !== fold(said) ? `${own}, ${said}` : said;
+      } else if (meant) meaning = citationForm(reader, meant);
+      const held = (await dictionary.has(words)) ? words : base && (await dictionary.has(base)) ? base : "";
+      return { text: words, meaning, note: "", device: true, dictionary: held, ...(base ? { verb: { infinitive: base, form: words } } : {}) };
+    };
+
     /* The upper panel first and alone, so it is reliably filled first; then
        the second panel and the term side by side, the panel's question sent
        first so that a model answering one at a time answers it first. */
@@ -540,6 +570,15 @@ export async function runText(text, { settings, translation, llm, aligner = null
     await spellingSettled();
     const second = targets.length > 1 ? fillPanel(1, targets[1], looked()) : null;
     await Promise.all([second, wantTerm ? askTerm(looked()) : null, spelled]);
+    /* Without a model the looked-up words' row under the entry stands all
+       the same, as far as Apple answers it (author 2026-11-12): a verb's
+       base form from Apple's tagger, the meaning from the reader's panel,
+       and in place of an explanation the way to Apple's dictionary, where
+       one the reader has holds the word. Nothing that rates or explains.
+       Only where Apple's tools are (`dictionary`: the Mac, the iPhone). */
+    if (!llm && dictionary && !keptWords && from && showsSection(settings, "terms", detected.code)) {
+      state.words = [await deviceTerm(looked())];
+    }
     state.busy = false;
     tell();
     return state;
@@ -734,52 +773,37 @@ export async function runText(text, { settings, translation, llm, aligner = null
   const bText = () => state.panels[2]?.text || "";
   const twoTranslations = targets.length > 1;
 
-  /* Where a word went, by the aligner: only a single word, and only where
-     it found a place in every translation. Anything of several words — an
-     idiom, a compound term, a form with its auxiliary — is the model's: an
-     aligner links word to word and marks half of what an expression became
-     (run forty). Null leaves the entry to the model. */
+  /* Where an entry went, by the aligner alone (author 2026-11-13, run
+     eighty-four): every term and verb form, of one word or several, read
+     off its links and grown at the edges by its scores (match/links.js).
+     The model is never asked where; where the aligner found no place, or
+     is not there, the entry stays unmarked in that panel. A form written in
+     parts ("sich + lichtete") is looked for part by part, each part where
+     it stands nearest the first. */
   const twoPanels = () => state.panels.length > 2;
   const texts = () => state.panels.map((panel) => panel.text);
-  const byAligner = (fragment) => {
-    if (!state.links || wordCount(fragment) !== 1) return null;
-    const [spot] = spotsFor(text, fragment);
-    if (!spot) return null;
-    const a = fragmentsAcross(state.links, texts(), 0, spot, 1);
-    const b = twoPanels() ? fragmentsAcross(state.links, texts(), 0, spot, 2) : [];
-    return a.length && (!twoPanels() || b.length) ? { a, b } : null;
+  const partsOf = (fragment) => {
+    const parts = String(fragment || "").split(/\s*(?:\+|\.{2,}|…)\s*/).map((part) => part.trim()).filter(Boolean);
+    const [first] = parts.length ? spotsFor(text, parts[0]) : [];
+    if (!first) return [];
+    return [first, ...parts.slice(1).map((part) => spotsFor(text, part)
+      .sort((x, y) => Math.abs(x.start - first.start) - Math.abs(y.start - first.start))[0]).filter(Boolean)];
   };
-  /* Whereabouts in a translation an entry of any length went, as far as the
-     aligner knows. The model says which words; where one of them stands more
-     than once in the panel, this says which occurrence (ui/marking.js). */
-  const whereabouts = (fragment, panel) => {
-    const [spot] = state.links ? spotsFor(text, fragment) : [];
-    const [first] = spot ? rangesAcross(state.links, texts(), 0, spot, panel) : [];
-    return first ? first.start : null;
-  };
-  /* An assignment out of the aligner's entries and the model's. The model is
-     asked about the whole list as it always was, or not at all where nothing
-     is left for it: asked about the terms of several words alone it answers
-     them differently — longer stretches, seven of 234 left empty (run forty). */
-  const assign = async (fragments, ask) => {
-    await aligned;
-    const known = fragments.map(byAligner);
-    let answered = null;
-    if (known.some((entry) => !entry)) {
-      try {
-        answered = fixSwappedColumns(await ask(), aText(), bText());
-      } catch {
-        if (known.every((entry) => !entry)) return null;
-      }
-    }
-    const column = (name) => fragments.map((_, index) => (known[index] ? known[index][name] : answered?.[name]?.[index] || []));
-    const placed = [known.some(Boolean) && "aligner", answered && "model"].filter(Boolean);
+  const placed = (fragment, panel) => (state.links ? partsOf(fragment) : [])
+    .flatMap((spot) => rangesAcross(state.links, texts(), 0, spot, panel))
+    .sort((x, y) => x.start - y.start);
+  const assign = async (fragments) => {
+    if (!(await aligned) || !state.links) return null;
+    const column = (panel) => fragments.map((fragment) => placed(fragment, panel).map((range) => texts()[panel].slice(range.start, range.end)));
+    const near = (panel) => fragments.map((fragment) => placed(fragment, panel)[0]?.start ?? null);
+    const a = column(1);
+    const b = twoPanels() ? column(2) : [];
     return {
-      a: column("a"),
-      b: column("b"),
-      /* Who placed them, for the section's hint: "aligner", "model", "both". */
-      by: placed.length > 1 ? "both" : placed[0] || "",
-      near: { a: fragments.map((fragment) => whereabouts(fragment, 1)), b: fragments.map((fragment) => whereabouts(fragment, 2)) },
+      a,
+      b,
+      /* Who placed them, for the section's hint. */
+      by: [...a, ...b].some((found) => found.length) ? "aligner" : "",
+      near: { a: near(1), b: twoPanels() ? near(2) : [] },
     };
   };
 
@@ -792,17 +816,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
     if (!state.words?.length || !aText() || (twoTranslations && !bText())) return;
     state.status.words = "linking";
     tell();
-    const list = state.words;
-    state.wordAlign = await assign(list.map((word) => word.spot || word.text), () => alignWords(llm, {
-      text,
-      list,
-      source: asked,
-      sourceName: askedName,
-      a: targets[0],
-      b: targets[1] || "",
-      aText: aText(),
-      bText: bText(),
-    }));
+    state.wordAlign = await assign(state.words.map((word) => word.spot || word.text));
     state.status.words = "";
     tell();
   });
@@ -815,16 +829,7 @@ export async function runText(text, { settings, translation, llm, aligner = null
     if (!state.verbs?.length || !aText() || (twoTranslations && !bText())) return;
     state.status.verbs = "linking";
     tell();
-    const verbs = state.verbs;
-    state.verbAlign = await assign(verbs.map((verb) => verb.form), () => alignVerbs(llm, {
-      text,
-      verbs,
-      source: detected.code,
-      a: targets[0],
-      b: targets[1] || "",
-      aText: aText(),
-      bText: bText(),
-    }));
+    state.verbAlign = await assign(state.verbs.map((verb) => verb.form));
     state.status.verbs = "";
     tell();
   });
@@ -878,6 +883,12 @@ function glanceSentences(state, text, reader) {
   return { columns, second, readerPanel, sentences };
 }
 
+/* One pair's answer from the aligner: its links, and for every word of the
+   translation the word of the original it holds on to most (platform/
+   aligner.js). An answer of links alone has no `best`. */
+const linksIn = (answer) => (Array.isArray(answer) ? answer : answer?.links || []);
+const bestIn = (answer) => (Array.isArray(answer) ? null : answer?.best || null);
+
 /* The word aligner's answer for a reading: every sentence in one go, as soon
    as the translations stand. Kept as links for the marks, and laid out as
    units for the hover where the reader wants one. True where it answered;
@@ -910,7 +921,8 @@ async function alignReading(state, { text, reader, source, aligner, tell, glance
     return false;
   }
   const panels = second === -1 ? [columns[0]] : [columns[0], second];
-  const linksOf = (index) => links.slice(index * each, index * each + each);
+  const answersOf = (index) => links.slice(index * each, index * each + each);
+  const linksOf = (index) => answersOf(index).map(linksIn);
   state.links = {
     panels,
     /* Each panel's language, for the small words a place may bridge. */
@@ -921,6 +933,7 @@ async function alignReading(state, { text, reader, source, aligner, tell, glance
       to: sentence.to,
       second: sentence.second,
       links: linksOf(index).slice(0, other ? 2 : 1),
+      best: answersOf(index).slice(0, other ? 2 : 1).map(bestIn),
     })),
   };
   if (glance) {

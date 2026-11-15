@@ -2,6 +2,7 @@
    analysis runs on the generic path. */
 
 import { conjugationAt } from "./conjugation.js";
+import { stripDiacritics } from "../text.js";
 
 /* Everyday vocabulary a learner past the first weeks already has. An entry
    whose words are all in here is not worth a slot, and the filter in
@@ -75,9 +76,15 @@ export default {
   basicWords: BASIC_WORDS,
   /* -ment and -tion are native French endings, not signs of an English word. */
   loanwordSuffixes: null,
+  verbs: {
+    /* An infinitive ends in -er, -ir, -re or -oir: a grammar fact, not a calibration.
+       Asked of one word of the form, any, so that "avoir lieu" and "dar-se
+       conta" stand; it catches a noun's base form given for a verb (run
+       eighty-five). */
+    isInfinitive: (form) => stripDiacritics(String(form || "")).trim().toLowerCase()
+      .split(/\s+/).some((word) => /(er|ir|re|oir)$/.test(word)),
+  },
   /* How this language gives itself away in spelling — used by the
      detector prompt, where the input is often a single word. */
   spellingHints: "-eau, -eux, -ment, ç and the accents è ê point to French",
-  /* What the aligned tables call this language in their columns. */
-  columnName: "francais",
 };

@@ -13,7 +13,8 @@
 
    The resident helper also reads text off a photograph of the screen
    (/recognize), with Apple's own recognition: the shell takes the
-   photograph and says where it is.
+   photograph and says where it is; and it names every word's base form
+   and word class (/words), with Apple's own tagger.
 
    The first three are the fallback. Normally the app talks to the resident
    helper over HTTP, because a fresh process pays the connection setup to
@@ -95,6 +96,28 @@ func languageHypotheses(of text: String) -> [(code: String, confidence: Double)]
 
 func hypothesisLines(_ hypotheses: [(code: String, confidence: Double)]) -> String {
   hypotheses.map { "\($0.code) \(String(format: "%.3f", $0.confidence))" }.joined(separator: "\n")
+}
+
+/* Every word of a text in a language, as Apple's tagger reads it in its
+   sentence: one line each, "start\tend\tbase form\tword class", the
+   places in UTF-16 units as the window counts them. A tagger that knows
+   nothing about the language leaves the base form empty. The window decides
+   what it believes (base-form.js); src-tauri/ios/Translation.swift answers
+   the same. */
+func wordLines(_ text: String, _ code: String) -> String {
+  let tagger = NLTagger(tagSchemes: [.lemma, .lexicalClass])
+  tagger.string = text
+  let whole = text.startIndex..<text.endIndex
+  tagger.setLanguage(NLLanguage(rawValue: code), range: whole)
+  var lines: [String] = []
+  tagger.enumerateTags(in: whole, unit: .word, scheme: .lexicalClass,
+                       options: [.omitWhitespace, .omitPunctuation]) { tag, range in
+    let base = tagger.tag(at: range.lowerBound, unit: .word, scheme: .lemma).0?.rawValue ?? ""
+    let span = NSRange(range, in: text)
+    lines.append("\(span.location)\t\(span.location + span.length)\t\(base)\t\(tag?.rawValue ?? "")")
+    return true
+  }
+  return lines.joined(separator: "\n")
 }
 
 @main struct Tool {
@@ -267,7 +290,7 @@ let PORT: UInt16 = 51737
    /ping therefore says which protocol this one speaks, and /quit lets the
    window retire a helper that speaks an older one. Raise this whenever a
    route's answer changes shape. */
-let PROTOCOL = 6
+let PROTOCOL = 8
 /* A second argument lowers the deadline — there so it can be tested without
    waiting five minutes. */
 let IDLE_SECONDS: Double =
@@ -446,6 +469,10 @@ func handle(_ fd: Int32, _ helper: Helper) {
     guard !hypotheses.isEmpty else { return respond(fd, 500, "no hypothesis") }
     respond(fd, 200, hypothesisLines(hypotheses))
 
+  case "/words":
+    guard let code = query["lang"] else { return respond(fd, 400, "lang missing") }
+    respond(fd, 200, wordLines(body, code))
+
   case "/available":
     guard let from = query["from"], let to = query["to"] else { return respond(fd, 400, "from/to missing") }
     let done = DispatchSemaphore(value: 0); var out = ""
@@ -479,9 +506,11 @@ func handle(_ fd: Int32, _ helper: Helper) {
   /* The text in a piece of a photograph of the screen, or in an image
      file: the file, the piece in its pixels (left, top, width, height; all
      of it where the piece is empty) and the reader's languages,
-     which go first where Apple's recognition knows them. One line each,
-     "left top right bottom" in the piece's pixels, a tab, the text, a
-     tab, and each character's "left right", comma-separated — in the order
+     which go first where Apple's recognition knows them. The piece's
+     "width height" first, then one line each,
+     "left top right bottom" in the piece's pixels and the line's slope, a
+     tab, the text, a tab, and each character's "left right",
+     comma-separated — in the order
      Apple answers; the window works out the reading order. */
   case "/recognize":
     guard let file = query["path"], let rect = query["rect"]?.split(separator: ",").compactMap({ Double($0) }),
@@ -499,6 +528,16 @@ func handle(_ fd: Int32, _ helper: Helper) {
   default:
     respond(fd, 404, "unknown: " + path)
   }
+}
+
+/* How a line slopes, in pixels of drop in a thousand across: its top edge
+   from left to right, in the picture's pixels, downwards positive. The page
+   lays a photographed text level by it (src/screen-text.js). */
+func slope(_ line: RecognizedTextObservation, _ width: Double, _ height: Double) -> Int {
+  let across = (line.topRight.x - line.topLeft.x) * width
+  let drop = (line.topLeft.y - line.topRight.y) * height
+  guard abs(across) > 0.5 else { return drop >= 0 ? 1_000_000 : -1_000_000 }
+  return Int(max(-1_000_000, min(1_000_000, (1000 * drop / across).rounded())))
 }
 
 /* Apple's recognition at its careful level with its language correction,
@@ -519,7 +558,7 @@ func recognize(_ file: String, _ piece: CGRect, _ wanted: [String]) async throws
   request.automaticallyDetectsLanguage = true
   let observations = try await request.perform(on: image)
   let (width, height) = (Double(image.width), Double(image.height))
-  return observations.compactMap { observation -> String? in
+  return "\(image.width) \(image.height)\n" + observations.compactMap { observation -> String? in
     guard let candidate = observation.topCandidates(1).first else { return nil }
     let text = candidate.string
     let box = observation.boundingBox.cgRect
@@ -536,6 +575,6 @@ func recognize(_ file: String, _ piece: CGRect, _ wanted: [String]) async throws
       extents.append("\(Int(part.minX * width)) \(Int(part.maxX * width))")
       index = next
     }
-    return "\(left) \(top) \(right) \(bottom)\t\(text.replacingOccurrences(of: "\n", with: " "))\t\(extents.joined(separator: ","))"
+    return "\(left) \(top) \(right) \(bottom) \(slope(observation, width, height))\t\(text.replacingOccurrences(of: "\n", with: " "))\t\(extents.joined(separator: ","))"
   }.joined(separator: "\n")
 }
