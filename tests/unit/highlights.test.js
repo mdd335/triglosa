@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
 import { fragmentsForPanel, selectionForPanel } from "../../src/highlights.js";
-import { parseMarkedWord, usableSpot } from "../../src/parse/words.js";
 import { collectMarks, markGroups } from "../../src/ui/marking.js";
 
 const state = {
@@ -32,75 +31,6 @@ test("the translations take their columns, first A then B", () => {
 test("without an assignment a translation is simply not highlighted", () => {
   const bare = { words: state.words, verbs: state.verbs, wordAlign: null, verbAlign: null };
   assert.deepStrictEqual(fragmentsForPanel(bare, 1), { words: [], verbs: [], near: { words: [], verbs: [] } });
-});
-
-test("a label written back instead of the words is no spot", () => {
-  /* Measured: "comité" came back as "A | committee" three runs out of three —
-     the English half trivial because the words are cognates, the German half
-     given up on. Searched for in the German text, a bare "A" would colour the
-     first stray a it found. */
-  assert.strictEqual(usableSpot("A", "comité"), "");
-  assert.strictEqual(usableSpot("B", "comité"), "");
-  assert.strictEqual(usableSpot("-", "comité"), "");
-  assert.strictEqual(usableSpot("Ausschuss", "comité"), "Ausschuss");
-});
-
-test("the term repeated back is no spot either", () => {
-  /* It stands in the source panel, not in a translation. */
-  assert.strictEqual(usableSpot("comité", "comité"), "");
-  assert.strictEqual(usableSpot("Comité", "comité"), "");
-});
-
-test("a place the word aligner found is taken as it stands", () => {
-  /* A word that stays what it was — an abbreviation, a name, a number — reads
-     in the translations exactly as the reader picked it, and an English
-     sentence may well open with "A". */
-  const read = (term, spotRaw, placed) => parseMarkedWord({
-    meaningRaw: `${term} | Bedeutung | Eine Erklärung.`, spotRaw, placed, term, code: "es", thirdRaw: "", grammarRaw: "", codes: ["es", "de", "en"],
-  });
-  const kept = read("CNDH", "CNDH | CNDH", true);
-  assert.deepStrictEqual([kept.a, kept.b], ["CNDH", "CNDH"]);
-  const article = read("Un", "Ein | A", true);
-  assert.deepStrictEqual([article.a, article.b], ["Ein", "A"]);
-  const panels = [
-    { code: "es", text: "AMLO pidió una disculpa por la Conquista (CNDH)." },
-    { code: "de", text: "AMLO bat um eine Entschuldigung für die Eroberung (CNDH)." },
-    { code: "en", text: "AMLO asked for an apology for the Conquest (CNDH)." },
-  ];
-  const state = { panels, marked: kept, selection: { panel: 0, start: 42, end: 46 } };
-  for (const index of [1, 2]) {
-    const [found] = selectionForPanel(state, index, ["de", "en"]);
-    assert.strictEqual(panels[index].text.slice(found.start, found.end), "CNDH");
-  }
-  /* The model's own answer is still read with suspicion. */
-  const echoed = read("comité", "comité | A", false);
-  assert.deepStrictEqual([echoed.a, echoed.b], ["", ""]);
-});
-
-test("the reader's panel falls back to the equivalent when the spot is missing", () => {
-  const panels = [
-    { code: "es", text: "El comité aprobó la propuesta." },
-    { code: "de", text: "Der Ausschuss genehmigte den Vorschlag." },
-    { code: "en", text: "The committee approved the proposal." },
-  ];
-  const marked = { text: "comité", meaning: "Ausschuss", a: "", b: "committee" };
-  const state = { panels, marked, selection: { panel: 0, start: 3, end: 9 } };
-  assert.ok(selectionForPanel(state, 1, ["de", "en"]), "German panel found through the equivalent");
-  assert.ok(selectionForPanel(state, 2, ["de", "en"]), "English panel from the spot itself");
-});
-
-test("a third language gets no colour rather than a guessed one", () => {
-  /* Nothing else about that panel is known, and a wrong frame is worse than
-     none. */
-  const panels = [
-    { code: "es", text: "El comité aprobó la propuesta." },
-    { code: "de", text: "Der Ausschuss genehmigte den Vorschlag." },
-    { code: "fr", text: "Le comité a approuvé la proposition." },
-  ];
-  const marked = { text: "propuesta", meaning: "Vorschlag", a: "", b: "" };
-  const state = { panels, marked, selection: { panel: 0, start: 22, end: 31 } };
-  assert.ok(selectionForPanel(state, 1, ["de", "fr"]));
-  assert.strictEqual(selectionForPanel(state, 2, ["de", "fr"]), null);
 });
 
 test("a split verb joined by an ellipsis is marked in both halves", () => {
@@ -181,4 +111,18 @@ test("a term that is the whole text is marked nowhere, its row kept", () => {
   const part = { ...whole, words: [{ text: "tomar el pelo", spot: "" }, whole.words[1]] };
   assert.deepStrictEqual(fragmentsForPanel(part, 0).words[0], ["tomar el pelo"]);
   assert.deepStrictEqual(fragmentsForPanel(part, 1).words[0], ["klinischen", "Studie"]);
+});
+
+test("a picked word stands in the other panels where the aligner found it, and nowhere it did not", () => {
+  /* Run eighty-four: no model is asked where it went. */
+  const panels = [
+    { code: "en", text: "The U.S. China hawks got their revenge." },
+    { code: "de", text: "Die China-Falken in den USA haben sich gerächt." },
+    { code: "es", text: "Los halcones se vengaron." },
+  ];
+  const state = { panels, selection: { panel: 0, start: 0, end: 20 }, marked: { text: "The U.S. China hawks", ranges: { 1: [{ start: 4, end: 27 }], 2: null } } };
+  assert.deepStrictEqual(selectionForPanel(state, 0), [{ start: 0, end: 20 }]);
+  assert.deepStrictEqual(selectionForPanel(state, 1), [{ start: 4, end: 27 }]);
+  assert.strictEqual(selectionForPanel(state, 2), null);
+  assert.strictEqual(selectionForPanel({ ...state, marked: null }, 1), null, "before the answer the hover's places stand in");
 });

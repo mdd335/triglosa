@@ -2,7 +2,8 @@
 Everything that leaves the process goes through it: the model endpoint, the
 key store, the settings file, and on a computer the windows, the menu bar,
 the shortcuts and what is read out of other programs (desktop.rs). On the
-iPhone there is one page and none of the rest (mobile.rs). */
+iPhone there is one page and none of the rest but the word aligner
+(mobile.rs). */
 
 mod diagnostics;
 mod identify;
@@ -11,12 +12,14 @@ mod keychain;
 mod model;
 mod settings;
 
-#[cfg(desktop)]
+#[cfg(any(desktop, target_os = "ios"))]
 mod align;
 #[cfg(desktop)]
 mod capture;
 #[cfg(desktop)]
 mod desktop;
+#[cfg(target_os = "macos")]
+mod dictionary;
 #[cfg(desktop)]
 mod highlight;
 #[cfg(desktop)]
@@ -25,7 +28,7 @@ mod keyboard;
 mod ocr;
 #[cfg(desktop)]
 mod overlay;
-#[cfg(desktop)]
+#[cfg(any(desktop, target_os = "ios"))]
 mod pieces;
 #[cfg(desktop)]
 mod screen;

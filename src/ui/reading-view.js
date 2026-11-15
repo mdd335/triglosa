@@ -145,7 +145,7 @@ function markSource(body, state, index, settings, codes) {
       .concat(markGroups(away("verbs") ? [] : parts.verbs, "vmark", parts.near?.verbs)),
     /* The picked word's frame and its spots in the other panels go with
        its area, like the terms' and the verbs' lines. */
-    away(MARKED) ? null : selectionForPanel(state, index, settings.languages),
+    away(MARKED) ? null : selectionForPanel(state, index),
     codes,
     state.selection?.panel === index && !state.selection.inSentence,
   );
@@ -197,6 +197,7 @@ const sectionCredit = (text, model, by) => creditLine(text, [["explained", [theM
 /* A word picked without a model: Apple translated it, or Triglosa's
    aligner found what it became. */
 const bareCredit = (text, marked) => creditLine(text, [
+  ["based", marked.basedBy === "device" ? [{ kind: "device" }] : []],
   ["translated", ["device", "both"].includes(marked.meaningBy) ? [{ kind: "device" }] : []],
   ["assigned", marked.placedBy || ["aligner", "both"].includes(marked.meaningBy) ? [TRIGLOSA] : []],
 ]);
@@ -253,7 +254,7 @@ function originalHeading(text, language, editing) {
   return name ? `${text.original} · ${name}` : text.original;
 }
 
-function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, lookedUpIn, sentences, onSentence, spelling, onSpelling }) {
+function originalPane({ text, tools, edit, fresh = false, entry, marked, onPick, card, aloud, lookedUpIn, sentences, onSentence, spelling, onSpelling }) {
   /* Headless: this section's heading is the line above the sheet, which holds
      the window's buttons and therefore cannot scroll away with the text. */
   const section = pane({ bare: true });
@@ -269,10 +270,11 @@ function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, l
     nameButton(go, text.translate, text.enterKey);
     go.id = "translate";
     frame.append(actions([go]));
-    /* On a phone a text can come from elsewhere instead: a picture from the
-       camera, the photo library or the Files app, or what was copied — each
-       a button of its own, under the field. */
-    if (tools.picture) section.append(textSources(text, tools));
+    /* On a phone a new text can come from elsewhere instead: what was
+       copied, or a picture from the camera, the photo library or the Files
+       app — each a button of its own, under the field. Not while a reading's own
+       text is being changed: that text is already there. */
+    if (fresh && tools.picture) section.append(textSources(text, tools));
     return section;
   }
 
@@ -299,8 +301,8 @@ function originalPane({ text, tools, edit, entry, marked, onPick, card, aloud, l
 }
 
 /* The four ways to a text other than typing it, as a row of buttons across
-   the field's width (buttonRow). What was copied has the bar's symbol and
-   is greyed as the bar's button is while nothing was copied. */
+   the field's width (buttonRow). What was copied comes first (author
+   2026-11-13), greyed while nothing was copied. */
 function textSources(text, tools) {
   const source = (name, symbol, words, onClick) => {
     const node = rowButton(words, symbol, onClick);
@@ -310,10 +312,10 @@ function textSources(text, tools) {
   const clipboard = source("clipboard", "paste", text.clipboard, () => tools.paste?.());
   clipboard.disabled = !(tools.copied?.() ?? true);
   return buttonRow([
+    clipboard,
     source("camera", "camera", text.pictureCamera, () => tools.picture("camera")),
     source("library", "photos", text.pictureLibrary, () => tools.picture("library")),
     source("files", "files", text.pictureFiles, () => tools.picture("files")),
-    clipboard,
   ], "text-sources");
 }
 
@@ -350,7 +352,7 @@ function sentenceLine({ text: sentence, start, end, selection, terms, codes }, o
   const line = element("p", "looked-up-in");
   line.dir = "auto";
   markLine(line, sentence, { start, end }, selection ? [selection] : null, terms, codes);
-  if (onPick) watchSelection(line, 0, (choice) => onPick({ ...choice, inSentence: true }));
+  if (onPick) watchSelection(line, 0, (choice) => onPick({ ...choice, inSentence: true }), "sentence");
   return line;
 }
 
@@ -493,13 +495,18 @@ function termRow(word, index, { text, tools, sourceLanguage, sentence, translati
   const kind = verb ? [verb.person, verb.tense].filter(Boolean).join(" · ") : classLine(text, word.wordClass);
   if (kind) head.append(element("span", "grammar", kind));
   if (word.note) main.append(element("div", "explanation", word.note));
+  /* The looked-up words without a model (run.js): Apple's dictionary in the
+     explanation's place, and nothing that asks a model. */
+  const way = word.device ? dictionaryWay(word.dictionary, { text, tools }) : null;
+  if (way) main.append(way);
+  const asks = !word.device;
   const more = moreOf("words", index);
   moreText(main, more, { text, reader });
 
   rowActions(line, [
     speakButton(tools, text, sourceLanguage, word.text),
-    moreButton(text, more, onMore && (() => onMore({ kind: "words", index, item: word }))),
-    exampleButton(text, more, onExample && (() => onExample({ kind: "words", index, item: word }))),
+    moreButton(text, more, asks && onMore && (() => onMore({ kind: "words", index, item: word }))),
+    exampleButton(text, more, asks && onExample && (() => onExample({ kind: "words", index, item: word }))),
     lookUpButton(tools, text, sourceLanguage, verb?.infinitive, word.text),
     cardButton(tools, text, sourceLanguage, () => (verb
       ? verbCard({ ...verb, form: word.text, meaning: word.meaning }, { text, sourceLanguage, reader: tools.reader,
@@ -524,9 +531,10 @@ function classLine(text, wordClass) {
 /* The picked word. It carries no hue in the text but the colourless frame, so
    the hover points at that instead. */
 function markedRow(marked, { text, tools, wordLanguage, sentence, translation, onLookUp, onMore, onExample, reader, wayShown }) {
-  /* Picked without an AI model, a word is drawn as a passage is: what it
-     became, said aloud, looked up, put on a card — nothing that explains. */
-  if (marked.passage || marked.bare) return passageRow(marked, { text, tools, wordLanguage, sentence, translation, wayShown });
+  /* Picked without an AI model, a word is drawn as far as Apple and the
+     aligner answer it (bareRow). */
+  if (marked.passage) return passageRow(marked, { text, tools, wordLanguage, sentence, translation, wayShown });
+  if (marked.bare) return bareRow(marked, { text, tools, wordLanguage, sentence, translation, wayShown });
   const { line, main, head } = newRow("sel");
   head.append(element("span", "term", marked.text));
   showBase(head, wordLanguage, marked.text, marked.infinitive);
@@ -563,6 +571,53 @@ function markedRow(marked, { text, tools, wordLanguage, sentence, translation, o
   return line;
 }
 
+/* A word picked without an AI model (author 2026-11-05, 2026-11-12): drawn
+   as a word is, from what the machine says — what it became, a verb's base
+   form by Apple's tagger, and where an explanation would stand the way to
+   Apple's dictionary; said aloud, looked up, put on a card. Nothing that
+   explains, rates or names a class. */
+function bareRow(marked, { text, tools, wordLanguage, sentence, translation, wayShown }) {
+  const { line, head, main } = newRow("sel");
+  head.append(element("span", "term", marked.text));
+  showBase(head, wordLanguage, marked.text, marked.infinitive);
+  if (wordLanguage !== tools.reader) showEquivalent(head, [marked.text, marked.infinitive], marked.meaning);
+  /* What is missing for the meaning first, where the meaning would stand. */
+  missingPairNote(main, marked, { text, tools, wayShown });
+  const way = dictionaryWay(marked.dictionary, { text, tools });
+  if (way) main.append(way);
+  rowActions(line, [
+    speakButton(tools, text, wordLanguage, marked.text),
+    lookUpButton(tools, text, wordLanguage, marked.infinitive, marked.text),
+    cardButton(tools, text, wordLanguage, () =>
+      markedCard(marked, { text, wordLanguage, reader: tools.reader, sentence, translation })),
+  ]);
+  return line;
+}
+
+/* Where no AI model explains a word, the way to Apple's dictionary stands
+   in the explanation's place (author 2026-11-12): a button, drawn only where
+   a dictionary the reader has holds the word (`term`, the form or its base
+   form). Apple's panel lays the word over the row's own on the Mac, as the
+   system's Look Up does; the phone's sheet comes up from below. */
+function dictionaryWay(term, { text, tools }) {
+  if (!term || !tools?.dictionary) return null;
+  /* One line, its words alone: no symbol stands for "Apple's dictionary"
+     (author 2026-11-12). */
+  const way = element("button", "row-button dictionary-button");
+  way.type = "button";
+  way.append(element("span", "row-button-label", text.dictionary));
+  way.addEventListener("click", () => {
+    const node = way;
+    const word = node.closest(".row")?.querySelector(".row-head .term");
+    const box = word?.getBoundingClientRect?.();
+    const size = word ? parseFloat(globalThis.getComputedStyle?.(word)?.fontSize) || 0 : 0;
+    /* The word's baseline, about a third of its size under the middle. */
+    const at = box ? { x: box.left, y: box.top + box.height / 2 + size * 0.33, size } : {};
+    tools.dictionary(term, at);
+  });
+  return buttonRow([way], "dictionary-way");
+}
+
 /* A marked passage: the passage and its translation, drawn the way every
    row's first line is, and nothing else the reader did not mark. Saying it
    aloud, web search and card stay; conjugation, synonyms and the two explanation buttons are
@@ -577,17 +632,19 @@ function passageRow(marked, { text, tools, wordLanguage, sentence, translation, 
     cardButton(tools, text, wordLanguage, () =>
       markedCard(marked, { text, wordLanguage, reader: tools.reader, sentence, translation })),
   ]);
-  /* Picked without a model where Apple has not got the pair: said here,
-     where the meaning would have stood, with the way to the pack — unless a
-     panel above already shows it (one button on a sheet, author 2026-11-05). */
-  if (marked.missingPair && !marked.meaning) {
-    const [from, to] = marked.missingPair.map((code) => languageLabel(code, tools.reader) || code);
-    const note = element("div", "note muted", text.packMissing(from, to));
-    main.append(note);
-    const way = wayShown ? null : toTranslations({ text, tools });
-    if (way) main.append(way);
-  }
+  missingPairNote(main, marked, { text, tools, wayShown });
   return line;
+}
+
+/* Picked without a model where Apple has not got the pair: said where the
+   meaning would have stood, with the way to the pack — unless a panel above
+   already shows it (one button on a sheet, author 2026-11-05). */
+function missingPairNote(main, marked, { text, tools, wayShown }) {
+  if (!marked.missingPair || marked.meaning) return;
+  const [from, to] = marked.missingPair.map((code) => languageLabel(code, tools.reader) || code);
+  main.append(element("div", "note muted", text.packMissing(from, to)));
+  const way = wayShown ? null : toTranslations({ text, tools });
+  if (way) main.append(way);
 }
 
 /* The way to the settings' page where the language packs are loaded, under
@@ -674,12 +731,12 @@ function exampleButton(text, holder, ask) {
 
    Its words can be picked like those of a sentence: a translation of one
    word is as likely to be the word worth asking about as the word itself. */
-function alternativeRow(item, { text, tools, panelLanguage, sentence, sourceLanguage, readerAlternatives, selection, onPick, here }) {
+function alternativeRow(item, { text, tools, panelLanguage, sentence, sourceLanguage, readerAlternatives, selection, onPick, here, key }) {
   const { line, head } = newRow("");
   const term = element("span", "term");
   markPanel(term, item.text, [], selection, [panelLanguage].filter(Boolean));
   term.dir = writingDirection(panelLanguage);
-  watchSelection(term, 0, onPick);
+  watchSelection(term, 0, onPick, key);
   head.append(term);
   /* The meaning there says what it is instead of its note, which beside
      the sentence says little more than "usual". */
@@ -855,7 +912,7 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
                               onTarget = null, onRemoveTarget = null, recentTargets = [] }) {
   const text = labels(settings.languages[0]);
   sheet.textContent = "";
-  nameTouchPick(text.marked);
+  nameTouchPick(text.lookUpMarked);
 
   /* Nothing read yet: a first start, a text still being typed, or a run that
      came to nothing. The original field stands either way — it is the field
@@ -865,11 +922,11 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
     /* The sentences around it stand from the first moment of a step: gone
        while the language is being found, they came back a second later
        under a pointer that had meant to press again. */
-    sheet.append(originalPane({ text, tools, edit, sentences, onSentence, marked: (box) => {
+    sheet.append(originalPane({ text, tools, edit, fresh: true, sentences, onSentence, marked: (box) => {
       box.textContent = edit.draft;
       if (!edit.draft) box.classList.add("muted");
     } }));
-    if (!explanationsAvailable(settings)) sheet.append(lockedNote(text));
+    if (!explanationsAvailable(settings)) sheet.append(lockedNote(text, { declined: !!settings.modelDeclined }));
     return originalHeading(text, "", edit.editing);
   }
 
@@ -977,10 +1034,10 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
       body.textContent = "…";
       body.classList.add("muted");
     } else if (entry.status === "missing") {
-      /* Only where the device was the only engine there was. With an endpoint
-         configured the model has tried and failed too, and then the language
-         downloads are not the thing to point at — see "no-answer". */
-      body.textContent = text.pairMissing(named(state.panels[0]), named(entry));
+      /* A model set up — failed (the reason under the sheet) or not allowed
+         on a phone: the pack is the one thing to point at here. Without one,
+         the model is named beside it. */
+      body.textContent = (settings.modelDeclined || settings.endpoint ? text.packMissing : text.pairMissing)(named(state.panels[0]), named(entry));
       body.classList.add("muted");
       /* Beside the text, not in it: a click in a panel picks a word. Once,
          under the last panel that lacks a pack. */
@@ -988,7 +1045,7 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
       if (way) body.after(way);
     } else if (entry.status === "unsupported") {
       /* Apple cannot do this pair at all: no pack to point at. */
-      body.textContent = text.pairUnsupported(named(state.panels[0]), named(entry));
+      body.textContent = settings.modelDeclined ? text.noAnswer : text.pairUnsupported(named(state.panels[0]), named(entry));
       body.classList.add("muted");
     } else if (entry.status === "no-answer") {
       /* Only THAT nothing came. Why is a state of the run rather than of this
@@ -998,10 +1055,10 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
       body.textContent = text.noAnswer;
       body.classList.add("muted");
     } else if (entry.status === "no-device") {
-      body.textContent = text.noDevice;
+      body.textContent = settings.modelDeclined ? text.noAnswer : text.noDevice;
       body.classList.add("muted");
     } else if (entry.status === "unknown-source") {
-      body.textContent = text.onlyKnownLanguages;
+      body.textContent = settings.modelDeclined ? text.noAnswer : text.onlyKnownLanguages;
       body.classList.add("muted");
     } else if (entry.status === "alternatives") {
       /* A dictionary entry is still a translation, so it stays in the sheet a
@@ -1020,6 +1077,7 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
           readerAlternatives: readerLines,
           selection: chosen ? [{ start: state.selection.start, end: state.selection.end }] : null,
           onPick: (choice) => onPick({ ...choice, panel: index, entry: line }),
+          key: `entry:${index}:${line}`,
         }));
       });
     } else {
@@ -1124,9 +1182,24 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
      device's plain translation, and the one line says what a model adds. */
   if (state.short) {
     if (locked) {
+      /* The looked-up words' row, as far as Apple answers it (run.js). */
+      if (about("terms") && state.words?.[0]?.device) {
+        const inSentence = state.sentence && !state.sentence.apart ? { ...context, sentence: state.sentence.text, translation: "" } : context;
+        const [word] = state.words;
+        fold(appendSection({
+          title: text.term,
+          status: "",
+          credit: word.verb ? creditLine(text, [["based", [{ kind: "device" }]]]) : "",
+          rows: [termRow(word, 0, inSentence, { shade: "tmark0", entryAbove: true })],
+          empty: text.noTerm,
+          text,
+          reader: settings.languages[0],
+          busy: state.busy,
+        }), "terms");
+      }
       /* A word picked without a model is answered as far as that goes. */
       if (state.selection && state.marked?.bare) appendMarked();
-      sheet.append(lockedNote(text, { device: byDevice, short: true }));
+      sheet.append(lockedNote(text, { device: byDevice, short: true, declined: !!settings.modelDeclined }));
       return heading;
     }
     if (about("terms")) {
@@ -1154,7 +1227,7 @@ function draw(sheet, state, { settings, tools, edit, onPick, onLookUp, onStep, o
      line under the panels says what a model adds. */
   if (locked) {
     if (state.selection && state.marked?.bare) appendMarked();
-    sheet.append(lockedNote(text, { device: byDevice }));
+    sheet.append(lockedNote(text, { device: byDevice, declined: !!settings.modelDeclined }));
     return heading;
   }
   /* First of the three, because it answers what the reader has just done. */

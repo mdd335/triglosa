@@ -7,7 +7,7 @@
 
 import test from "node:test";
 import assert from "node:assert";
-import { formInText, longestRunInText, rangesOf } from "../../src/match/positions.js";
+import { formInText, longestRunInText } from "../../src/match/positions.js";
 
 /* ---- Inflection: the model answers the dictionary form ---- */
 
@@ -61,8 +61,6 @@ test("a German separable verb becomes a multipart form", () => {
      text. Written with a plus, the highlighting already knows what to do. */
   const t = "Der Nachbar winkte den Vorschlag ab.";
   assert.strictEqual(formInText(t, "winkte ab"), "winkte + ab");
-  const r = rangesOf(t, "winkte + ab", "abwinken", ["de"]);
-  assert.deepStrictEqual(r.map((x) => t.slice(x.start, x.end)), ["winkte", "ab"]);
 });
 
 test("an auxiliary far from its participle is one form too", () => {

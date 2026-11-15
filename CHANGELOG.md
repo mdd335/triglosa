@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.0
+
+### New
+- iPhone: tap a word to see what it became in the translations, or sweep a finger sideways across several; *Select* on the row over the bar explains them.
+- Mac and iPhone: without an AI model, a verb you pick or look up shows its base form, its flashcard takes the base form, and *Look up with Apple* opens Apple's dictionary where an explanation would stand.
+- iPhone: the crop frame moves onto the text of a picture by itself, leaving out price stickers, barcodes and small print around it; drag the frame first and it stays where you put it.
+
+### Changed
+- Where terms, verbs and the words you pick stand in the translations is worked out on your device alone, for expressions of several words too: the marks appear with the translations, and a reading asks the AI model up to two questions fewer. The app is about 85 MB smaller.
+- Longer explanations are checked line by line, and sentences or examples the AI model cannot confirm are left out. A word explained in your own language is explained by what it is, without example sentences.
+- A word or short phrase written the same way in several languages is read as one of your languages more often; on the Mac and iPhone your dictionaries help decide.
+- iPhone: touch and hold the plus in the bar, or tap *Clipboard*, now first under a new translation's field, to translate what you copied.
+- *Translation over the word* now only switches the note over the word; the matching words in the other translations light up either way. The setting is on the iPhone too.
+
+### Fixed
+- Text read from a photo or a screenshot comes out in the right order even when the photo is far aslant; list items keep their own lines, and words from the next column caught at the edge are left out.
+- Anthropic's newer Claude models and other providers that refuse part of a request now answer, and *Test connection* no longer fails where the model list cannot be read.
+- When the AI model cannot be reached and Apple lacks the language pack, the translation says which pack is missing and where to download it.
+- iPhone: a text, picture or copied text from the share menu or the Control Center always shows, closing an open camera, crop frame, flashcard or settings.
+- The translation on hover names both halves of a separable verb (*zieht … ab*), figures such as *49.3* are no longer cut to their last digits, and a looked-up word keeps its sentence when you change the language of the original.
+
 ## 0.8.0
 
 The license is now AGPL-3.0: a copy built on Triglosa has to stay open, also one offered as a web service. Version 0.7.0 stays under GPL-3.0, versions up to 0.6.0 under MIT.

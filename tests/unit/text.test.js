@@ -50,6 +50,15 @@ test("bullets and numbering in front of a line are dropped", () => {
   assert.strictEqual(cleanLine("- resolución | formale Lösung"), "resolución | formale Lösung");
   assert.strictEqual(cleanLine("  3) tercero"), "tercero");
   assert.strictEqual(cleanLine("• uno"), "uno");
+  assert.strictEqual(cleanLine("1.tercero | dritte"), "tercero | dritte");
+});
+
+/* A term that is a number with a point in it is not a numbered line: the
+   French 49.3 came back as "3" (run 80). */
+test("a number with a point inside it is kept whole", () => {
+  assert.strictEqual(cleanLine("49.3 | article 49, alinéa 3 | permet …"), "49.3 | article 49, alinéa 3 | permet …");
+  assert.strictEqual(cleanLine("2. 49.3 | article"), "49.3 | article");
+  assert.strictEqual(cleanLine("1,5-Grad-Ziel | Klimaziel"), "1,5-Grad-Ziel | Klimaziel");
 });
 
 test("quotes are stripped even with whitespace behind them", () => {

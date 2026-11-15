@@ -204,6 +204,19 @@ const RESCUE: f32 = 1e-4;
 /// `width` numbers, `b` holds `cols`. Per pair of words, the best over their
 /// pieces of the share along the row, of the share down the column, and of
 /// the smaller of the two, which is what the threshold is held against.
+/// What the aligner says about a pair: the links between words, and for
+/// every word of the target the word of the source it holds on to most
+/// (the column's share; `None` where nothing was read). The second is what
+/// lets a mark grow by a neighbour no link reached but whose strongest
+/// partner stands inside the entry: "too" of "too lazy" for "la flemme"
+/// (run eighty-four).
+#[derive(serde::Serialize, Debug, PartialEq)]
+pub struct Aligned {
+    links: Vec<[usize; 2]>,
+    best: Vec<Option<usize>>,
+}
+
+#[cfg(test)]
 fn links(
     a: &[f32],
     b: &[f32],
@@ -211,6 +224,16 @@ fn links(
     a_owner: &[Option<usize>],
     b_owner: &[Option<usize>],
 ) -> Vec<[usize; 2]> {
+    aligned(a, b, width, a_owner, b_owner).links
+}
+
+fn aligned(
+    a: &[f32],
+    b: &[f32],
+    width: usize,
+    a_owner: &[Option<usize>],
+    b_owner: &[Option<usize>],
+) -> Aligned {
     let rows: Vec<usize> = (0..a_owner.len())
         .filter(|&i| a_owner[i].is_some())
         .collect();
@@ -218,7 +241,10 @@ fn links(
         .filter(|&j| b_owner[j].is_some())
         .collect();
     if rows.is_empty() || cols.is_empty() {
-        return Vec::new();
+        return Aligned {
+            links: Vec::new(),
+            best: Vec::new(),
+        };
     }
     let mut alike = vec![0f32; rows.len() * cols.len()];
     for (r, &i) in rows.iter().enumerate() {
@@ -266,7 +292,21 @@ fn links(
             down[at] = down[at].max(downward);
         }
     }
-    word_links(&both, &across, &down, words_a, words_b)
+    let best = (0..words_b)
+        .map(|y| {
+            (0..words_a).filter(|&x| down[x * words_b + y] > 0.0).fold(
+                None,
+                |top: Option<usize>, x| match top {
+                    Some(t) if down[t * words_b + y] >= down[x * words_b + y] => Some(t),
+                    _ => Some(x),
+                },
+            )
+        })
+        .collect();
+    Aligned {
+        links: word_links(&both, &across, &down, words_a, words_b),
+        best,
+    }
 }
 
 /// The links between words, from what each pair of them holds: every pair
@@ -345,10 +385,10 @@ fn encode(
     Ok((data.to_vec(), width, owner))
 }
 
-fn align(loaded: &mut Loaded, pair: &Pair) -> Result<Vec<[usize; 2]>, String> {
+fn align(loaded: &mut Loaded, pair: &Pair) -> Result<Aligned, String> {
     let (a, width, a_owner) = encode(loaded, &pair.source, &pair.source_words)?;
     let (b, _, b_owner) = encode(loaded, &pair.target, &pair.target_words)?;
-    Ok(links(&a, &b, width, &a_owner, &b_owner))
+    Ok(aligned(&a, &b, width, &a_owner, &b_owner))
 }
 
 /// Whether the model's files are there. Nothing is loaded for the answer.
@@ -360,7 +400,7 @@ pub fn aligner_ready(app: AppHandle) -> bool {
 /// The links of every pair handed in, in their order. "absent" where the
 /// files are missing; the window then asks the AI model instead.
 #[tauri::command]
-pub async fn align_words(app: AppHandle, pairs: Vec<Pair>) -> Result<Vec<Vec<[usize; 2]>>, String> {
+pub async fn align_words(app: AppHandle, pairs: Vec<Pair>) -> Result<Vec<Aligned>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut held = LOADED
             .lock()
@@ -413,6 +453,21 @@ mod tests {
     }
 
     #[test]
+    fn every_target_word_names_the_source_word_it_holds_on_to_most() {
+        /* The second target word leans to the first source word even where
+        both together stay under the bar: it is named, and nothing at all
+        where no piece was read. */
+        let a = [10.0, 0.0, 0.0, 10.0];
+        let b = [0.0, 10.0, 10.0, 0.0, 9.0, 1.0];
+        let found = aligned(&a, &b, 2, &[Some(0), Some(1)], &[Some(0), Some(1), Some(2)]);
+        assert_eq!(found.best, vec![Some(1), Some(0), Some(0)]);
+        assert_eq!(
+            aligned(&[], &[1.0, 0.0], 2, &[], &[Some(0)]).best,
+            Vec::<Option<usize>>::new()
+        );
+    }
+
+    #[test]
     fn pieces_of_one_word_make_one_link() {
         let a = [10.0, 0.0, 10.0, 0.0];
         let b = [10.0, 0.0];
@@ -460,7 +515,7 @@ mod tests {
         let pairs: Vec<Pair> =
             serde_json::from_str(&std::fs::read_to_string(env("TRIGLOSA_ITEMS")).unwrap()).unwrap();
         let mut loaded = load_from(PathBuf::from(env("TRIGLOSA_ALIGNER"))).unwrap();
-        let found: Vec<Vec<[usize; 2]>> = pairs
+        let found: Vec<Aligned> = pairs
             .iter()
             .map(|pair| align(&mut loaded, pair).unwrap())
             .collect();
@@ -583,7 +638,7 @@ mod tests {
                 source_words: ranges(&item["src"]),
                 target_words: ranges(&item["tgt"]),
             };
-            let found = align(&mut loaded, &pair).unwrap();
+            let found = align(&mut loaded, &pair).unwrap().links;
             let wanted = ranges(&kept["pairs"][item["key"].as_str().unwrap()]["links"]);
             pairs += 1;
             mine += found.len();

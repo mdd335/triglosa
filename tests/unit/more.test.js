@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert";
-import { parseExample, parseMore } from "../../src/parse/more.js";
+import { parseExample, parseFactVerdicts, parseMore } from "../../src/parse/more.js";
+import { explainMore } from "../../src/ask.js";
 import { exampleSentenceInput, exampleSentencePrompt, explainMorePrompt } from "../../src/prompts/marked.js";
 
 test("a longer explanation comes back as a paragraph and its examples", () => {
@@ -138,4 +139,66 @@ test("an example written in the reader's language is turned round or dropped", (
     { source: "es", reader: "de" },
   );
   assert.strictEqual(kept.sentence, "El abogado impugnó la decisión.");
+});
+
+/* In the reader's own language the paragraph is about the thing and comes
+   without an example; a learner's question stays as it was, numbered
+   through (run 80). */
+test("the longer explanation in the reader's own language has no example", () => {
+  const own = explainMorePrompt({ source: "German", reader: "German", level: "B1" });
+  assert.doesNotMatch(own, /EXAMPLE/);
+  assert.match(own, /no example sentence/);
+  assert.match(own, /never the people, places or events of the text/);
+  assert.doesNotMatch(own, /in which situations and registers it is used/);
+  const learner = explainMorePrompt({ source: "Spanish", reader: "German", level: "B1" });
+  assert.match(learner, /in which situations and registers it is used/);
+  const numbers = (text) => text.split("\n").map((line) => line.match(/^(\d+)\. /)?.[1]).filter(Boolean).map(Number);
+  for (const text of [own, learner]) {
+    assert.deepStrictEqual(numbers(text), numbers(text).map((_, i) => i + 1));
+  }
+  assert.strictEqual(numbers(learner).length, 11);
+});
+
+/* In the reader's own language the paragraph's sentences are checked one by
+   one, and only those called TRUE stand (run 80). */
+test("a paragraph in the reader's own language keeps only the sentences called true", async () => {
+  const asked = [];
+  const model = {
+    async chat({ system, user }) {
+      asked.push(system);
+      if (system.startsWith("You check")) {
+        assert.match(user, /^1\. Er tagt nicht öffentlich\.$/m);
+        assert.match(user, /^2\. Er wurde 1950 gegründet\.$/m);
+        assert.match(user, /^3\. Den Vorsitz hat abwechselnd eine Seite, laut Art\. 77 Abs\. 2 GG\.$/m);
+        return "1. TRUE\n2. FALSE\n3) true";
+      }
+      return "Er tagt nicht öffentlich. Er wurde 1950 gegründet. Den Vorsitz hat abwechselnd eine Seite, laut Art. 77 Abs. 2 GG.";
+    },
+  };
+  const own = await explainMore(model, { term: "Vermittlungsausschuss", text: "Der Bundesrat rief ihn an.", source: "de", reader: "de", meaning: "", note: "" });
+  assert.strictEqual(own.text, "Er tagt nicht öffentlich. Den Vorsitz hat abwechselnd eine Seite, laut Art. 77 Abs. 2 GG.");
+  assert.strictEqual(asked.length, 2);
+});
+
+/* A learner's paragraph is checked too, its examples with it: numbered after
+   the sentences, and dropped by their own verdicts (run 81). */
+test("a learner's paragraph and its examples keep only the lines called true", async () => {
+  const model = {
+    async chat({ system, user }) {
+      if (system.startsWith("You check")) {
+        assert.match(system, /for a learner of Spanish whose own language is German/);
+        assert.match(user, /^3\. Un steak bien pressé\. \(Ein Steak\.\)$/m);
+        return "1. TRUE\n2. UNSURE\n3. FALSE\n4. TRUE";
+      }
+      return "Es klingt förmlich. Es heißt auch braten.\nEXAMPLE: | Un steak bien pressé. | Ein Steak.\nEXAMPLE: formell | Impugnó la sentencia. | Er focht das Urteil an.";
+    },
+  };
+  const more = await explainMore(model, { term: "impugnó", text: "Impugnó el acuerdo.", source: "es", reader: "de", level: "B1", meaning: "", note: "" });
+  assert.strictEqual(more.text, "Es klingt förmlich.");
+  assert.deepStrictEqual(more.examples.map((one) => one.sentence), ["Impugnó la sentencia."]);
+});
+
+test("a verdict is read by its number, and a sentence without one is not kept", () => {
+  assert.deepStrictEqual(parseFactVerdicts("1. TRUE\n2: unsure\n- 4 TRUE", 4), [true, false, false, true]);
+  assert.deepStrictEqual(parseFactVerdicts("", 2), [false, false]);
 });

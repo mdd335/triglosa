@@ -1,12 +1,12 @@
 /* The iPhone's shell: one page, the settings file, the key, the language
-identifier and the connection to the AI model. Text comes in through the
-page itself. */
+identifier, the word aligner and the connection to the AI model. Text comes
+in through the page itself. */
 
 use std::ffi::{c_char, c_void, CStr};
 
 use tauri::Emitter;
 
-use crate::{diagnostics, identify, keychain, model, settings, spelling};
+use crate::{align, diagnostics, identify, keychain, model, settings, spelling};
 
 #[link(name = "UIKit", kind = "framework")]
 extern "C" {}
@@ -386,6 +386,8 @@ pub fn run() {
             read_anki_info,
             apple_translation,
             take_opened,
+            align::aligner_ready,
+            align::align_words,
         ])
         .build(tauri::generate_context!())
         .expect("the app could not be built");

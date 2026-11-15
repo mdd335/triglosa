@@ -132,7 +132,9 @@ if (process.env.TRIGLOSA_SYSTEM === "ios") {
    one stored than without. */
 const seeds = [
   ["triglosa.settings", process.env.TRIGLOSA_SETTINGS],
-  ["triglosa.apiKey", process.env.TRIGLOSA_KEY],
+  /* Each way to a model keeps a key of its own (keyAccount in setup.js). */
+  ["triglosa.model-online", process.env.TRIGLOSA_KEY],
+  ["triglosa.model-own", process.env.TRIGLOSA_KEY],
 ].filter(([, value]) => value);
 if (seeds.length) {
   await send("Page.addScriptToEvaluateOnNewDocument", {

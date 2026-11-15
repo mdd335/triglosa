@@ -171,6 +171,19 @@ export function rightWayRound(example, source, reader) {
 
    Nothing here is null but the whole example: a sentence alone is an
    example, a kind alone is not. */
+/* The check of a paragraph's sentences: which of them were called TRUE.
+   A sentence without a verdict, or with any other, is not kept. */
+export function parseFactVerdicts(raw, count) {
+  const kept = Array(count).fill(false);
+  for (const line of String(raw || "").split("\n")) {
+    const found = line.match(/^\W*(\d+)\W+(TRUE|FALSE|UNSURE)\b/i);
+    if (!found) continue;
+    const at = Number(found[1]) - 1;
+    if (at >= 0 && at < count) kept[at] = /^TRUE$/i.test(found[2]);
+  }
+  return kept;
+}
+
 /* A kind written in brackets in front of the sentence, "[Besitz] sentence |
    translation", is the kind in a field of its own: the local model writes the
    line that way once the question lists the kinds already shown. */

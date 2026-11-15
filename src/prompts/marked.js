@@ -61,7 +61,11 @@ export function meaningPrompt({ source, reader, inText = true }) {
       : "3b. Order: the most common first.",
     `3c. TEST every addition: does it name a use or sense of the term that the words before it do not cover? A ${reader} word meaning the same as one already given - a synonym, a stronger or weaker word, the same word for another gender - is padding: leave it out.`,
     "3d. A technical term, a proper name and a term of several words almost never carry a second meaning. Give ONE.",
-    `4. <note>: the explanation, in ${reader}, 6 to 11 words. Explain the TERM: what kind of thing it is, the domain it belongs to, its register, its connotation, how it differs from a plainer word - what <meaning> does not already say.`,
+    /* A word of the reader's own language: what it refers to, not the word
+       (run 80). */
+    own
+      ? `4. <note>: the explanation, in ${reader}, 6 to 11 words. Explain what the TERM refers to, not the word: for a thing, a place, a person, an event or an institution, the facts that matter about it; for an action, a quality or an idea, what it means in plain words. Never its register, its field or how it differs from other words: the reader knows the language. Only facts you are sure of.`
+      : `4. <note>: the explanation, in ${reader}, 6 to 11 words. Explain the TERM: what kind of thing it is, the domain it belongs to, its register, its connotation, how it differs from a plainer word - what <meaning> does not already say.`,
     inText
       ? "4a. NOT the sentence. The reader can read that themselves: no retelling of this text, no saying who or what it happens to be about here, and no \"here\" at all unless the term would be misread without it. Where the context genuinely decides the sense, ONE short clause at the end carries it."
       : "4a. There is no text and no situation. Never write \"here\", never put the word into a text, never invent a context for it.",
@@ -80,26 +84,9 @@ export function meaningPrompt({ source, reader, inText = true }) {
   ].join("\n");
 }
 
-/* Where it sits in the two translations. A and B change language from request
-   to request, which is why rule 5 says so rather than naming them here. */
-export function spotPrompt({ source, reader }) {
-  return [
-    `A reader picked ONE word or phrase out of a ${source} text. Locate it in both translations.`,
-    "",
-    "HARD RULES:",
-    "1. Reply with EXACTLY ONE line, exactly: <A> | <B>",
-    "2. Copy the words that render the term in that translation EXACTLY as they appear there - same spelling, same capitalisation. Never invent, never inflect, never translate yourself. Join several words with a plus sign. Write a single hyphen if that translation does not render it at all.",
-    "3. Only the words carrying the meaning. No articles, no auxiliaries, unless they belong to the term itself.",
-    "4. At most four words per field. NEVER a whole clause or a whole sentence - only the words that stand for this one term. If the term is a single word, the field is normally a single word too.",
-    `5. A and B are the two texts labelled A and B above, and their languages CHANGE from request to request - never assume one of them is ${reader}. The term itself already stands in the Text: never repeat it, and never answer in ${source}.`,
-    "6. The angle brackets mark the fields. Do not write them.",
-    "7. No numbering, no bullets, no quotation marks, no extra text, no second line.",
-  ].join("\n");
-}
-
-/* A passage — a clause or a sentence, see isPassage — is asked two questions
-   instead of four: what exactly it says, and where it stands in the other two
-   panels. The meaning prompt asks about ONE term, and handed a sentence it
+/* A passage — a clause or a sentence, see isPassage — is asked one question
+   instead of four: what exactly it says (where it stands in the other panels
+   is the word aligner's). The meaning prompt asks about ONE term, and handed a sentence it
    chooses a piece of it: "Se trata de ocho esculturas que representan a
    canes…" came back as "es handelt sich um" on the cloud model and as
    "darstellen" on the local one, with a note about that piece.
@@ -117,26 +104,6 @@ export function passagePrompt({ source, target }) {
     "3. The Text is there so the Passage is understood as it is meant in it: keep its tense, its person and the sense its words have there. A piece of a sentence stays a piece, and a statement stays a statement. An idiom is rendered by what it means, not word for word.",
     `4. Written in ${target}, never in ${source} and never in any third language.`,
     "5. No quotation marks, no explanation, no note, no second line.",
-  ].join("\n");
-}
-
-/* No plus sign, unlike the spot question for a word: the local model took it
-   for the separator between the two fields ("before+the town hall finally
-   decided") and 23 of 36 spots came back empty. Without it, and with the bar
-   named as the separator, 2 of 36; the cloud model loses nothing. A passage is
-   one stretch in almost every translation, and where it is not, its first and
-   last word still frame the right place. */
-export function passageSpotPrompt({ source, reader }) {
-  return [
-    `A reader marked a PASSAGE - a clause or a sentence - in a ${source} text. Find the words that render it in both translations.`,
-    "",
-    "HARD RULES:",
-    "1. Reply with EXACTLY ONE line with two fields separated by a vertical bar: <A> | <B>",
-    "2. <A> is copied from translation A, <B> from translation B: the stretch that renders the Passage, EXACTLY as it stands there - same spelling, same capitalisation. Never translate yourself, never inflect, never shorten it to its key words.",
-    "3. The WHOLE stretch rendering the Passage, from its first word to its last, and nothing from the parts that render words outside it. Write a single hyphen for a translation that does not render the Passage at all.",
-    `4. A and B are the two texts labelled A and B above, and their languages CHANGE from request to request - never assume one of them is ${reader}. Never copy the Passage itself and never answer in ${source}.`,
-    "5. The angle brackets mark the fields. Do not write them.",
-    "6. No numbering, no quotation marks, no extra text, no second line.",
   ].join("\n");
 }
 
@@ -294,9 +261,49 @@ export function personNames(code) {
 
    It is told what the short answer already said, so it goes past it rather
    than repeating it, and the reader's level decides how plain it is. The
-   level is absent where the word is in the reader's own language. */
+   level is absent where the word is in the reader's own language.
+
+   In the reader's own language the paragraph is about the thing, not the
+   word: register, situations and the words nearest to it told a native
+   reader what they knew, and an example sentence showed them a word they
+   use (run 80). No example comes with it there; the button for one stays.
+   The rules are numbered as they stand, so a learner's question reads as
+   it always did. */
 export function explainMorePrompt({ source, reader, level, inText = true, spelling, hasExamples = false }) {
   const own = source === reader;
+  const rules = [
+    `Write ONE paragraph of 40 to 70 words in ${reader}, on a single line. No heading, no list, no markdown.`,
+    own
+      ? "Explain what the TERM refers to, the way a knowledgeable person answers when asked about it. For a name - a place, a person, an event, an institution - or a thing or idea of a particular field: the facts and background worth knowing - what it is, where and when, how it works, why it matters. For an ordinary verb, adjective or noun: what it means and involves in general, never the people, places or events of the text. The main facts before details: a figure, a date or a rule only where it is well known. Not the word: never its register, the situations it is used in or how it differs from similar words - the reader knows the language."
+      : "Explain the TERM itself, the way a knowledgeable person explains a word when asked: what it means, the idea or picture behind it, in which situations and registers it is used, and how it differs from the words closest to it.",
+    ...(own
+      ? ["Write the paragraph and nothing else: no example sentence."]
+      : [
+        "Then end the paragraph and write ONE example sentence, on a NEW line starting with the word EXAMPLE, in this shape and nothing else. Write a second such line only where the term has a second use so different that one sentence cannot show it:\n" +
+          `EXAMPLE: <kind> | <a short natural ${source} sentence> | <its ${reader} translation>`,
+        `<kind> is ONE word in ${reader} - two only where one will not do - saying what kind of use the sentence shows: the register, the situation or which sense of the term it is. Leave it empty for an ordinary use of the term, and keep the two separators.`,
+        hasExamples
+          /* Only where there are any: a rule about examples already shown is a
+             clause that costs a small model something and answers nothing in the
+             ordinary case, where the reader has asked for no sentence yet. */
+          ? "Every sentence is new - never the sentence from the text, and never one of the sentences already shown to the reader or a variation of one - and short: at most 9 words."
+          : "Every sentence is new - never the sentence from the text - and short: at most 9 words.",
+      ]),
+    "The paragraph is read straight after the short note, as its continuation: add what the note leaves out. Never restate what the note or the meaning already says, not even in other words, and do not open by defining the term again.",
+    own
+      ? "Write for an adult reader of the language."
+      : "Match the level: plain words for a beginner, nuance for an advanced reader, and sentences a reader at that level can read.",
+    inText
+      ? "The reader has the text in front of them: never retell it, never say what the term means in it, never write \"in your sentence\" or \"here\"."
+      : "There is no text: never write \"here\" and never invent a context for the word.",
+    "Never make the part of speech or the grammatical form the explanation.",
+    own
+      ? "If you do not know the term, say so in one sentence and invent nothing. State only facts you are sure of; leave out the rest."
+      : "If you do not know the term, say so in one sentence, write no example and invent nothing.",
+    own
+      ? `Everything is written in ${reader}.`
+      : `Everything is written in ${reader}, apart from the term itself and the ${source} example sentences.`,
+  ];
   return [
     inText
       ? `A reader picked ONE word or phrase out of a ${source} text and has read a short note on it. They asked for more.`
@@ -306,31 +313,7 @@ export function explainMorePrompt({ source, reader, level, inText = true, spelli
       : `The reader's own language is ${reader}; they are learning ${source} at level ${level}.`,
     "",
     "RULES:",
-    `1. Write ONE paragraph of 40 to 70 words in ${reader}, on a single line. No heading, no list, no markdown.`,
-    "2. Explain the TERM itself, the way a knowledgeable person explains a word when asked: what it means, the idea or picture behind it, in which situations and registers it is used, and how it differs from the words closest to it.",
-    "3. Then end the paragraph and write ONE example sentence, on a NEW line starting with the word EXAMPLE, in this shape and nothing else. Write a second such line only where the term has a second use so different that one sentence cannot show it:",
-    own
-      ? `EXAMPLE: <kind> | <a short natural ${source} sentence> |`
-      : `EXAMPLE: <kind> | <a short natural ${source} sentence> | <its ${reader} translation>`,
-    `4. <kind> is ONE word in ${reader} - two only where one will not do - saying what kind of use the sentence shows: the register, the situation or which sense of the term it is. Leave it empty for an ordinary use of the term, and keep the two separators.`,
-    hasExamples
-      /* Only where there are any: a rule about examples already shown is a
-         clause that costs a small model something and answers nothing in the
-         ordinary case, where the reader has asked for no sentence yet. */
-      ? "5. Every sentence is new - never the sentence from the text, and never one of the sentences already shown to the reader or a variation of one - and short: at most 9 words."
-      : "5. Every sentence is new - never the sentence from the text - and short: at most 9 words.",
-    "6. The paragraph is read straight after the short note, as its continuation: add what the note leaves out. Never restate what the note or the meaning already says, not even in other words, and do not open by defining the term again.",
-    own
-      ? "7. Write for an adult reader of the language."
-      : "7. Match the level: plain words for a beginner, nuance for an advanced reader, and sentences a reader at that level can read.",
-    inText
-      ? "8. The reader has the text in front of them: never retell it, never say what the term means in it, never write \"in your sentence\" or \"here\"."
-      : "8. There is no text: never write \"here\" and never invent a context for the word.",
-    "9. Never make the part of speech or the grammatical form the explanation.",
-    "10. If you do not know the term, say so in one sentence, write no example and invent nothing.",
-    own
-      ? `11. Everything is written in ${reader}, apart from the example sentences.`
-      : `11. Everything is written in ${reader}, apart from the term itself and the ${source} example sentences.`,
+    ...rules.map((rule, i) => `${i + 1}. ${rule}`),
     ...(spelling ? [spelling] : []),
   ].join("\n");
 }
@@ -413,4 +396,47 @@ export function explainMoreInput({ source, term, text, meaning, note, inText = t
       ? `Example sentences already shown:\n${examples.map((one) => `- ${one.sentence}`).join("\n")}`
       : null,
   ].filter(Boolean).join("\n");
+}
+
+/* The longer explanation, checked line by line before it is shown. In the
+   reader's own language it is about the thing and holds facts, and the cloud
+   model got about one answer in twelve wrong (run 80); for a learner it is
+   about the word — a sense, a register, a construction, where the word comes
+   from — and an example sentence is a claim about the word too. A card's
+   notes are checked the same way (run 74). Each line is judged alone, and
+   only one called TRUE stands. */
+export function checkFactsPrompt({ source, reader = source }) {
+  if (source !== reader) {
+    return [
+      `You check a short explanation of a ${source} word, written in ${reader} for a learner of ${source} whose own language is ${reader}, and the ${source} example sentences that come with it.`,
+      "",
+      "Explanations like this are often partly invented: a sense the word does not have, a region, a construction or preposition it is said to take, an origin, a word it is said to differ from, a sentence no native speaker would say. Judge every numbered line on its own:",
+      `TRUE if every detail in it is right, as a ${source} dictionary and native speakers would confirm - a remark on tone or register where native speakers would broadly agree with it, an example where a native speaker would say it so and it uses the word in a sense it has; FALSE if any detail is wrong; UNSURE if you cannot confirm every detail.`,
+      "",
+      "Answer with one line per numbered line and nothing else: its number, then TRUE, FALSE or UNSURE.",
+    ].join("\n");
+  }
+  return [
+    `You check a short explanation of a ${source} term, written for a reader whose own language is ${source}.`,
+    "",
+    "Explanations like this are often partly invented: a date, a number, a place, a name, who is in charge, a rule, a cause, a part said to belong to it. Judge every sentence on its own:",
+    "TRUE if every detail in it is right, as a good reference work would confirm; FALSE if any detail is wrong; UNSURE if you cannot confirm every detail.",
+    "",
+    "Answer with one line per sentence and nothing else: its number, then TRUE, FALSE or UNSURE.",
+  ].join("\n");
+}
+
+/* The text the term stands in, the term, and the lines to judge, numbered:
+   the paragraph's sentences, then each example with its translation. */
+export function checkFactsInput({ source, term, text, sentences, examples = [] }) {
+  return [
+    ...(text ? [`Text (${source}): ${text}`] : []),
+    `Term: ${term}`,
+    "",
+    "Explanation:",
+    ...sentences.map((sentence, index) => `${index + 1}. ${sentence}`),
+    ...(examples.length ? ["", "Examples:"] : []),
+    ...examples.map((one, index) =>
+      `${sentences.length + index + 1}. ${one.sentence}${one.translation ? ` (${one.translation})` : ""}`),
+  ].join("\n");
 }

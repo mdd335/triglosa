@@ -238,6 +238,11 @@ test("a missing pack has the way to the Translations page beside it, an impossib
   assert.strictEqual(sectionNamed(both, "Deutsch").node.querySelector(".to-translations"), null);
   assert.ok(sectionNamed(both, "Englisch").node.querySelector(".to-translations button"));
   assert.strictEqual(both.sheet.querySelectorAll(".to-translations").length, 1);
+  /* A model set up that could not answer: the pack alone, no model to set
+     up (author 2026-11-15). */
+  const failed = draw(reading({ panels: panels("missing") }), { ...SETTINGS, endpoint: "https://api.example.org/v1" }, { tools });
+  assert.strictEqual(sectionNamed(failed, "Deutsch").body, de.packMissing("Spanisch", "Deutsch"));
+  assert.ok(sectionNamed(failed, "Deutsch").node.querySelector(".to-translations button"));
   /* Apple cannot do the pair at all: no pack to load, the model to set up. */
   const impossible = draw(reading({ panels: panels("unsupported") }), SETTINGS, { tools });
   const area = sectionNamed(impossible, "Deutsch");
@@ -366,6 +371,68 @@ test("without an endpoint a picked word is answered as far as the aligner and Ap
   assert.match(sectionNamed(both, markedIn("Spanisch")).rows[0].textContent, /Regierung, Staat/);
 });
 
+test("without an endpoint a picked verb shows its base form, and Apple's dictionary where the explanation would stand", () => {
+  /* author 2026-11-12: as with a model, from another source — the base form
+     by Apple's tagger, the conjugation for a verb, and in the explanation's
+     place a button to Apple's dictionary, only where one holds the word. */
+  const looked = [];
+  const cards = [];
+  const tools = { ...TOOLS, card: (card) => cards.push(card), cardFor: (code) => code !== "de", speak() {}, canSpeak: () => true,
+                  dictionary: (term, at) => looked.push([term, at]) };
+  const state = reading({
+    selection: { panel: 0, start: 17, end: 23, term: "impugnó" },
+    marked: { text: "impugnó", meaning: "anfechten", note: "", synonyms: [], bare: true, meaningBy: "aligner", placedBy: "aligner",
+              infinitive: "impugnar", basedBy: "device", dictionary: "impugnó", ranges: {} },
+    markedStatus: "",
+  });
+  const drawn = draw(state, { ...SETTINGS, endpoint: "" }, { tools });
+  const area = sectionNamed(drawn, markedIn("Spanisch"));
+  const [row] = area.rows;
+  assert.strictEqual(row.querySelector(".row-head .base").textContent, "impugnar");
+  assert.strictEqual(row.querySelector(".row-head .equivalent").textContent, "anfechten");
+  assert.strictEqual(row.querySelector(".row-head .grammar"), null, "no class the tagger may have wrong");
+  assert.deepStrictEqual(iconsOf(row), ["speak", "conjugation", "card"]);
+  const way = row.querySelector(".dictionary-way button");
+  assert.strictEqual(way.textContent, de.dictionary);
+  way.click();
+  assert.deepStrictEqual(looked.map(([term]) => term), ["impugnó"]);
+  assert.match(area.node.querySelector(".label .status").textContent, /^Grundform bestimmt von Apple \(auf diesem Gerät\)/);
+  row.querySelector("button[data-icon='card']").dispatchEvent(new window.MouseEvent("click"));
+  assert.strictEqual(cards[0].term, "impugnar", "a verb's card is its base form's");
+
+  /* No dictionary holds it: no button, nothing said instead. */
+  const none = draw({ ...state, marked: { ...state.marked, dictionary: "" } }, { ...SETTINGS, endpoint: "" }, { tools });
+  assert.strictEqual(sectionNamed(none, markedIn("Spanisch")).rows[0].querySelector(".dictionary-way"), null);
+  /* Nowhere to show one (Windows): no button either. */
+  const windows = draw(state, { ...SETTINGS, endpoint: "" }, { tools: { ...tools, dictionary: undefined } });
+  assert.strictEqual(sectionNamed(windows, markedIn("Spanisch")).rows[0].querySelector(".dictionary-way"), null);
+});
+
+test("without an endpoint a looked-up word stands under the entry as with a model, its dictionary in place of an explanation", () => {
+  /* author 2026-11-12: the short mode's row is drawn from what the machine
+     says; nothing that asks a model is offered on it. */
+  const looked = [];
+  const tools = { ...TOOLS, dictionary: (term) => looked.push(term), speak() {}, canSpeak: () => true };
+  const state = { ...SHORT(), text: "corrieron", panels: [
+    { code: "es", name: "Spanisch", status: "ready", text: "corrieron" },
+    { code: "de", name: "Deutsch", status: "ready", text: "liefen", engine: "device" },
+  ], words: [{ text: "corrieron", meaning: "laufen", note: "", device: true, dictionary: "corrieron",
+               verb: { infinitive: "correr", form: "corrieron" } }] };
+  const drawn = draw(state, { ...SETTINGS, endpoint: "" }, { tools, onMore: () => {}, onExample: () => {} });
+  const area = sectionNamed(drawn, de.term);
+  const [row] = area.rows;
+  assert.strictEqual(row.querySelector(".row-head .base").textContent, "correr");
+  assert.strictEqual(row.querySelector(".row-head .equivalent").textContent, "laufen");
+  assert.deepStrictEqual(iconsOf(row), ["speak", "conjugation"], "no longer explanation, no example: those are a model's");
+  row.querySelector(".dictionary-way button").click();
+  assert.deepStrictEqual(looked, ["corrieron"]);
+  assert.strictEqual(area.node.querySelector(".label .status").textContent, "Grundform bestimmt von Apple (auf diesem Gerät)");
+  assert.strictEqual(drawn.sheet.querySelectorAll(".locked-note").length, 1);
+  /* Switched off, not there. */
+  const off = draw(state, { ...SETTINGS, endpoint: "", show: { verbs: "foreign", terms: "never" } }, { tools });
+  assert.ok(!titles(off).includes(de.term));
+});
+
 test("where Apple translated, the line says so before what a model adds", () => {
   /* author 2026-11-05: reminded, not nagged — one wording wherever Apple
      translated, and what a model adds at that place. */
@@ -374,7 +441,7 @@ test("where Apple translated, the line says so before what a model adds", () => 
   const note = draw(device, { ...SETTINGS, endpoint: "" }).sheet.querySelectorAll(".locked-note");
   assert.strictEqual(note.length, 1);
   assert.strictEqual(note[0].textContent,
-    "Übersetzt von Apple (auf diesem Gerät). Verbinde in den Einstellungen ein KI-Modell für genauere Übersetzungen, Begriffe, Verben und Erklärungen zu jedem Wort.");
+    "Übersetzt von Apple (auf diesem Gerät). Verbinde in den Einstellungen ein KI-Modell für genauere Übersetzungen, hervorgehobene Begriffe und Erklärungen zu jedem Wort.");
   /* Nothing translated by Apple, nothing said about it. */
   assert.strictEqual(draw(reading(), { ...SETTINGS, endpoint: "" }).sheet.querySelector(".locked-note").textContent, de.lockedHow);
 });
@@ -747,11 +814,11 @@ test("a marked word that is a verb is treated as one", () => {
 
 test("the picked word is framed where it was picked and lifted everywhere else", () => {
   /* The frame is the reader's own doing. In the other panels the same word is
-     a finding — the model said where it went — and a frame there would say
-     three words had been clicked. */
+     a finding — the word aligner said where it went — and a frame there would
+     say three words had been clicked. */
   const drawn = draw(reading({
     selection: { panel: 0, start: 28, end: 35, term: "acuerdo" },
-    marked: { text: "acuerdo", meaning: "Abkommen", a: "Abkommen", b: "agreement",
+    marked: { text: "acuerdo", meaning: "Abkommen", ranges: { 1: [{ start: 32, end: 40 }], 2: [{ start: 40, end: 49 }] },
               note: "Vertragsrecht.", synonyms: [] },
     markedStatus: "",
   }));
@@ -907,18 +974,30 @@ test("on a phone a new translation's field has the camera, the photo library, th
   const phone = { ...TOOLS, picture: (source) => asked.push(source), paste: () => asked.push("paste"), copied: () => true };
   const sheet = draw(phone);
   const sources = [...sheet.querySelectorAll(".text-sources button")];
-  assert.deepStrictEqual(sources.map((node) => node.textContent), [de.pictureCamera, de.pictureLibrary, de.pictureFiles, de.clipboard]);
+  assert.deepStrictEqual(sources.map((node) => node.textContent), [de.clipboard, de.pictureCamera, de.pictureLibrary, de.pictureFiles]);
   assert.deepStrictEqual(sources.map((node) => node.querySelector("svg") && node.querySelector("svg").innerHTML.length > 0), [true, true, true, true],
     "each with its symbol");
   assert.ok(sheet.querySelector(".pane > .text-sources"), "under the field");
   sources.forEach((node) => node.click());
-  assert.deepStrictEqual(asked, ["camera", "library", "files", "paste"]);
-  /* Greyed as the bar's button while nothing was copied. */
+  assert.deepStrictEqual(asked, ["paste", "camera", "library", "files"]);
+  /* Greyed while nothing was copied. */
   assert.strictEqual(draw({ ...phone, copied: () => false }).querySelector('[data-source="clipboard"]').disabled, true);
-  assert.strictEqual(sources[3].disabled, false);
+  assert.strictEqual(sources[0].disabled, false);
   /* A computer has no such buttons, and a reading none either. */
   assert.strictEqual(draw(TOOLS).querySelector(".text-sources"), null);
   assert.strictEqual(draw(phone, false).querySelector(".text-sources"), null);
+  /* Nor a reading's own text being changed (author 2026-11-10). */
+  const changing = document.createElement("div");
+  renderReading(changing, reading(), {
+    settings: SETTINGS,
+    tools: phone,
+    edit: { editing: true, draft: "Hola", onDraft() {}, onEdit() {}, onTranslate() {} },
+    onPick() {},
+    onLookUp() {},
+    onBack() {},
+  });
+  assert.ok(changing.querySelector("#draft"), "the field is there");
+  assert.strictEqual(changing.querySelector(".text-sources"), null);
 });
 
 test("a new translation's field on a computer says nothing about dropping a picture", () => {
@@ -1308,7 +1387,7 @@ test("folding the verbs away takes their markings out of the panels", () => {
 test("the picked word folds away and takes its frame and its spots with it", () => {
   const state = MARKED_READING();
   state.selection = { panel: 0, start: 28, end: 35, term: "acuerdo" };
-  state.marked = { text: "acuerdo", meaning: "Abkommen", note: "Vertrag.", synonyms: [] };
+  state.marked = { text: "acuerdo", meaning: "Abkommen", note: "Vertrag.", synonyms: [], ranges: { 1: [{ start: 32, end: 40 }], 2: null } };
   state.markedStatus = "";
   const view = foldingDraw(state);
   const framed = () => [...view.drawn.sheet.querySelectorAll(".pane .box")].slice(0, 3)
@@ -1414,7 +1493,7 @@ test("a marked passage shows itself and its translation, and only the buttons th
     selection: { panel: 0, start: 0, end: 35, term: "Ayer el gobierno impugnó el acuerdo" },
     marked: { text: "Ayer el gobierno impugnó el acuerdo", passage: true,
               meaning: "Gestern focht die Regierung das Abkommen an", note: "", synonyms: [],
-              a: "Gestern focht die Regierung das Abkommen an", b: "" },
+              ranges: { 1: [{ start: 0, end: 43 }], 2: null } },
     markedStatus: "",
   }), SETTINGS, { onMore: () => {}, onExample: () => {} });
   const row = sectionNamed(drawn, markedIn("Spanisch")).rows[0];
@@ -1744,4 +1823,47 @@ test("the sentences around the original stand while the reading stepped to is st
 test("a reading with no text to step through has no such line", () => {
   assert.strictEqual(draw(reading()).sheet.querySelector(".neighbour"), null);
   assert.strictEqual(draw(reading(), SETTINGS, { sentences: null }).sheet.querySelector(".neighbour"), null);
+});
+
+/* ---- a phone whose reader did not let texts go to the model ---- */
+
+test("on a phone with the model set up but not allowed, the line says to allow it", () => {
+  /* Reported from an iPhone: a reader who had answered the question before
+     the first text with no was told to connect an AI model — one was
+     connected, and nothing pointed at the switch. */
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  try {
+    const phoneDe = labels("de");
+    const declined = { ...SETTINGS, endpoint: "", modelDeclined: true };
+    const device = reading();
+    device.panels = device.panels.map((entry, index) => (index ? { ...entry, engine: "device" } : entry));
+    const notes = draw(device, declined).sheet.querySelectorAll(".locked-note");
+    assert.strictEqual(notes.length, 1);
+    assert.strictEqual(notes[0].textContent, `${phoneDe.byApple} ${phoneDe.modelDeclined}`);
+    assert.ok(!notes[0].textContent.includes(phoneDe.lockedHow));
+
+    /* The panels keep what Apple lacks, and leave the switch to the line. */
+    const panels = reading();
+    panels.panels = panels.panels.map((entry, index) => (index === 1 ? { ...entry, status: "missing", text: "" }
+      : index === 2 ? { ...entry, status: "unknown-source", text: "" } : entry));
+    const drawn = draw(panels, declined).sheet;
+    const boxes = [...drawn.querySelectorAll(".pane .box")].map((box) => box.textContent);
+    assert.ok(boxes.some((text) => text.startsWith(phoneDe.packMissing(panels.panels[0].name, panels.panels[1].name))), boxes.join(" | "));
+    assert.ok(boxes.includes(phoneDe.noAnswer), boxes.join(" | "));
+    assert.ok(!boxes.some((text) => /KI-Modell/.test(text)), "the switch is named once, under the sheet");
+
+    /* Without a model set up at all, the old line stands. */
+    assert.strictEqual(draw(reading(), { ...SETTINGS, endpoint: "" }).sheet.querySelector(".locked-note").textContent, phoneDe.lockedHow);
+  } finally {
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
+});
+
+test("every interface language says on a phone that the model is not allowed", () => {
+  for (const code of ["de", "en", "es", "fr", "it", "pt", "ru"]) {
+    const line = labels(code, "ios").modelDeclined;
+    assert.ok(line, code);
+    assert.strictEqual(line.split(/(?<=[.!?])\s+/).length, 2, `${code}: fact, then what to do`);
+    assert.ok(line.includes(labels(code, "ios").groupModel), `${code}: names where the switch is`);
+  }
 });

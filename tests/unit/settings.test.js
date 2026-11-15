@@ -20,6 +20,7 @@ import {
 } from "../../src/settings.js";
 import { DEFAULT_HOTKEY, hotkeyFrom, hotkeyLabel, isHotkey } from "../../src/hotkey.js";
 import { keyHint } from "../../src/platform/keychain.js";
+import { phoneSettings } from "../../src/settings.js";
 
 test("a fresh install starts on two languages and nothing else", () => {
   const s = normalizeSettings(undefined);
@@ -504,4 +505,21 @@ test("the first steps are shown until the reader says not to", () => {
   assert.strictEqual(normalizeSettings({}).welcome, true);
   assert.strictEqual(normalizeSettings({ welcome: "no" }).welcome, true);
   assert.strictEqual(normalizeSettings({ welcome: false }).welcome, false);
+});
+
+test("a phone uses the model only with its reader's yes, and says when it was a no", () => {
+  const set = { endpoint: "https://api.anthropic.com/v1", model: "m", glance: false, nextSentence: true, forceClick: true };
+  const host = "api.anthropic.com";
+  const allowed = phoneSettings({ ...set, modelConsent: { host, allowed: true } });
+  assert.strictEqual(allowed.endpoint, set.endpoint);
+  assert.ok(!allowed.modelDeclined);
+  /* The hover is a finger held on a word there, always on. */
+  assert.deepStrictEqual([allowed.glance, allowed.nextSentence, allowed.forceClick], [false, false, false]);
+  for (const modelConsent of [{ host, allowed: false }, { host: "openrouter.ai", allowed: true }, undefined]) {
+    const withheld = phoneSettings({ ...set, modelConsent });
+    assert.strictEqual(withheld.endpoint, "", JSON.stringify(modelConsent));
+    assert.strictEqual(withheld.modelDeclined, true, "a model is set up, and not allowed");
+  }
+  const none = phoneSettings({ ...set, endpoint: "" });
+  assert.ok(!none.modelDeclined, "nothing set up is nothing declined");
 });

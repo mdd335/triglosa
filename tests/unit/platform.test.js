@@ -310,7 +310,7 @@ function picky(refuse) {
         statusText: "Bad Request",
         headers: { get: () => "" },
         text: async () => JSON.stringify({
-          error: { message: "Reasoning is mandatory for this endpoint and cannot be disabled." },
+          error: { message: impl.refusal || "Reasoning is mandatory for this endpoint and cannot be disabled." },
         }),
       };
     }
@@ -386,6 +386,111 @@ test("eight questions at once climb one ladder, not eight", async () => {
   assert.strictEqual(llm.reasoning, "minimal", "and the ladder moved exactly one rung");
   const minimal = impl.calls.filter((c) => c.reasoning_effort === "minimal");
   assert.strictEqual(minimal.length, 8, "each asked again on the rung that now applies");
+});
+
+test("the connection test asks a named model itself, not the endpoint's list", async () => {
+  /* Anthropic answers the questions in the common shape but its model list
+     only in its own, and refused the test with "anthropic-version: header is
+     required" while every reading would have gone through. */
+  const urls = [];
+  const impl = async (url, init) => {
+    urls.push(url);
+    if (url.endsWith("/models")) {
+      return { ok: false, status: 400, statusText: "Bad Request", headers: { get: () => "" },
+        text: async () => JSON.stringify({ error: { message: "anthropic-version: header is required" } }) };
+    }
+    assert.strictEqual(JSON.parse(init.body).model, "m");
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: "OK" } }] }) };
+  };
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  assert.strictEqual((await llm.test()).chosen, "m");
+  assert.deepStrictEqual(urls, ["http://x/v1/chat/completions"]);
+});
+
+test("without a model named, the connection test still asks what the endpoint has", async () => {
+  const urls = [];
+  const impl = async (url) => {
+    urls.push(url);
+    return { ok: true, status: 200, json: async () => ({ data: [{ id: "a-uncensored" }, { id: "a-it" }] }) };
+  };
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "" }, impl);
+  assert.strictEqual((await llm.test()).chosen, "a-it");
+  assert.deepStrictEqual(urls, ["http://x/v1/models"]);
+});
+
+test("a named model that fails the connection test fails it as a reading would", async () => {
+  const impl = picky(() => true);
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  await assert.rejects(() => llm.test(), /Reasoning is mandatory/);
+});
+
+test("a model that refuses a temperature is asked without one, and only it", async () => {
+  /* Reported from an iPhone with Anthropic's claude-haiku-5-5: "400:
+     `temperature` is deprecated for this model." Every question failed. */
+  const impl = picky((sent) => "temperature" in sent);
+  impl.refusal = "`temperature` is deprecated for this model.";
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  assert.strictEqual(await llm.chat({ system: "s", user: "u", maxTokens: 100 }), "fine");
+  await llm.chat({ system: "s", user: "u", maxTokens: 100, temperature: 0.7 });
+  assert.deepStrictEqual(impl.calls.map((c) => "temperature" in c), [true, false, false],
+    "asked again without it once, and not offered it again");
+  assert.deepStrictEqual(impl.calls.map((c) => c.reasoning_effort), ["none", "none", "none"], "the reasoning rung untouched");
+});
+
+test("a model that wants its length limit under the newer name gets it there", async () => {
+  /* OpenAI's reasoning models: "Unsupported parameter: 'max_tokens' is not
+     supported with this model. Use 'max_completion_tokens' instead." */
+  const impl = picky((sent) => "max_tokens" in sent);
+  impl.refusal = "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.";
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  assert.strictEqual(await llm.chat({ system: "s", user: "u", maxTokens: 100 }), "fine");
+  assert.deepStrictEqual(impl.calls.map((c) => [c.max_tokens, c.max_completion_tokens]), [[100, undefined], [undefined, 100]]);
+  assert.ok("temperature" in impl.calls[1], "nothing else left out");
+});
+
+test("a model that refuses two fields loses both, one at a time", async () => {
+  const impl = picky((sent) => "temperature" in sent || "max_tokens" in sent);
+  impl.refusal = "";
+  const refusals = [];
+  const wrapped = async (url, init) => {
+    const sent = JSON.parse(init.body);
+    impl.refusal = "temperature" in sent ? "`temperature` is deprecated for this model." : "Unsupported parameter: 'max_tokens'.";
+    refusals.push(impl.refusal);
+    return impl(url, init);
+  };
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, wrapped);
+  assert.strictEqual(await llm.chat({ system: "s", user: "u", maxTokens: 100 }), "fine");
+  assert.strictEqual(impl.calls.length, 3);
+  assert.ok(!("temperature" in impl.calls[2]) && impl.calls[2].max_completion_tokens === 100);
+});
+
+test("a service that does not know the thinking field is asked without it", async () => {
+  /* Not a model that must think: a service that has no such field at all.
+     Left out, the request is the plain one every such service takes; a model
+     that then thinks anyway still runs out of room and is refused by name. */
+  const impl = picky((sent) => "reasoning_effort" in sent);
+  impl.refusal = "Unrecognized request argument supplied: reasoning_effort";
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  assert.strictEqual(await llm.chat({ system: "s", user: "u", maxTokens: 100 }), "fine");
+  await llm.chat({ system: "s", user: "u", maxTokens: 100 });
+  assert.deepStrictEqual(impl.calls.map((c) => "reasoning_effort" in c), [true, false, false]);
+  assert.ok("temperature" in impl.calls[1] && impl.calls[1].max_tokens === 100, "nothing else left out, no room added");
+});
+
+test("a model that must think keeps its ladder, whatever field it names", async () => {
+  const impl = picky((sent) => sent.reasoning_effort === "none");
+  impl.refusal = "reasoning_effort 'none' is not supported: reasoning is mandatory for this model.";
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  assert.strictEqual(await llm.chat({ system: "s", user: "u", maxTokens: 100 }), "fine");
+  assert.deepStrictEqual(impl.calls.map((c) => c.reasoning_effort), ["none", "minimal"]);
+});
+
+test("a refusal that does not name the temperature keeps it", async () => {
+  const impl = picky(() => true);
+  impl.refusal = "model not found";
+  const llm = createLlmBackend({ endpoint: "http://x/v1", model: "m" }, impl);
+  await assert.rejects(() => llm.chat({ system: "s", user: "u", maxTokens: 100 }), /model not found/);
+  assert.ok(impl.calls.every((c) => "temperature" in c));
 });
 
 test("what the endpoint said about a refusal reaches the reader", async () => {
@@ -702,6 +807,10 @@ test("the helper's recognition comes back as lines with their boxes", async () =
     [{ t: "Widerspruch einlegen", b: [36, 36, 666, 69], c: [] }, { t: "Als wir ankamen", b: [39, 85, 775, 103], c: [] }]);
   assert.deepStrictEqual(readRecognized("0 0 30 10\tab c\t0 10,10 18,18 22,22 30")[0].c, [[0, 10], [10, 18], [18, 22], [22, 30]],
     "and where each character stands");
+  assert.deepStrictEqual(readRecognized("0 0 300 40 -21\tschräg\t")[0], { t: "schräg", b: [0, 0, 300, 40], s: -21, c: [] },
+    "and how the line slopes");
+  assert.deepStrictEqual(readRecognized("640 480\n0 0 300 40 0\tganz\t").map((line) => line.f), [[640, 480]],
+    "and how large the piece was");
   let asked = "";
   const backend = createTranslationBackend({ helperUrl: "http://h" }, async (url) => {
     if (String(url).endsWith("/ping")) return new Response("ok 6");

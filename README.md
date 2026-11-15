@@ -2,7 +2,7 @@
 
 Triglosa is a translation app made for language learners. It is free and open source.
 
-Quickly translate text from any app into one or two languages, get explanations for terms that are hard at your level, let Triglosa create flashcards from any word and save them to Anki with one click. Powered by an AI model of your choice: in the cloud or on your device.
+Quickly translate text from any app into one or two languages, get explanations for terms that are hard at your level, let Triglosa create flashcards from any word and save them to Anki with one click. Powered by an AI model of your choice: from any cloud provider or on your device.
 
 **Download**
 
@@ -14,14 +14,14 @@ How to download and install, step by step: [see below](#installing).
 
 <img src="docs/demo.gif" width="640" alt="Triglosa showing a Spanish sentence with its English and Russian translations, the verbs and terms found in it">
 
-**What makes Triglosa different**
+**What makes Triglosa different from other translation apps**
 
 - **No need to pick languages every time.** Triglosa recognizes the language on its own and translates into the language(s) relevant for you, according to your settings.
 - **Made for your level.** It highlights the words that are hard at your level, from A1 to C2.
-- **Translation on hover (Windows and Mac).** Point at any word to see what it became in your language.
+- **Translation on hover.** Point at any word to see what it became in your language.
 - **Click any word** for translations, explanations, base forms, synonyms and example sentences.
 - **AI-enhanced flashcards from any word**, in Triglosa or straight from a word you select in any other app, saved in [Anki](https://apps.ankiweb.net) with one click.
-- **Your choice of AI model:** any cloud service, or on Windows and Mac a local model so your texts never leave your computer. Without one, Apple's translation is used on Mac and iPhone.
+- **Your choice of AI model:** any cloud service, or on Windows and Mac a local model so your texts never leave your computer. Without one, Apple's on-device translation is used on Mac and iPhone.
 
 Full list of features: [see below](#what-triglosa-does).
 
@@ -60,7 +60,7 @@ If you prefer the [installer](https://github.com/mdd335/triglosa/releases/latest
 **You need iOS 18 or newer**, and iOS 26 for Apple's translation on the iPhone.
 
 1. Install [Triglosa from the App Store](https://apps.apple.com/app/id6829218889).
-2. Copy a text in any app, open Triglosa and tap the paste button ➲ in the bar at the bottom: Triglosa translates what you copied. You can also select text in any app, tap *Share* and choose Triglosa.
+2. Copy a text in any app, open Triglosa and hold the plus + in the bar at the bottom: Triglosa translates what you copied. You can also select text in any app, tap *Share* and choose Triglosa.
 
 ## First steps
 
@@ -69,11 +69,11 @@ Triglosa shows you its own first steps when it starts, made for your system. In 
 1. **Windows and Mac: find Triglosa.** It lives in the notification area at the bottom right (Windows, behind the small arrow (^) next to the clock) or in the menu bar (Mac).
 2. **Set your languages** in the settings: your own language, which is also the interface language, and one or two you are learning, each with a level from A1 to C2.
 3. **Connect an AI model**, [see below](#connecting-an-ai-model).
-4. **You are all set!** Select a sentence in any program and press Ctrl+Alt+T (Windows) or ⌃⌥T (Mac). On a Mac, copy the sentence first (⌘C), unless you grant the permission below. On the iPhone, copy a text and tap the paste button ➲ in Triglosa, or share it to Triglosa.
+4. **You are all set!** Select a sentence in any program and press Ctrl+Alt+T (Windows) or ⌃⌥T (Mac). On a Mac, copy the sentence first (⌘C), unless you grant the permission below. On the iPhone, copy a text and hold the plus + in Triglosa, or share it to Triglosa.
 
 Optionally:
 
-- **Mac only: the macOS permission.** With it, Triglosa can read selected text without you copying it first, read the word or the sentence under the pointer, and insert translations straight into other programs. It is called *Device Control and Data Access* (*Accessibility* up to macOS 26), and you can grant it in the Triglosa settings under *Other programs*.
+- **Mac only: the macOS permission.** With it, Triglosa can read selected text without you copying it first, read the word or the sentence under the pointer, and insert translations straight into other programs. It is called *Device Control and Data Access* (*Accessibility* up to macOS 26), and you can grant it in the Triglosa settings under *Text from other apps*.
 - **Mac and iPhone: language packs for Apple's on-device translation.** With them, Triglosa falls back to Apple whenever the AI model does not answer. Under *Translations* in the settings you can download the missing ones and make Apple translate by default. It is very fast, but often imprecise.
 
 ## Connecting an AI model
@@ -126,11 +126,12 @@ All measurements were made in September 2026, with texts in all eight languages.
 
 There are several ways to open Triglosa and start a translation:
 
-- **iPhone: tap the paste button ➲** in the bar at the bottom to translate what you copied, share text or a picture to Triglosa from any app, or use Triglosa's buttons in the Control Center.
+- **iPhone: tap the +** in the bar at the bottom to start a new translation by typing text or adding a photo from your camera or library. Tap and hold the + to directly translate from your clipboard.
+- **iPhone: translate text or a picture from the share menu** or add Triglosa's buttons to the Control Center.
 - **Windows and Mac: select text and press the shortcut** to translate it: Ctrl+Alt+T (Windows) or ⌃⌥T (Mac). You can change the shortcut in the settings.
 - **Windows and Mac: click the book symbol** in the notification area (Windows) or the menu bar (Mac). Its menu (on Windows with a right click) offers more options like starting a new translation or opening the settings.
 - **Windows and Mac: translate text from a screenshot.** Choose *Translate text from a screenshot* in the menu of the book symbol, or set a shortcut for it, and draw a frame around any text on the screen. A picture file works too: select it and press the shortcut, or drop it on the pinned window. On a Mac this needs the permission *Screen & System Audio Recording*.
-- **Windows and Mac, optional: point instead of selecting.** With a shortcut of your choice, Triglosa translates the word or the sentence under the mouse pointer. Set this up in the settings under *Other programs*.
+- **Windows and Mac, optional: point instead of selecting.** With a shortcut of your choice, Triglosa translates the word or the sentence under the mouse pointer. Set this up in the settings under *Text from other apps*.
 
 ### Dictionary mode
 
@@ -148,13 +149,13 @@ Given three words or fewer, Triglosa opens in dictionary mode:
 Given four words or more, Triglosa opens in translation mode:
 
 - **Translations side by side**, in the languages configured in the settings, next to the original.
-- **Windows and Mac: point at a word** in a foreign language to see what it became in your language. The matching words light up in every translation.
+- **Point at a word** in a foreign language to see what it became in your language. The matching words light up in every translation. (On the iPhone, tap the word.)
 - **Words and verb forms that are difficult at your level** are listed below the translations and highlighted in all of them.
-- **Windows and Mac, optional: read on sentence by sentence.** Switch on *Offer the next sentence* in the settings under *Other programs*, and the next sentence of the text you read from is shown under the original. Click it to translate it.
+- **Windows and Mac, optional: read on sentence by sentence.** Switch on *Offer the next sentence* in the settings under *Text from other apps*, and the next sentence of the text you read from is shown under the original. Click it to translate it.
 
 ### In both modes
 
-- **Click or tap any word** for its meaning, dictionary form and related words. A longer explanation, example sentences or a web search are one click away.
+- **Click any word** for its meaning, dictionary form and related words. A longer explanation, example sentences or a web search are one click away. (On the iPhone, tap the word or sweep a finger across several and then tap *Select*.)
 - **Hear a word** spoken aloud with the loudspeaker button. (On Windows, add a voice for each language you learn under *Settings* → *Time & language* → *Speech*.)
 - **Windows and Mac: insert a translation** straight into the program you came from, replacing the text you selected there. (On a Mac this needs the optional permission from [First steps](#first-steps).)
 - **Go back to your last five translations.** They are kept until you quit Triglosa. You can change this in the settings.
@@ -169,14 +170,14 @@ Given four words or more, Triglosa opens in translation mode:
 
 ## How Triglosa works
 
-Triglosa shares the work between small models that come with the app, your system's own tools (on a Mac or iPhone also Apple's translation and text recognition), and the AI model you connect. Only what goes to the AI model leaves your device.
+Triglosa shares the work between small models that come with the app, your system's own tools, and the AI model you connect. Only what goes to the AI model leaves your device.
 
 | Task | Windows | Mac | iPhone |
 |---|---|---|---|
 | Recognizing the language | Triglosa, sometimes with the help of the AI model | Triglosa, sometimes with the help of Apple or the AI model | Triglosa, sometimes with the help of Apple or the AI model |
 | Translating | AI model | Your choice: AI model or Apple's translation; if one fails, the other steps in | Your choice: AI model or Apple's translation; if one fails, the other steps in |
-| Matching words for the translation on hover | Triglosa | Triglosa | — |
-| Finding, translating and explaining words | AI model | AI model | AI model |
+| Matching words between the original and the translations (hover and highlights) | Triglosa | Triglosa | Triglosa |
+| Finding, translating and explaining words; writing example sentences | AI model | AI model | AI model |
 | Recognizing text in pictures | Triglosa | Apple | Apple |
 | Improving flashcards | AI model | AI model | AI model |
 | Correcting a typo in a looked-up word | Your system's spelling checker notices it, the AI model corrects it | Your system's spelling checker notices it, the AI model corrects it | Your system's spelling checker notices it, the AI model corrects it |
@@ -188,7 +189,7 @@ What happens behind a translation, step by step, and every question Triglosa ask
 
 Triglosa sends the text you read to the AI model you connect, and nowhere else. Your readings are kept in memory, not written to any file.
 
-On Windows and Mac, a looked-up word (dictionary mode) takes the sentence it stands in along, at most 30 words, even though you did not select that sentence. Switch off *Send the sentence along* in the settings under *Other programs* if you do not want that.
+On Windows and Mac, a looked-up word (dictionary mode) takes the sentence it stands in along, at most 30 words, even though you did not select that sentence. Switch off *Send the sentence along* in the settings under *Text from other apps* if you do not want that.
 
 Of a screenshot or picture, only the recognized text is sent to the AI model, never the picture.
 

@@ -43,7 +43,7 @@ test("on a phone Apple's translation answers the helper's routes inside the app"
   const asked = [];
   const invoke = async (command, { route, body }) => {
     asked.push([command, route, body]);
-    if (route === "/ping") return { status: 200, text: "ok 6" };
+    if (route === "/ping") return { status: 200, text: "ok 8" };
     if (route.startsWith("/available")) return { status: 200, text: "de installed\n" };
     if (route.startsWith("/translate")) return { status: 200, text: "hallo" };
     return { status: 404, text: "unknown" };

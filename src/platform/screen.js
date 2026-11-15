@@ -51,7 +51,7 @@ export async function readScreen({ translation, languages }) {
   if (onWindows()) {
     try {
       const lines = await shell("screen_text", { scripts: scriptsFor(languages) });
-      return { lines: lines.map((line) => ({ t: line.text, b: line.b, c: line.c || [] })), by: "triglosa" };
+      return { lines: lines.map((line) => ({ t: line.text, b: line.b, s: line.s, f: line.f, c: line.c || [] })), by: "triglosa" };
     } catch (error) {
       return { failed: String(error) === "absent" ? "absent" : "helper" };
     }

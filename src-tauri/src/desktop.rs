@@ -1751,15 +1751,9 @@ struct TrayWords {
     settings: String,
     updates: String,
     help: String,
-    problem: String,
     restart: String,
     quit: String,
 }
-
-/* Where the menu's three entries about the project go. The window names the
-same addresses in src/updates.js. */
-const HELP_URL: &str = "https://github.com/mdd335/triglosa#readme";
-const ISSUES_URL: &str = "https://github.com/mdd335/triglosa/issues";
 
 #[tauri::command]
 fn apply_tray(app: tauri::AppHandle, words: TrayWords, shortcuts: Shortcuts) -> Result<(), String> {
@@ -1813,7 +1807,6 @@ fn apply_tray(app: tauri::AppHandle, words: TrayWords, shortcuts: Shortcuts) -> 
     let configure = item("settings", &words.settings)?;
     let updates = item("updates", &words.updates)?;
     let help = item("help", &words.help)?;
-    let problem = item("problem", &words.problem)?;
     let again = item("restart", &words.restart)?;
     let leave = item("quit", &words.quit)?;
     let line = || PredefinedMenuItem::separator(&app).map_err(|error| error.to_string());
@@ -1837,7 +1830,6 @@ fn apply_tray(app: tauri::AppHandle, words: TrayWords, shortcuts: Shortcuts) -> 
             &configure,
             &updates,
             &help,
-            &problem,
             &third,
             &again,
             &leave,
@@ -1903,11 +1895,11 @@ fn apply_tray(app: tauri::AppHandle, words: TrayWords, shortcuts: Shortcuts) -> 
             "blank-card" => {
                 let _ = app.emit_to(reading_label().as_str(), "card-blank", ());
             }
-            "settings" | "updates" => {
+            "settings" | "updates" | "help" => {
                 /* After the menu has closed: while it is still tracking, the
                 app is not made active and the window lands behind the
                 program in front. */
-                let page = (event.id.as_ref() == "updates").then_some("about");
+                let page = matches!(event.id.as_ref(), "updates" | "help").then_some("about");
                 let app = app.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_millis(100));
@@ -1918,15 +1910,6 @@ fn apply_tray(app: tauri::AppHandle, words: TrayWords, shortcuts: Shortcuts) -> 
                         }
                     });
                 });
-            }
-            "help" | "problem" => {
-                use tauri_plugin_opener::OpenerExt;
-                let url = if event.id.as_ref() == "help" {
-                    HELP_URL
-                } else {
-                    ISSUES_URL
-                };
-                let _ = app.opener().open_url(url, None::<&str>);
             }
             "restart" => app.request_restart(),
             "quit" => app.exit(0),
@@ -1994,6 +1977,12 @@ pub fn run() {
             identify::identifier_ready,
             identify::identify_language,
             spelling::check_spelling,
+            #[cfg(target_os = "macos")]
+            crate::dictionary::dictionary_has,
+            #[cfg(target_os = "macos")]
+            crate::dictionary::dictionary_show,
+            #[cfg(target_os = "macos")]
+            crate::dictionary::dictionary_settings,
             update::from_store,
             update::install_update,
             diagnostics::note_fault,

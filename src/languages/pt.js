@@ -1,6 +1,7 @@
 /* Portuguese language pack. Function words only so far; see fr.js. */
 
 import { conjugationAt } from "./conjugation.js";
+import { stripDiacritics } from "../text.js";
 
 /* Everyday vocabulary a learner past the first weeks already has. An entry
    whose words are all in here is not worth a slot, and the filter in
@@ -72,9 +73,15 @@ export default {
   basicVerbs: "ser estar ter haver fazer ir dizer ver dar saber poder querer vir",
   basicWords: BASIC_WORDS,
   loanwordSuffixes: null,
+  verbs: {
+    /* An infinitive ends in -ar, -er, -ir or -or (pôr), with a pronoun after a hyphen or without: a grammar fact, not a calibration.
+       Asked of one word of the form, any, so that "avoir lieu" and "dar-se
+       conta" stand; it catches a noun's base form given for a verb (run
+       eighty-five). */
+    isInfinitive: (form) => stripDiacritics(String(form || "")).trim().toLowerCase()
+      .split(/\s+/).some((word) => /(ar|er|ir|or)(-(se|me|te|lhe|lo|la|nos))?$/.test(word)),
+  },
   /* How this language gives itself away in spelling — used by the
      detector prompt, where the input is often a single word. */
   spellingHints: "-ção, -ões, ã, õ and lh nh point to Portuguese",
-  /* What the aligned tables call this language in their columns. */
-  columnName: "portugues",
 };

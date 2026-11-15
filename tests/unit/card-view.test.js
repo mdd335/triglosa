@@ -692,6 +692,23 @@ test("copying and saying aloud wait for something in the field", () => {
   assert.deepStrictEqual(buttonsOf(0).map((node) => node.disabled), [true, true], "blanks are nothing");
 });
 
+/* The caret goes to the word on a computer, selected; on a phone neither
+   (author 2026-11-10: a selection there is handles and a menu, a caret
+   means the keyboard, and the card is mostly written by improving it). */
+test("the word is selected on a computer and not on a phone", () => {
+  const mac = show().boxes[0];
+  assert.strictEqual(document.activeElement, mac);
+  assert.deepStrictEqual([mac.selectionStart, mac.selectionEnd], [0, mac.value.length]);
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  try {
+    document.activeElement?.blur();
+    const phone = show().boxes[0];
+    assert.notStrictEqual(document.activeElement, phone, "no caret, so no keyboard");
+  } finally {
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
+});
+
 /* Tab goes from field to field, past the buttons in their headings, and
    round; Shift-Tab back. */
 test("Tab goes to the next field and Shift-Tab to the one before", () => {

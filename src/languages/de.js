@@ -134,15 +134,14 @@ export default {
      plainly German. */
   loanwordSuffixes: null,
   verbs: {
-    /* A German infinitive ends in -en, -eln or -ern. Coarse on purpose: it
-       only has to catch a field that is plainly not a base form. */
-    isInfinitive: (form) => /e[lrn]?n$/.test(stripDiacritics(String(form || "")).trim().toLowerCase()),
+    /* A German infinitive ends in -en, -eln or -ern, or is "sein" or "tun"
+       (and their compounds). Coarse on purpose: it only has to catch a field
+       that is plainly not a base form. */
+    isInfinitive: (form) => /(e[lrn]?n|sein|tun)$/.test(stripDiacritics(String(form || "")).trim().toLowerCase()),
   },
   /* How this language gives itself away in spelling — used by the
      detector prompt, where the input is often a single word. */
   spellingHints: "-ung, -keit, -heit, umlauts and ß point to German",
-  /* What the aligned tables call this language in their columns. */
-  columnName: "deutsch",
   /* How a note in this language has to be written. A model that drops the
      umlauts writes something the reader reads as a typo, and the dictionary
      note is four words long — there is no context to repair it from. English

@@ -2,9 +2,10 @@
    and in two tones as the system's own controls are, or in one where the
    control draws only one. Open Triglosa is the app's mark, a book with lines
    of text on its pages as on the app's icon; the others are the book (a
-   reading), the app's card (a card) or a camera, each with a badge at the
-   bottom right — a plus for something new (a photograph too), the paste
-   button's arrow for what was copied.
+   reading) or the app's card (a card), each with a badge at the bottom
+   right — a plus for something new, the app's clipboard for what was
+   copied — and a photograph's text the book in the four corners of the
+   system's own scanning symbols (author 2026-11-13).
 
    A template holds filled shapes only, so the strokes are outlined, and the
    shapes added and cut, by CoreGraphics (ios-symbols.swift). The three
@@ -27,8 +28,8 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /* A 16-unit square as 100-point type sets it, centred on the middle of the
-   capitals: the book, the card and the camera themselves as wide as the
-   system's book, rectangle and camera (`--sizes`), a badge standing out over
+   capitals: the book and the card themselves as wide as the
+   system's book and rectangle (`--sizes`), a badge standing out over
    them as the system's do. */
 const SCALE = 7.6;
 const MIDDLE = -35.27;
@@ -43,10 +44,9 @@ const SIDE = 12;
    and its lines in the lighter tone; under a badge, as the system's own
    badged symbols are, the book is the lighter and its lines bright, and the
    right page's lines stop short of the badge. */
-function book({ badged = false } = {}) {
+function book({ badged = false, fit = 0.8 } = {}) {
   const svg = readFileSync(join(root, "src-tauri/icons/tray.svg"), "utf8");
   const outline = svg.match(/<path d="([^"]*Z)"/)[1];
-  const fit = 0.8;
   const place = (x, y) => [8 + (x - 12) * fit, 8 + (y - 12) * fit];
   /* Along a page's top edge, which falls toward the spine, a little less
      steeply than the edge. */
@@ -87,19 +87,18 @@ function card() {
 }
 const CARD_BADGE = { x: 15.4, y: 13.6, r: 4.6 };
 
-/* A camera, filled, its lens a ring cut into it. */
-function camera() {
-  return [
-    { layer: 0, op: "fill", svg: '<rect x="0.4" y="4.1" width="15.2" height="9.7" rx="2.2"/>' },
-    { layer: 0, op: "fill", svg: '<path d="M4.8 4.4 6.2 2.2H9.8L11.2 4.4Z"/>' },
-    { layer: 0, op: "stroke", width: 1, svg: '<path d="M4.8 4.4 6.2 2.2H9.8L11.2 4.4"/>' },
-    { layer: 0, op: "cut", svg: '<circle cx="8" cy="9.1" r="3.7"/>' },
-    { layer: 0, op: "fill", svg: '<circle cx="8" cy="9.1" r="2.5"/>' },
-  ];
+/* The four corners of a frame round what is to be read, as the system's
+   own scanning symbols (text, a code) have them, in the lighter tone
+   (author 2026-11-13): the book is what is read. */
+function corners() {
+  const [low, high, arm, r] = [1, 15, 3.5, 1.8];
+  const corner = (x, y, dx, dy) =>
+    `M${x} ${y + dy * arm}V${y + dy * r}Q${x} ${y} ${x + dx * r} ${y}H${x + dx * arm}`;
+  return [{
+    layer: 2, op: "stroke", width: 1.15,
+    svg: `<path d="${corner(low, low, 1, 1)}${corner(high, low, -1, 1)}${corner(low, high, 1, -1)}${corner(high, high, -1, -1)}"/>`,
+  }];
 }
-/* A little smaller than the others': beside the camera's low body the same
-   badge looked larger (author 2026-11-06). */
-const CAMERA_BADGE = { x: 15.3, y: 13.6, r: 4.3 };
 
 /* A badge at the bottom right, bright over the lighter shape under it, as
    the system's are: a filled circle, the gap round it cut from what lies
@@ -108,25 +107,32 @@ const CAMERA_BADGE = { x: 15.3, y: 13.6, r: 4.3 };
    at the Control Center's size (author 2026-11-06). */
 function badge(at, layer, mark) {
   const { x, y, r } = at;
+  const cut = (width, svg) => ({ layer, op: "cut", width, svg });
+  /* The app's clipboard (icons.js): a board, and its clip a bar across the
+     board's top edge. */
+  const [w, h] = [r * 0.98, r * 1.2];
   const inside = mark === "plus"
-    ? `M${x - r * 0.53} ${y}h${r * 1.06}M${x} ${y - r * 0.53}v${r * 1.06}`
-    : `M${x - r * 0.5} ${y}h${r * 0.94}M${x + r * 0.04} ${y - r * 0.43}l${r * 0.43} ${r * 0.43}-${r * 0.43} ${r * 0.43}`;
+    ? [cut(r * 0.37, `<path d="M${x - r * 0.53} ${y}h${r * 1.06}M${x} ${y - r * 0.53}v${r * 1.06}"/>`)]
+    : [
+      cut(r * 0.24, `<rect x="${x - w / 2}" y="${y - h / 2 + r * 0.06}" width="${w}" height="${h}" rx="${r * 0.2}"/>`),
+      cut(0, `<rect x="${x - r * 0.27}" y="${y - h / 2 - r * 0.12}" width="${r * 0.54}" height="${r * 0.36}" rx="${r * 0.1}"/>`),
+    ];
   return [
     { op: "cut", svg: `<circle cx="${x}" cy="${y}" r="${r + 0.85}"/>` },
     { layer, op: "fill", svg: `<circle cx="${x}" cy="${y}" r="${r}"/>` },
-    { layer, op: "cut", width: r * 0.37, svg: `<path d="${inside}"/>` },
+    ...inside,
   ];
 }
 
-/* What was copied is read with the arrow, something new with the plus (a
-   photograph is a new one): on the book a reading, on the card a card. */
+/* What was copied is read with the clipboard, something new with the plus:
+   on the book a reading, on the card a card. */
 export const SYMBOLS = [
   { name: "triglosa.open", layers: BOOK_ALONE, steps: () => book() },
-  { name: "triglosa.read.clipboard", layers: [...BOOK_BADGED, BADGE], steps: () => [...book({ badged: true }), ...badge(BOOK_BADGE, 2, "arrow")] },
+  { name: "triglosa.read.clipboard", layers: [...BOOK_BADGED, BADGE], steps: () => [...book({ badged: true }), ...badge(BOOK_BADGE, 2, "clipboard")] },
   { name: "triglosa.read.new", layers: [...BOOK_BADGED, BADGE], steps: () => [...book({ badged: true }), ...badge(BOOK_BADGE, 2, "plus")] },
-  { name: "triglosa.card.clipboard", layers: [{ secondary: true }, BADGE], steps: () => [...card(), ...badge(CARD_BADGE, 1, "arrow")] },
+  { name: "triglosa.card.clipboard", layers: [{ secondary: true }, BADGE], steps: () => [...card(), ...badge(CARD_BADGE, 1, "clipboard")] },
   { name: "triglosa.card.new", layers: [{ secondary: true }, BADGE], steps: () => [...card(), ...badge(CARD_BADGE, 1, "plus")] },
-  { name: "triglosa.read.photo", layers: [{ secondary: true }, BADGE], steps: () => [...camera(), ...badge(CAMERA_BADGE, 1, "plus")] },
+  { name: "triglosa.read.photo", layers: [...BOOK_ALONE, { secondary: true }], steps: () => [...book({ fit: 0.56 }), ...corners()] },
 ];
 
 /* ---- An SVG drawing as moves, lines and curves ---- */

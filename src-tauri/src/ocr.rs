@@ -198,6 +198,11 @@ pub struct Line {
     pub text: String,
     pub score: f32,
     pub b: [i32; 4],
+    /// How the line slopes: pixels of drop in a thousand across, downwards
+    /// positive. The page lays a photographed text level by it.
+    pub s: i32,
+    /// The picture's width and height, for telling a line cut by its edge.
+    pub f: [i32; 2],
     /// Where each character of the text stands across the picture, left
     /// and right, for finding the word under the pointer. Empty where the
     /// order read is not the order written (Arabic).
@@ -355,6 +360,7 @@ pub fn read(dir: &Path, picture: &Picture, scripts: &[Script]) -> Result<Vec<Lin
         }
     }
 
+    let frame = [picture.width as i32, picture.height as i32];
     let (picture, factor) = within_bounds(picture);
     let boxes = whole_lines(detect(&mut loaded.detector, &picture)?);
     if boxes.is_empty() {
@@ -401,9 +407,25 @@ pub fn read(dir: &Path, picture: &Picture, scripts: &[Script]) -> Result<Vec<Lin
                 text: if arabic { logical_order(&text) } else { text },
                 score,
                 b,
+                s: slope(quad),
+                f: frame,
             }
         })
         .collect())
+}
+
+/// How a box slopes along its top edge, in pixels of drop in a thousand
+/// across.
+fn slope(quad: &Quad) -> i32 {
+    let [left, right] = [quad[0], quad[1]];
+    let across = right[0] - left[0];
+    let drop = right[1] - left[1];
+    if across.abs() < 0.5 {
+        return if drop >= 0.0 { 1_000_000 } else { -1_000_000 };
+    }
+    (1000.0 * drop / across)
+        .round()
+        .clamp(-1_000_000.0, 1_000_000.0) as i32
 }
 
 /// Each character's left and right edge across the picture, from the
@@ -1002,6 +1024,16 @@ fn logical_order(seen: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_says_how_it_slopes() {
+        /* Rising 30 pixels over 600 across, in the picture's own pixels with
+        y downwards: a drop of -50 in a thousand. */
+        let rising: Quad = [[0.0, 130.0], [600.0, 100.0], [600.0, 130.0], [0.0, 160.0]];
+        assert_eq!(slope(&rising), -50);
+        let level: Quad = [[10.0, 20.0], [300.0, 20.0], [300.0, 40.0], [10.0, 40.0]];
+        assert_eq!(slope(&level), 0);
+    }
 
     #[test]
     fn collapses_repeats_and_blanks() {

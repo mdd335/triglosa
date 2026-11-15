@@ -59,7 +59,9 @@ export function closeCardLayer() {
 
 export async function openCardLayer(first, { fromCopied } = {}) {
   let card = first;
-  open?.close();
+  /* The card standing goes once the new one is drawn over it: closed
+     first, the reading showed through while the new one was being built. */
+  const before = open;
   let settings = await loadSettings();
   anki = anki || createAnkiMobile();
   speech = speech || createSpeech();
@@ -172,6 +174,7 @@ export async function openCardLayer(first, { fromCopied } = {}) {
   };
   document.body.append(layer);
   await draw(true);
+  before?.layer.remove();
 
   if (!listening) {
     listening = true;

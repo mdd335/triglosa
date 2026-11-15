@@ -15,6 +15,8 @@ export default {
   term: "Term",
   verbs: "Verbs",
   marked: "Selection",
+  /* The phone's button over the bar that looks up the words marked. */
+  lookUpMarked: "Select",
   /* The first line of a dictionary entry looked up with its sentence: the
      meaning it has there. And the way from the entry to the whole
      sentence read. */
@@ -55,6 +57,7 @@ export default {
   speak: "Say aloud",
   opened: "Opened",
   conjugation: "Conjugation (external)",
+  dictionary: "Look up with Apple",
   /* Named after what it shows rather than after a program: what it opens
      is a card to read, correct and copy out — with or without Anki on the
      machine. */
@@ -107,7 +110,7 @@ export default {
     }
     if (kind === "empty") {
       return "The note's first field would be empty" + said
-        + ". Please map it to one of the three lines in the settings.";
+        + ". Please map it to one of the three parts of a card in the settings.";
     }
     if (kind === "no-deck") {
       return "Anki does not know this deck" + said + ". Please choose it again in the settings.";
@@ -140,7 +143,7 @@ export default {
   /* Said where Apple translated, before what a model adds there. */
   byApple: "Translated by Apple (on this device).",
   lockedHow:
-    "Connect an AI model in the settings for more accurate translations, terms, verbs and explanations of every word.",
+    "Connect an AI model in the settings for more accurate translations, highlighted terms and explanations of every word.",
   lockedHowShort:
     "Connect an AI model in the settings for more accurate translations, other meanings and explanations.",
   /* Both ways were tried and neither answered. What must not stand here is
@@ -203,8 +206,8 @@ export default {
   groupTranslation: "Translations",
   groupWindow: "Window",
   groupShortcuts: "Shortcuts",
-  groupReading: "Text from other programs",
-  groupReadingEntry: "Other programs",
+  groupReading: "Text from other apps",
+  groupReadingEntry: "Text from other apps",
   groupCards: "Flashcards",
   groupAbout: "About Triglosa",
   aboutVersion: (version) => `Version ${version}`,
@@ -237,9 +240,7 @@ export default {
      and is therefore on, while handing it to another program is a separate
      decision. */
   optionOff: "off",
-  cardsEnabled: "Show the flashcard button",
-  cardsEnabledHint:
-    "“Copy flashcard” copies the three fields as one tab-separated row, for a spreadsheet or Anki’s import from a file.",
+  cardsEnabled: "Offer flashcards",
   cardModes: {
     never: "never",
     second: "only for the second language",
@@ -249,7 +250,7 @@ export default {
   },
   cardsImprove: "Improve flashcards automatically with AI",
   cardsImproveHint: "Cards can always be improved with AI at the press of a button.",
-  ankiEnabled: "Export straight to Anki",
+  ankiEnabled: "Offer saving to Anki",
   ankiEnabledHint: (code) => `Needs Anki with the AnkiConnect add-on (code ${code}).`,
   ankiSync: "Sync Anki after every card",
   ankiSyncHint:
@@ -281,14 +282,14 @@ export default {
   ankiNoteTypeLook:
     "The selected deck has no cards yet to read the note type from. Please choose it yourself.",
   ankiFields: "Anki fields",
-  ankiFieldsHint: "Which field of the note type takes which of the three lines.",
+  ankiFieldsHint: "Which field of the note type takes which of the three parts of a card.",
   ankiNoField: "— do not write",
   /* Not magic: Anki decides at that one field whether a note is empty, and
      refuses it otherwise. On many note types it is called "ID"
      and means nothing to a reader, so nobody would have mapped it — and
      every card was refused. */
-  ankiFirstField: (name) =>
-    `The note type's first field ("${name}") also gets the foreign word. Anki will not take a note whose first field is empty.`,
+  ankiFirstField: (name, language) =>
+    `The note type's first field ("${name}") also gets the word in ${language}. Anki will not take a note whose first field is empty.`,
 
   languagesIntro: ["Triglosa shows every text beside its translations into these languages (two translations at most).", "The level you set decides which terms and verbs get explained in each language, and how simply explanations and example sentences are written, on flashcards too.", "In the translation window you can change a translation’s language for a while or add a third. That holds until you quit Triglosa."],
   firstLanguage: "Native language",
@@ -330,10 +331,10 @@ export default {
   showVerbs: "Show verbs",
   underline: "Coloured underlines in the text",
   searchEngine: "Search engine",
-  searchHint: "For looking up terms, verbs and marked words on the web. Opens in the default browser.",
+  searchHint: "For looking up terms and selected words on the web. Opens in the default browser.",
   searchSystem: "as set in Safari",
-  glance: "Translation on hover",
-  glanceHint: "Shows over words in foreign languages what they correspond to in your language.",
+  glance: "Translation over the word",
+  glanceHint: "Shows over words in foreign languages what they correspond to in your language while the mouse is over them.",
   /* What the three rows decide between them stands above them rather than
      in one row's hint: without a model half the app is gone, and that
      belongs at the head of the group. */
@@ -374,6 +375,7 @@ Good to know: Triglosa needs a model that answers without thinking at length. Th
 
 Never ask me for my API key.`,
   setupGuide: "Setup guide",
+  setupHelp: "Help with setup",
   endpoint: "AI model's address",
   endpointHints: {
     own: "Any address with an OpenAI-compatible interface — in the cloud or local.",
@@ -381,14 +383,14 @@ Never ask me for my API key.`,
   endpointPreset: (name) => `Fill in ${name}’s address`,
   model: "Model",
   modelHints: {
-    online: "Any model OpenRouter offers, by the name on its page there.",
+    online: "Any model OpenRouter offers.",
     own: "If left empty, the app takes the first model offered at that address.",
   },
   apiKey: "API key",
   apiKeyEmpty: "none stored",
   apiKeyHints: {
-    online: "The key from OpenRouter (step 3). Goes into the system's key store, never into the settings file.",
-    own: "Goes into the system's key store, never into the settings file. A local model usually needs none.",
+    online: "Your API key from OpenRouter. Stored in the system's key store, not in Triglosa's settings file.",
+    own: "Stored in the system's key store, not in Triglosa's settings file. A local model usually needs none.",
   },
   forgetKey: "Forget",
   keySaveFailed: (detail) =>
@@ -402,6 +404,11 @@ Never ask me for my API key.`,
   /* Apple's translation is an extra: measured, it is wrong in sense about
      one translation in four, a cloud model in one of three hundred. What
      speaks for it is speed, and that it works offline. */
+  dictionaryHeading: "Apple's dictionary",
+  dictionaryIntro:
+    "Without an AI model, or when it doesn't answer, a word shows the button “Look up with Apple” instead of an explanation. It appears when a dictionary in the word's language is loaded and the word is in one of the dictionaries.",
+  dictionaryManage: "Open Dictionary",
+  dictionaryManageHint: "Choose which dictionaries are used in the Dictionary app's settings.",
   deviceIntro:
     "Apple's translation is part of macOS: very fast and offline, but often imprecise. With the language pack downloaded, it steps in automatically whenever the AI model does not answer.",
   translatorHint: "If one of the two cannot translate, the other steps in automatically.",
@@ -415,7 +422,7 @@ Never ask me for my API key.`,
      together in labels.js (`creditLine`): `by` answers the word in front of
      a name and the name. */
   credits: {
-    verbs: { translated: "translated", explained: "explained", assigned: "matched", detected: "language detected", words: "words matched", recognized: "text recognized" },
+    verbs: { based: "base form found", translated: "translated", explained: "explained", assigned: "matched", detected: "language detected", words: "words matched", recognized: "text recognized" },
     and: "and",
     by: ({ kind, name }) => ({ device: ["by", "Apple (on this device)"], triglosa: ["by", "Triglosa"], triglosaDevice: ["by", "Triglosa (on this device)"] })[kind] || ["by", name || "the AI model"],
     line: (verbs, who) => `${verbs} ${who}`,
@@ -580,7 +587,6 @@ Never ask me for my API key.`,
   trayShow: "Show window",
   trayUpdates: "Check for updates",
   trayHelp: "Help",
-  trayProblem: "Report a problem",
   trayRestart: "Restart Triglosa",
   trayQuit: "Quit Triglosa",
   /* The wording that stands nowhere: a button without a caption needs a
@@ -640,7 +646,7 @@ Never ask me for my API key.`,
     },
     permission: {
       title: "Optional: read text directly.",
-      body: "With the macOS permission “Device Control and Data Access” (“Accessibility” up to macOS 26), Triglosa reads selected text without copying and inserts translations into other programs. You grant it in the settings under “Other programs”.",
+      body: "With the macOS permission “Device Control and Data Access” (“Accessibility” up to macOS 26), Triglosa reads selected text without copying and inserts translations into other apps. You grant it in the settings under “Text from other apps”.",
     },
     stats: {
       question: "May Triglosa count anonymously?",
@@ -667,12 +673,12 @@ export const windows = {
   modelIntro:
     "Triglosa translates and explains with an AI model: translations, terms, verbs, explanations and other features. It does not come with one.",
   lockedHow:
-    "Connect an AI model in the settings for translations, terms, verbs and explanations of every word.",
+    "Connect an AI model in the settings for translations, highlighted terms and explanations of every word.",
   lockedHowShort:
     "Connect an AI model in the settings for translations, meanings and explanations.",
   apiKeyHints: {
-    online: "The key from OpenRouter (step 3). Kept in the Windows Credential Manager, never in the settings file.",
-    own: "Kept in the Windows Credential Manager, never in the settings file. A local model usually needs none.",
+    online: "Your API key from OpenRouter. Stored in the Windows Credential Manager, not in Triglosa's settings file.",
+    own: "Stored in the Windows Credential Manager, not in Triglosa's settings file. A local model usually needs none.",
   },
   endpointHints: {
     own: "Any address with an OpenAI-compatible interface — in the cloud or local.",
@@ -691,9 +697,9 @@ export const windows = {
 };
 
 export const phone = {
-  groupReadingEntry: "Text from other apps",
-  groupReading: "Text from other apps",
-  translateClipboard: "Translate the clipboard",
+  dictionaryManage: "Manage dictionaries",
+  dictionaryManageHint: "",
+  glanceHint: "Shows over words in foreign languages what they correspond to in your language when you tap them.",
   /* Before a text goes to an AI model, once for each address (App Review
      5.1.2(i)): asked in a sheet at the first reading, changed in the
      settings. */
@@ -702,6 +708,9 @@ export const phone = {
   pasteLater: "Later",
   cardSheetClose: "Close",
   pasteOpen: "Open iPhone settings",
+  /* A model set up and its reader's no to sending texts to it: a choice
+     they made, so the way back is offered, not asked for. */
+  modelDeclined: "Sending texts to the AI model is switched off. You can switch it on in the settings under “AI model”.",
   modelConsentSetting: "Send texts to the AI model",
   modelConsentHint: (host) => `Your texts go to ${host}. Without this, Apple translates on this iPhone and no text leaves it.`,
   modelConsent: {
@@ -716,9 +725,8 @@ export const phone = {
     start: "Start a translation",
     done: "Start",
     exampleHint: "An example: a sentence, its two translations and the words worth learning, marked. Tap a Spanish word to have it explained.",
-    paste: (button) => ["Copy a text in any app, then tap ", button, " in the bar below: Triglosa translates what you copied."],
-    share: "Select text in any app, tap “Share” and choose Triglosa.",
-    plus: (button) => ["Tap ", button, " to type or paste a new text, or take a photo of one."],
+    plus: (button) => ["Tap ", button, " to type a text, or to translate one from the clipboard or a photo. Touch and hold it to translate what you copied right away."],
+    share: "Select text in any app, tap “Share” and choose Triglosa. Under “Show More” you can add Triglosa’s actions to your favorites.",
     /* The Control Center's controls, in iOS's own word, which the reader adds there. */
     control: "Add Triglosa’s controls to the Control Center to start it from anywhere.",
     languages: "Choose your own language and the ones you are learning in the settings under “Languages”.",
@@ -730,7 +738,7 @@ export const phone = {
   ankiLaunch: "Load from Anki",
   ankiStarting: "Opening Anki …",
   ankiSending: "Opening Anki …",
-  ankiRecheck: "Update decks",
+  ankiRecheck: "Update Anki information",
   ankiRecheckHint: "Fetches your decks and note types from Anki again.",
   ankiAbsent: "AnkiMobile is not installed. Please install it from the App Store.",
   ankiLeft: "Anki sent no list. Please try again, and allow pasting if iOS asks.",

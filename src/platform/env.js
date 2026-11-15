@@ -72,7 +72,7 @@ let alignerCached = null;
 
 export async function wordAligner() {
   if (alignerCached) return alignerCached;
-  if (!onDesktop()) return null;
+  if (!insideApp()) return null;
   const [{ invoke }, { createAligner }] = await Promise.all([
     import("@tauri-apps/api/core"),
     import("./aligner.js"),
@@ -104,6 +104,21 @@ export async function spellingChecker() {
     import("./spelling.js"),
   ]);
   return (spellerCached = createSpeller(invoke));
+}
+
+/* Apple's dictionary, where there is a shell to ask (dictionary.js); none
+   on Windows. */
+let dictionaryCached;
+
+export async function appleDictionary() {
+  if (dictionaryCached !== undefined) return dictionaryCached;
+  if (!insideApp() || onWindows()) return (dictionaryCached = null);
+  const [{ invoke }, { createDictionary }, { currentSystem }] = await Promise.all([
+    import("@tauri-apps/api/core"),
+    import("./dictionary.js"),
+    import("../system.js"),
+  ]);
+  return (dictionaryCached = createDictionary(invoke, currentSystem()));
 }
 
 /* The translation helper stops itself when it has been idle, so it may well
@@ -244,6 +259,13 @@ export async function allowKeyboard() {
   await shell("apple_translation", { route: "/keyboard", body: "" }).catch(() => null);
 }
 
+/* On a phone, a finger held on a button until it does its other thing is
+   felt, as the system's own held things are. */
+export function feelHeld() {
+  if (!(insideApp() && onPhone())) return;
+  shell("apple_translation", { route: "/held", body: "" }).catch(() => {});
+}
+
 /* The phone's edges, where the page does not reach — the bands under the
    clock and over the home bar — painted in the page's own ground. */
 export async function paintGround() {
@@ -251,6 +273,15 @@ export async function paintGround() {
   const ground = getComputedStyle(document.documentElement).getPropertyValue("--ground").trim();
   if (!ground) return;
   await shell("apple_translation", { route: `/ground?color=${ground.replace("#", "")}`, body: "" }).catch(() => {});
+}
+
+/* Whatever the system laid over the page closed — the camera, the photo
+   library, the Files app, the frame a picture is cut in, a dictionary —
+   each as if cancelled: a reading handed over from outside is shown, not
+   left under it. */
+export async function putAwayOverPage() {
+  if (!(insideApp() && onPhone())) return;
+  await shell("apple_translation", { route: "/put-away", body: "" }).catch(() => {});
 }
 
 /* This app's own page in the iPhone's settings. */

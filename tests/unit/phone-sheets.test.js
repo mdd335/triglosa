@@ -14,27 +14,27 @@ globalThis.localStorage = dom.window.localStorage;
 globalThis.MouseEvent = dom.window.MouseEvent;
 globalThis.TRIGLOSA_SYSTEM = "ios";
 
-const { askModelConsent, openWelcomeSheet, offerPasteSetting, phoneWelcomeView } = await import("../../src/ui/phone-sheets.js");
+const { askModelConsent, closePhoneSheets, openWelcomeSheet, offerPasteSetting, phoneWelcomeView } = await import("../../src/ui/phone-sheets.js");
 const { INTERFACE_LANGUAGES, labels } = await import("../../src/ui/labels.js");
 const { loadSettings, saveSettings } = await import("../../src/platform/store.js");
 const { modelConsentFor, normalizeSettings } = await import("../../src/settings.js");
 
-test("the phone's first steps show the example and say what the bar's button does", () => {
+test("the phone's first steps show the example and say what the plus does", () => {
   for (const code of INTERFACE_LANGUAGES) {
     const text = labels(code, "ios");
     const view = phoneWelcomeView(text, code);
     const steps = [...view.querySelectorAll(".welcome-steps li")];
-    assert.strictEqual(steps.length, 6, code);
+    assert.strictEqual(steps.length, 5, code);
     assert.strictEqual(view.querySelectorAll("ol.welcome-steps li").length, 2, `${code}: languages and model, nothing more to set up`);
     assert.deepStrictEqual([...view.querySelectorAll(".label")].slice(0, 2).map((node) => node.textContent),
       [text.welcomePhone.setup, text.welcomePhone.start], `${code}: setting up first`);
     assert.ok(view.querySelector("ol li").textContent.includes(text.groupLanguages), `${code}: the languages' page`);
     assert.ok(steps[1].textContent.includes(text.groupModel), `${code}: the model's page`);
     const ways = [...view.querySelectorAll("ul.welcome-steps li")];
-    assert.strictEqual(ways.length, 4, `${code}: the ways in, unnumbered`);
+    assert.strictEqual(ways.length, 3, `${code}: the ways in, unnumbered`);
     assert.strictEqual(ways.at(-1).textContent, text.welcomePhone.control, `${code}: the Control Center last`);
     assert.doesNotMatch(ways.map((node) => node.textContent).join("\n"), /^(Oder|Or|O|Ou|Oppure|Или) /m, `${code}: each way stands alone`);
-    assert.ok(view.querySelector("ul li").querySelector(".inline-icon svg"), `${code}: the paste button drawn in its sentence`);
+    assert.ok(view.querySelector("ul li").querySelector(".inline-icon svg"), `${code}: the plus drawn in its sentence`);
     assert.ok(!view.textContent.includes(text.pasteHint), `${code}: not before iOS has asked at all`);
     assert.ok(view.querySelector(".welcome-example .words"), `${code}: the example`);
     assert.doesNotMatch(view.textContent, /⌘|Ctrl|menu bar|Menüleiste/, code);
@@ -130,9 +130,49 @@ test("a reading handed over from outside puts a standing card and the settings a
   closeSettingsSheet();
 });
 
+test("a card opened over a card keeps the old one until the new one is drawn", async () => {
+  /* The clipboard's button on a blank card: the reading must not show
+     through while the new card is built. */
+  const { openCardLayer, closeCardLayer } = await import("../../src/ui/card-layer.js");
+  await saveSettings(normalizeSettings({ languages: ["de", "en"] }));
+  const blank = { free: true, termLanguage: "en", term: "", meaning: "", explanation: "", choices: ["en"], reader: "de" };
+  await openCardLayer({ ...blank, id: "a" });
+  const opening = openCardLayer({ ...blank, id: "b", term: "copied" });
+  assert.strictEqual(document.querySelectorAll(".card-layer").length, 1, "the old card still stands");
+  await opening;
+  const layers = document.querySelectorAll(".card-layer");
+  assert.strictEqual(layers.length, 1, "one card");
+  assert.strictEqual(layers[0].querySelector(".card-box").value, "copied", "the new one");
+  closeCardLayer();
+  assert.strictEqual(document.querySelector(".card-layer"), null);
+});
+
 test("on a phone the settings' list names the other apps' page in full, there being room", () => {
   for (const code of INTERFACE_LANGUAGES) {
     const text = labels(code, "ios");
     assert.strictEqual(text.groupReadingEntry, text.groupReading, code);
   }
+});
+
+test("a reading from outside puts the first steps and the note about pasting away, not as seen", async () => {
+  await saveSettings(normalizeSettings({ languages: ["de", "en"], welcome: true }));
+  await openWelcomeSheet();
+  offerPasteSetting(normalizeSettings({ languages: ["de", "en"] }));
+  assert.strictEqual(document.querySelectorAll(".phone-sheet").length, 2);
+  closePhoneSheets();
+  assert.strictEqual(document.querySelector(".phone-sheet"), null);
+  assert.strictEqual((await loadSettings()).welcome, true, "the first steps come back at the next start");
+  await openWelcomeSheet();
+  assert.ok(document.querySelector(".phone-sheet"), "and can be opened again");
+  closePhoneSheets();
+});
+
+test("the question before the model stays for a reading from outside, which waits on the same answer", async () => {
+  const settings = await saveSettings(normalizeSettings({ languages: ["en", "es"], endpoint: "https://api.example.org/v1" }));
+  const first = askModelConsent(settings);
+  closePhoneSheets();
+  const second = askModelConsent(settings);
+  assert.strictEqual(document.querySelectorAll(".phone-consent").length, 1, "one question, not two");
+  document.querySelector(".phone-consent-allow").click();
+  assert.deepStrictEqual(await Promise.all([first, second]), [true, true]);
 });

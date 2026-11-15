@@ -20,16 +20,21 @@ const PATHS = {
     + '<path d="M10.5 3h-6a2 2 0 0 0-2 2v6"/>',
   /* An arrow running into a text cursor: this text, where the cursor is. */
   insert: '<path d="M2.5 8h6.5M6.5 5.5 9 8l-2.5 2.5"/><path d="M12 3.5v9M10.8 3.5h2.4M10.8 12.5h2.4"/>',
-  /* A table with a first row and a first column: the conjugation table, which
-     is what the page that opens actually shows. */
-  conjugation: '<rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/>'
-    + '<path d="M2.5 6.6h11M6.4 6.6v5.9"/>',
+  /* A person with a small clock at their side: what a conjugation changes,
+     who and when (author 2026-11-12; a table said nothing on a phone, where
+     no hover names it). */
+  conjugation: '<circle cx="6.2" cy="4.6" r="2.3"/>'
+    + '<path d="M1.8 13.6c0-2.6 2-4.4 4.4-4.4 1 0 1.9.3 2.6.8"/>'
+    + '<circle cx="11.6" cy="11.4" r="3"/><path d="M11.6 9.9v1.5l1 .7"/>',
   /* A loudspeaker with one wave in front of it: the word said aloud. */
   speak: '<path d="M2.5 6.2h2.2L8 3.5v9L4.7 9.8H2.5z"/><path d="M10.6 5.6a3.4 3.4 0 0 1 0 4.8M12.4 3.9a5.8 5.8 0 0 1 0 8.2"/>',
   /* A magnifying glass: the web search. */
   search: '<circle cx="7" cy="7" r="4.3"/><path d="m10.2 10.2 3.3 3.3"/>',
-  /* A phone's paste: the Translate arrow in a circle, nothing typed first. */
-  paste: '<circle cx="8" cy="8" r="6"/><path d="M5.3 8h5.2M8.3 5.7 10.6 8l-2.3 2.3"/>',
+  /* A clipboard, its clip across the board's top edge: what was copied, as
+     the Control Center's controls badge it (author 2026-11-13). The board's
+     edge stops at the clip, which would otherwise show it through. */
+  paste: '<path d="M10.4 3h1a1.6 1.6 0 0 1 1.6 1.6v8.3a1.6 1.6 0 0 1-1.6 1.6H4.6A1.6 1.6 0 0 1 3 12.9V4.6A1.6 1.6 0 0 1 4.6 3h1"/>'
+    + '<rect x="5.6" y="1.6" width="4.8" height="2.8" rx="0.9"/>',
   /* A card cut across the middle: a front and a back, which is what a
      flashcard is and what the layer it opens shows. It may not look like the
      copy symbol, which stands in the same row. */
@@ -73,8 +78,10 @@ const PATHS = {
   /* A panel with a plus under it: one more panel, apart from the title
      bar's plus, which is a blank sheet. */
   addPanel: '<rect x="2" y="1.8" width="12" height="4.4" rx="1.3"/><path d="M8 8.6v5.8M5.1 11.5h5.8"/>',
-  /* A camera: a photograph's text, taken now. */
-  camera: '<path d="M2.5 5.5h2.6l1.2-1.8h3.4l1.2 1.8h2.6v7.2h-11z"/><circle cx="8" cy="9" r="2.3"/>',
+  /* A camera, its body and the bump on it rounded as the photos' frame
+     beside it: a photograph's text, taken now. */
+  camera: '<path d="M3.6 4.6h1.6l1-1.6c.2-.3.5-.4.8-.4h2c.3 0 .6.1.8.4l1 1.6h1.6a1.8 1.8 0 0 1 1.8 1.8v5.2a1.8 1.8 0 0 1-1.8 1.8H3.6a1.8 1.8 0 0 1-1.8-1.8V6.4a1.8 1.8 0 0 1 1.8-1.8z"/>'
+    + '<circle cx="8" cy="8.9" r="2.3"/>',
   /* A picture with a hill and a sun: one from the photo library. */
   photos: '<rect x="2.2" y="3" width="11.6" height="10" rx="1.6"/><path d="m2.6 11.4 3.4-3.4 2.6 2.6 1.6-1.6 3.2 3.2"/><circle cx="10.6" cy="6" r="1"/>',
   /* A folder: a picture from the Files app. */

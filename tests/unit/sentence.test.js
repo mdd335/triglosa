@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { POINTER_SENTENCE_MAX, SENTENCE_MAX, runsTogether, selectionSpan, sentenceAfter, sentenceAround, sentenceSpan, sentenceUnder } from "../../src/sentence.js";
+import { POINTER_SENTENCE_MAX, SENTENCE_MAX, runsTogether, selectionSpan, sentenceAfter, sentenceAround, sentenceSpan, sentenceUnder, sentencesOf } from "../../src/sentence.js";
 
 const cut = (text, word, at = text.indexOf(word)) => {
   const found = sentenceAround(text, word, at);
@@ -301,4 +301,17 @@ test("two blocks given as one text are told, an ordinary sentence is not", () =>
     "Das neue iPhone ist da.", "Siehe https://example.org für mehr.", "Ein Treffen bei McDonald's."]) {
     assert.strictEqual(runsTogether(own), false, own);
   }
+});
+
+/* A paragraph cut into sentences for its check: a stop that shortens a word
+   cuts nothing. */
+test("a paragraph is cut into its sentences, not at its abbreviations", () => {
+  assert.deepStrictEqual(sentencesOf("Er ist in Art. 107 Abs. 2 GG verankert. Seit 2020 gilt ein neues System. Die §§ 395 ff. StPO regeln das. Bayern zahlt am 3. Oktober."), [
+    "Er ist in Art. 107 Abs. 2 GG verankert.",
+    "Seit 2020 gilt ein neues System.",
+    "Die §§ 395 ff. StPO regeln das.",
+    "Bayern zahlt am 3. Oktober.",
+  ]);
+  assert.deepStrictEqual(sentencesOf("它很大。它很老！"), ["它很大。", "它很老！"]);
+  assert.deepStrictEqual(sentencesOf(""), []);
 });

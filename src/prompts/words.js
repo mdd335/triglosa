@@ -162,7 +162,12 @@ export function wordsPrompt({ code, name, languages, levels, retry, lookup = nul
        beside "the exact sense or nuance, then the field" had the local model
        write two labels and nothing else; a short sentence is allowed,
        measured. */
-    `- <note> is written in ${reader}, at most 16 words: first what the term actually means or refers to, in plain words a reader who has never met it would understand - a short sentence is fine - then the field or register after a semicolon. Never a repeat of <meaning>, never the part of speech. A field or a category alone is not a note.`,
+    /* In the reader's own language the word is not what they lack: a note
+       on its field and register told a native reader what they knew. There
+       it is about the thing (run 80). */
+    own
+      ? `- <note> is written in ${reader}, at most 16 words: what the term refers to and what is worth knowing about it - for a thing, a place, a person, an event or an institution, the facts that matter; for an action, a quality or an idea, what it means in plain words. Never its field, its register or how it differs from other words: the reader knows the language. Only facts you are sure of. Never a repeat of <meaning>, never the part of speech.`
+      : `- <note> is written in ${reader}, at most 16 words: first what the term actually means or refers to, in plain words a reader who has never met it would understand - a short sentence is fine - then the field or register after a semicolon. Never a repeat of <meaning>, never the part of speech. A field or a category alone is not a note.`,
     "- <note> explains the TERM, not the sentence. The reader has the text in front of them, so no retelling of it and no \"here\" unless the term would be misread without it.",
     /* Where no entry stands beside it, the same, said of the two fields
        (run 76). */

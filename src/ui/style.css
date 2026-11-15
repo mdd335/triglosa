@@ -26,6 +26,12 @@
   --control-line: #c9c9d0;
   --lift: rgba(0, 0, 0, 0.06);
   --lift-strong: rgba(0, 0, 0, 0.11);
+  /* On a phone, what a finger marked and the ground of the group it
+     belongs to, set apart (author 2026-11-12). The mark is opaque: laid
+     over its group's ground where it reaches into a space, it keeps its
+     own shade. */
+  --mark: color-mix(in srgb, #000 17%, var(--field));
+  --group: rgba(0, 0, 0, 0.09);
   /* The ground under a row of the list, a shade under the first step. */
   --lift-row: rgba(0, 0, 0, 0.045);
   --frame: rgba(0, 0, 0, 0.45);
@@ -72,6 +78,8 @@
     --control-line: #4c4c54;
     --lift: rgba(255, 255, 255, 0.1);
     --lift-strong: rgba(255, 255, 255, 0.18);
+    --mark: color-mix(in srgb, #fff 28%, var(--field));
+    --group: rgba(255, 255, 255, 0.14);
     --lift-row: rgba(255, 255, 255, 0.08);
     --frame: rgba(255, 255, 255, 0.5);
     --box: rgba(255, 255, 255, 0.05);
@@ -898,6 +906,11 @@ button:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
 }
 
 .sel.picked { box-shadow: inset 0 0 0 1px var(--frame); }
+/* On a phone, while a finger's mark stands, the word looked up before and
+   its spots step back: beside the mark's places they read as a second mark
+   (selection.js). */
+:root.touch-marking .sel,
+:root.touch-marking #app[data-hl] .sel { background: none; box-shadow: none; }
 
 @media (hover: hover) {
   .words .sel .w:hover { background: transparent; }
@@ -1312,7 +1325,7 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
 
 .settings-nav {
   flex: none;
-  width: 196px;
+  min-width: 196px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1322,9 +1335,9 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
   border-right: 1px solid var(--line);
 }
 
-/* One page's entry: its symbol and its name, a name too long for the line
-   going on under itself rather than under the symbol. Not the settings'
-   button: an entry in a list, with no frame of its own. */
+/* One page's entry: its symbol and its name on one line, the list as wide
+   as its longest name in bold. Not the settings' button: an entry in a
+   list, with no frame of its own. */
 .settings-nav .settings-entry {
   display: flex;
   align-items: flex-start;
@@ -1341,6 +1354,14 @@ button.neighbour:active:not(:disabled) { background: var(--lift-strong); }
   line-height: 1.3;
   text-align: left;
   cursor: default;
+}
+.settings-nav .settings-entry > span { display: grid; white-space: nowrap; }
+.settings-nav .settings-entry > span::after {
+  content: attr(data-name);
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 600;
 }
 .settings-nav .settings-entry svg { flex: none; width: 16px; height: 16px; margin-top: 0.5px; color: var(--ink-soft); }
 @media (hover: hover) {
@@ -1599,19 +1620,20 @@ button.text-link:active:not(:disabled) {
 }
 .setup-choice b { font-size: 13px; font-weight: 600; }
 /* The help prompt's button right under the sentence offering it. */
-.setup-prompt { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-bottom: 14px; }
+.setup-prompt { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .setup-prompt p { margin: 0; }
+.settings .model-setup .setup-question { margin: 2px 0 0; }
 .setup-line { margin: 0; color: var(--ink-soft); }
 /* The steps, laid on the boxes' ground and folded under their name. A
    fold's content is no flex item, so the air between its parts is margins. */
-.setup-steps {
+:is(.setup-steps, .setup-help) {
   padding: 10px 12px;
   border-radius: 8px;
   background: var(--box);
   font-size: 13px;
 }
-.setup-steps > :not(summary) { margin-top: 8px; }
-.setup-steps summary {
+:is(.setup-steps, .setup-help) > :not(summary) { margin-top: 8px; }
+:is(.setup-steps, .setup-help) summary {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1619,8 +1641,8 @@ button.text-link:active:not(:disabled) {
   cursor: default;
   list-style: none;
 }
-.setup-steps summary::-webkit-details-marker { display: none; }
-.setup-steps summary::before {
+:is(.setup-steps, .setup-help) summary::-webkit-details-marker { display: none; }
+:is(.setup-steps, .setup-help) summary::before {
   content: "";
   width: 6px;
   height: 6px;
@@ -1630,9 +1652,9 @@ button.text-link:active:not(:disabled) {
   transform: rotate(-45deg);
   transition: transform 0.15s;
 }
-.setup-steps[open] summary::before { transform: rotate(45deg) translate(-2px, -1px); }
-.setup-steps p { margin-bottom: 0; }
-.setup-steps ol { margin-bottom: 0; padding-left: 18px; line-height: 1.6; }
+:is(.setup-steps, .setup-help)[open] summary::before { transform: rotate(45deg) translate(-2px, -1px); }
+:is(.setup-steps, .setup-help) p { margin-bottom: 0; }
+:is(.setup-steps, .setup-help) ol { margin-bottom: 0; padding-left: 18px; line-height: 1.6; }
 .setup-free { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .setup-free p { margin: 0; }
 .setup-below { display: flex; flex-direction: column; gap: 8px; }
@@ -1831,6 +1853,11 @@ button.text-link:active:not(:disabled) {
   text-align: center;
 }
 :root[data-system="ios"] .row-button svg { width: 18px; height: 18px; stroke-width: 1.25; }
+/* Apple's dictionary in a word's explanation place: its words alone, in the
+   look of every other row button, one line high on the phone too, where the
+   others stand a symbol over their word (author 2026-11-12). */
+.dictionary-way { margin-top: 6px; }
+:root[data-system="ios"] .row-button.dictionary-button { min-height: 0; justify-content: center; padding: 9px 12px; }
 /* The wand, or the way back from it, where no title line holds it: at the
    far end of the row, as tall as the written buttons beside it. */
 .card-actions .card-improve { margin-left: auto; display: flex; }
@@ -1989,6 +2016,7 @@ button.text-link:active:not(:disabled) {
    own, set off from the page around it, with the line above it saying what
    to do with it. */
 .welcome-example {
+  position: relative;
   padding: 8px 12px 10px;
   background: var(--box);
   border: 1px solid var(--line);
@@ -2005,6 +2033,9 @@ button.text-link:active:not(:disabled) {
 .welcome-example .row { padding-top: 4px; padding-bottom: 4px; }
 .welcome-example .row::before { top: 6px; bottom: 6px; }
 .welcome-example .term, .welcome-example .base { font-size: 12.5px; }
+/* Its sign stands in the example, not over the window: it goes with the
+   page when a phone's sheet scrolls (example-view.js). */
+.welcome-example > .glance { position: absolute; }
 .welcome-example-hint { margin: 0 0 -6px; color: var(--ink-soft); }
 
 /* The anonymous count: the question, what it sends, and two answers. */
@@ -2060,12 +2091,46 @@ body.drop-target::after {
 }
 :root[data-system="ios"].keyboard .window-actions { display: none; }
 :root[data-system="ios"].keyboard .settings-sheet { bottom: calc(var(--keyboard) / var(--zoom)); }
-/* Held, the button makes a card; the system's own menu for a held thing
-   stays away. */
-#new-card { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+/* A finger held on the bar starts no selection of its words and no menu
+   of the system's: held, the plus reads what was copied and the card's
+   button makes a card of it. */
+:root[data-system="ios"] .window-actions { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+/* A finger held on a panel's word reads it (glance-view.js): the system's
+   selection and its menu stay out of the way there. */
+/* Words a finger marks (selection.js): no system selection, no callout, and
+   a sideways sweep is the page's, an upward one the scroller's. */
+:root[data-system="ios"] .touch-words { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: pan-y; }
+/* Two greys on a phone, no more (author 2026-11-12): what the finger
+   marked, and what a lookup takes, the stronger; the group it belongs to and
+   its places in the other panels — which the sign speaks of — the fainter,
+   the ground a word looked up before has there too. A dictionary line or
+   the sentence under a word has only the mark. */
+:root[data-system="ios"] .words .w.glance-lit,
+:root[data-system="ios"] .words .g.glance-lit,
+:root[data-system="ios"]:not(.touch-marking) .sel { background: var(--group); }
+/* A row tapped lights its spots in the stronger: the one thing lit. */
+:root[data-system="ios"]:not(.touch-marking) #app[data-hl="sel"] .sel { background: var(--mark); }
+:root[data-system="ios"] .touch-words .w.touch-marked,
+:root[data-system="ios"] .touch-words .g.touch-marked {
+  position: relative;
+  background: var(--mark);
+}
+/* Its ends rounded and reaching halfway into the space beside them, in
+   front of the group's ground: a mark of its own, not a cut out of it. */
+:root[data-system="ios"] .touch-words .touch-marked.touch-first {
+  padding-left: 2px;
+  margin-left: -2px;
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+:root[data-system="ios"] .touch-words .touch-marked.touch-last {
+  padding-right: 2px;
+  margin-right: -2px;
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
 :root[data-system="ios"] .window-actions #new-card svg { width: 23px; height: 23px; }
 .card-layer .card-wand + .card-wand { margin-left: 2px; }
-:root:not([data-system="ios"]) #paste,
 :root:not([data-system="ios"]) #new-card { display: none; }
 :root[data-system="ios"] #pin,
 :root[data-system="ios"] #close { display: none; }
@@ -2074,7 +2139,9 @@ body.drop-target::after {
    only what the sheet under it is. */
 :root[data-system="ios"] #app {
   box-sizing: border-box;
-  padding-bottom: 39px;
+  /* The bar, and room for the row a mark lays over it (selection.js): a
+     word marked in the last line can still come up above it. */
+  padding-bottom: calc(39px + 44px / var(--zoom));
   overflow-x: hidden;
   overflow-y: auto;
   /* Its end is the end: a drag past it does not move the page behind. */
@@ -2110,12 +2177,9 @@ body.drop-target::after {
 :root[data-system="ios"] .icon { width: 28px; height: 28px; }
 :root[data-system="ios"] .window-actions .icon { width: 48px; height: 37px; }
 :root[data-system="ios"] .window-actions .icon svg { width: 20px; height: 20px; }
-/* A circle reads smaller than the open strokes beside it. */
-:root[data-system="ios"] .window-actions #paste svg { width: 23px; height: 23px; }
-/* One stroke across the bar: the two drawn larger draw it thinner, so that
-   it comes out as the others' (1.9 of 16 at 20 px), and the gear's ring,
-   drawn heavier on a computer, is drawn as the rest here. */
-:root[data-system="ios"] .window-actions #paste svg,
+/* One stroke across the bar: the card drawn larger draws it thinner, so
+   that it comes out as the others' (1.9 of 16 at 20 px), and the gear's
+   ring, drawn heavier on a computer, is drawn as the rest here. */
 :root[data-system="ios"] .window-actions #new-card svg { stroke-width: 1.65; }
 :root[data-system="ios"] .window-actions #open-settings circle { stroke-width: 1.9; }
 :root[data-system="ios"] .icon svg { width: 16px; height: 16px; }
@@ -2234,8 +2298,11 @@ body.drop-target::after {
   justify-content: space-between;
   padding: 8px 16px;
   font-weight: 600;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid transparent;
 }
+/* A hairline under the bar only while the page under it has been scrolled
+   (app.js), as at the top of the reading. */
+.settings-sheet.scrolled > .settings-sheet-bar { border-bottom-color: var(--line); }
 .settings-sheet-bar button { color: var(--brand); border: 0; background: transparent; box-shadow: none; font-weight: 600; padding: 6px 0 6px 14px; }
 .settings-sheet-bar button.closes { color: var(--vmark2); }
 .settings-sheet-bar .settings-back { display: inline-flex; align-items: center; gap: 2px; padding-left: 0; font-weight: 400; }
@@ -2255,30 +2322,51 @@ body.drop-target::after {
 /* Nothing in the settings is wider than the phone. */
 .settings-sheet .settings-window { overflow-x: hidden; overflow-y: auto; overscroll-behavior: none; }
 
-/* The button for a finger's selection of several words (selection.js):
-   over the bar along the bottom edge, where the system's own menu for the
-   selection does not reach. */
+/* The row that looks up what a finger marked (selection.js): laid on the
+   bar along the bottom edge (its place set there) as more of the bar — its
+   ground, a hairline over and under it — what is marked at the left, the lookup at
+   the right in the colour of the sheets' "Fertig". */
 .touch-pick {
   position: fixed;
-  right: 16px;
-  bottom: 70px;
-  z-index: 15;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 11;
   height: 44px;
-  padding: 0 18px 0 14px;
-  display: inline-flex;
+  padding: 0 18px 0 26px;
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 16px;
   border: 0;
-  border-radius: 22px;
-  background: var(--brand);
-  color: var(--ground);
-  font-size: 16px;
-  font-weight: 600;
-  box-shadow: 0 2px 10px var(--lift-strong);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--ground);
+  box-shadow: none;
+  color: var(--ink);
+  font: inherit;
+  /* The panels' text as the enlarged page sets it: 13 px × 1.15. */
+  font-size: 15px;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
 }
 .touch-pick[hidden] { display: none; }
-.touch-pick svg { width: 18px; height: 18px; }
-.touch-pick:active:not(:disabled) { background: var(--brand); border: 0; }
+.touch-pick-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.touch-pick-action {
+  flex: 0 0 auto;
+  color: var(--brand);
+}
+.touch-pick:active:not(:disabled) { background: var(--ground); border: 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.touch-pick:active .touch-pick-action { opacity: 0.5; }
+/* Between row and bar the row's own line, none of the bar's beside it. */
+:root[data-system="ios"].touch-marking #app.more-below .window-actions,
+:root[data-system="ios"].touch-marking #app .window-actions { border-top-color: transparent; }
 /* A field grows with what is written in it; a finger has no corner to drag. */
 .card-layer .card-box { resize: none; }
 /* What came of a card that has left its sheet: over the bar, in the

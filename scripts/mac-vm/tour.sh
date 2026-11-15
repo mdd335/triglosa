@@ -112,6 +112,9 @@ for i in $(seq 1 30); do [ -n "$(anki '{"action":"version","version":6}')" ] && 
 term=tour-$(date +%H%M%S)
 "$here/vm.sh" "printf '%s\n' '$term' > /tmp/capture/tour.txt"
 "$here/drive.sh" "open -a TextEdit /tmp/capture/tour.txt; sleep 3; \$DRIVE select com.apple.TextEdit $term; sleep 0.3; \$DRIVE key ctrl+alt+k; sleep 4" >/dev/null
+# Anki waits for the word and its meaning both: the meaning is typed into the
+# card's second field, as a reader would.
+"$here/drive.sh" '$DRIVE key tab; sleep 0.3; $DRIVE type Rundgang; sleep 0.5' >/dev/null
 pressed=$("$here/drive.sh" '$DRIVE press de.mdd335.triglosa In Anki speichern')
 sleep 3
 notes=$(anki "{\"action\":\"findNotes\",\"version\":6,\"params\":{\"query\":\"$term\"}}")

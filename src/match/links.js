@@ -58,19 +58,80 @@ export function rangesAcross(links, texts, from, range, to) {
       }
       return true;
     };
+    const runs = [];
     for (const index of [...new Set(landed)].sort((x, y) => x - y)) {
       if (!words[index]) continue;
-      const last = found[found.length - 1];
-      const apart = last && last.index < index - 1 && bridged(last.index + 1, index);
-      if (last && (last.index === index - 1 || apart) && /^[\s\p{L}\p{N}'’-]*$/u.test(texts[to].slice(last.end, words[index].start))) {
-        last.end = words[index].end;
-        last.index = index;
+      const last = runs[runs.length - 1];
+      const apart = last && last.last < index - 1 && bridged(last.last + 1, index);
+      if (last && (last.last === index - 1 || apart) && /^[\s\p{L}\p{N}'’-]*$/u.test(texts[to].slice(words[last.last].end, words[index].start))) {
+        last.last = index;
       } else {
-        found.push({ ...words[index], index });
+        runs.push({ first: index, last: index });
       }
     }
+    const grown = fromColumn === -1 && marked.length > 1
+      ? grow(runs, words, texts[to], marked, sentence.links[toColumn] || [], sentence.best?.[toColumn], code)
+      : runs;
+    for (const run of grown) found.push({ start: words[run.first].start, end: words[run.last].end });
   }
-  return found.map((run) => ({ start: run.start, end: run.end }));
+  return found;
+}
+
+/* How far a mark of several words reaches in a translation, past what the
+   links say (run eighty-four). The aligner links word to word and leaves
+   the word at the edge of an expression alone — "lazy" for "too lazy",
+   "Lust" for "keine Lust", "had dozed" for "had dozed off" — and that word
+   is often the one that carries the sense. The entry's place in the
+   original is known, so a word of the translation beside a run, or in a
+   gap between two, is taken in where no word outside the entry is linked to
+   it and the word of the original it holds on to most (`best`, the
+   aligner's own scores) stands inside the entry: two at most on each side,
+   never across punctuation. Taken in by links alone, without the scores,
+   it brought an article or a preposition from beside the entry ("meet up
+   on", "the key rate unchanged") more often than the word that was
+   missing. */
+const GROW = 2;
+function grow(runs, words, text, marked, links, best, code) {
+  if (!runs.length || !Array.isArray(best)) return runs;
+  const inside = new Set(marked);
+  const claimed = new Set(links.filter(([word]) => !inside.has(word)).map(([, word]) => word));
+  const free = (at) => at >= 0 && at < words.length && !claimed.has(at) && inside.has(best[at]);
+  const between = (a, b) => text.slice(words[a].end, words[b].start);
+  const plain = (a, b) => /^[\s'’-]*$/.test(between(a, b));
+  const joined = [];
+  for (const run of runs) {
+    const last = joined[joined.length - 1];
+    let open = !!last;
+    for (let at = last ? last.last + 1 : 0; open && at < run.first; at++) open = free(at) && plain(at - 1, at);
+    /* Two runs side by side with only a comma between them are one piece
+       of the entry: a passage keeps the comma it has. */
+    const comma = !!last && run.first === last.last + 1 && /^[\s,;:]+$/.test(between(last.last, run.first));
+    if ((open && plain(run.first - 1, run.first)) || comma) last.last = run.last;
+    else joined.push({ ...run });
+  }
+  /* One word cut in two by the counting is one word: "can't", "I'm",
+     "49.3". */
+  const glued = (a, b) => /^['’]$/.test(between(a, b))
+    || (/^[.,]$/.test(between(a, b)) && /^\p{N}+$/u.test(text.slice(words[a].start, words[a].end)) && /^\p{N}+$/u.test(text.slice(words[b].start, words[b].end)));
+  const small = (at) => !!code && isFunctionWord(text.slice(words[at].start, words[at].end), [code]);
+  for (const run of joined) {
+    for (let n = 0; n < GROW && free(run.first - 1) && plain(run.first - 1, run.first); n++) run.first--;
+    const linked = run.last;
+    for (let n = 0; n < GROW && free(run.last + 1) && plain(run.last, run.last + 1); n++) run.last++;
+    /* A small word taken in at the end leans on what follows: "had taken
+       from", "decided to", "angesichts der" (run eighty-four). In front it
+       is the entry's own — "se abstendría", "the key rate". */
+    while (run.last > linked && small(run.last)) run.last--;
+    while (run.first > 0 && glued(run.first - 1, run.first)) run.first--;
+    while (run.last < words.length - 1 && glued(run.last, run.last + 1)) run.last++;
+  }
+  /* Two runs that met while growing are one. */
+  return joined.reduce((out, run) => {
+    const last = out[out.length - 1];
+    if (last && run.first <= last.last + 1 && (plain(last.last, run.first) || /^[\s,;:]+$/.test(between(last.last, run.first)))) last.last = Math.max(last.last, run.last);
+    else out.push({ ...run });
+    return out;
+  }, []);
 }
 
 /* The same as the fragments an assignment holds: the words themselves. */

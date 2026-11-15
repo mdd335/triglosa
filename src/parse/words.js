@@ -159,14 +159,12 @@ export function parseTranslation(raw) {
     .find(Boolean) || "";
 }
 
-/* A passage's answer: its translation, and where it stands in the two other
-   panels. Nothing else is asked, so nothing else is filled in — the row draws
-   the translation instead of an explanation. */
-export function parsePassage({ translationRaw, spotRaw, term, target }) {
+/* A passage's answer: its translation. Nothing else is asked, so nothing
+   else is filled in — the row draws the translation instead of an
+   explanation. */
+export function parsePassage({ translationRaw, term, target }) {
   const translation = parseTranslation(translationRaw);
   if (!translation) return null;
-  const spot = firstFieldLine(spotRaw).split("|");
-  const field = (i) => usableSpot(stripQuotes(spot[i]), term).replace(/[\s.,;:!?،؛]+$/u, "");
   return {
     text: term,
     passage: true,
@@ -177,31 +175,7 @@ export function parsePassage({ translationRaw, spotRaw, term, target }) {
     tense: "",
     note: "",
     synonyms: [],
-    a: spot.length >= 2 ? field(0) : "",
-    b: spot.length >= 2 ? field(1) : "",
   };
-}
-
-/* Two ways a spot field says nothing while looking like an answer.
-
-   The model writes the label back instead of the words: measured, "comité"
-   in a Spanish sentence came back as "A | committee" in three runs of three —
-   the English half trivial because the words are cognates, the German half
-   given up on and filled with the letter above it. Searched for in the
-   German text, a bare "A" hits the first stray a and would colour it.
-
-   And it repeats the term, which rule 5 forbids: the term stands in the
-   source panel, not in a translation, so it is not a spot either. */
-export function usableSpot(field, term) {
-  /* Or it writes the label in front of the words, "<A> Arbeit", or closes it
-     behind them, "an</A>". The words are right; only the label goes. */
-  const value = String(field || "")
-    .replace(/<\/?[AB]>/g, "")
-    .replace(/^[AB]\s*[:=>]\s*/, "")
-    .replace(/^<|>$/g, "")
-    .trim();
-  if (!value || value === "-" || /^[AB]$/.test(value)) return "";
-  return value.toLowerCase() === String(term || "").trim().toLowerCase() ? "" : value;
 }
 
 /* The first usable line of an answer. Without a pipe it says nothing about
@@ -310,7 +284,7 @@ export function withoutFormOpening(note, base, code) {
   return text.slice(opening[0].length).trim() || text;
 }
 
-export function parseMarkedWord({ meaningRaw, spotRaw, placed = false, term, code, thirdRaw, grammarRaw, wholeRaw, kindRaw, codes }) {
+export function parseMarkedWord({ meaningRaw, term, code, thirdRaw, grammarRaw, wholeRaw, kindRaw, codes }) {
   const meaningLine = firstFieldLine(meaningRaw);
   if (!meaningLine) return null;
 
@@ -333,16 +307,6 @@ export function parseMarkedWord({ meaningRaw, spotRaw, placed = false, term, cod
      and the marker is not one. Only in capitals, as the prompt writes it: in
      ordinary case the same word is the equivalent of a word meaning it. */
   if (startsUnknown(meaning) && meaning === meaning.toUpperCase() && meaning !== meaning.toLowerCase()) meaning = "";
-
-  /* A spot line without a pipe does not say which of the two panels is
-     meant — better no highlight than one in the wrong panel. */
-  const spot = firstFieldLine(spotRaw).split("|");
-  /* A place the word aligner found (`placed`) is the panel's own words and
-     is taken as it stands: a word that stays what it was — an abbreviation,
-     a name — reads there as the term does, which from a model is an echo. */
-  const field = (raw) => (placed ? (raw.trim() === "-" ? "" : raw.trim()) : usableSpot(stripQuotes(raw), term));
-  const a = spot.length >= 2 ? field(spot[0]) : "";
-  const b = spot.length >= 2 ? field(spot[1]) : "";
 
   const { grammar, infinitive } = verbFormOf({ meaningRaw, grammarRaw, term, code });
   note = withoutFormOpening(note, infinitive, code);
@@ -378,16 +342,12 @@ export function parseMarkedWord({ meaningRaw, spotRaw, placed = false, term, cod
     person: shown ? shown.person : "",
     tense: shown ? shown.tense : "",
     meaning: flattenField(meaning),
-    a,
-    b,
     note,
     synonyms,
     /* The raw lines stay attached to the result — the first place to look
-       when an infinitive is missing or a spot lands beside the mark. They
-       are never displayed. */
+       when an infinitive is missing. They are never displayed. */
     raw:
       meaningLine +
-      (spot.length >= 2 ? "   ›   " + spot.join("|") : "") +
       (synonyms.length ? "   ›   " + synonyms.join(" | ") : "") +
       (expansion ? "   ›   " + expansion : "") +
       (grammar ? "   ›   " + [grammar.person, grammar.tense].filter(Boolean).join(" | ") : ""),

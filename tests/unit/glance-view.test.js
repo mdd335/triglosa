@@ -77,13 +77,13 @@ function reading(over = {}) {
   };
 }
 
-function view(state) {
+function view(state, signs = () => true) {
   const root = document.getElementById("app");
   root.textContent = "";
   const sheet = document.createElement("div");
   root.append(sheet);
   let current = state;
-  const glance = watchGlance({ sheet, layer: root, reading: () => ({ state: current, reader: "de" }) });
+  const glance = watchGlance({ sheet, layer: root, reading: () => ({ state: current, reader: "de" }), signs });
   const draw = () => {
     renderReading(sheet, current, {
       settings: SETTINGS, tools: TOOLS,
@@ -128,6 +128,15 @@ test("resting on a word of the original shows what it became and lights both pla
   await drawn.hover(0, "impugnó");
   assert.strictEqual(drawn.sign.textContent, "focht … an");
   assert.deepStrictEqual(drawn.lit(1), ["focht", "an"], "two stretches where the translation parts them");
+});
+
+test("with the sign switched off the places still light up, and nothing is written", async () => {
+  /* author 2026-11-11: the setting is the sign's alone. */
+  const drawn = view(reading(), () => false);
+  await drawn.hover(0, "gobierno");
+  assert.ok(!drawn.sign.classList.contains("shown"));
+  assert.deepStrictEqual(drawn.lit(0), ["el gobierno"]);
+  assert.deepStrictEqual(drawn.lit(1), ["die Regierung"]);
 });
 
 test("before the pointer has rested only its own group lights, at once and whole", async () => {
@@ -395,4 +404,73 @@ test("a word cut out of a unit by a marked term takes its own counterparts along
   assert.deepStrictEqual(drawn.lit(2), ["a un"]);
   await drawn.hover(2, "de");
   assert.ok(!drawn.sign.classList.contains("shown"), "the term's own small word says nothing of the article");
+});
+
+test("a word picked and its answer not in yet keeps its places lit in the other panels", async () => {
+  const start = ORIGINAL.indexOf("gobierno");
+  const v = view(reading({ selection: { panel: 0, start, end: start + "gobierno".length }, marked: null }));
+  assert.deepStrictEqual(v.lit(1), ["die Regierung"]);
+  /* Its own panel has its frame, not the light. */
+  assert.deepStrictEqual(v.lit(0), []);
+  assert.ok(!v.sign.classList.contains("shown"));
+  /* The answer in: it says where the word went, and the light gives way. */
+  v.update(reading({ selection: { panel: 0, start, end: start + "gobierno".length },
+    marked: { text: "gobierno", meaning: "Regierung", ranges: { 1: [{ start: GERMAN.indexOf("Regierung"), end: GERMAN.indexOf("Regierung") + 9 }] } } }));
+  assert.deepStrictEqual(v.lit(1), []);
+});
+
+test("on a phone a word tapped is marked alone, its group lit round it and the sign saying what the group became", () => {
+  /* author 2026-11-12: "el" tapped marks "el", but "el gobierno" is what
+     the hover knows; the group stands faintly lit round the mark in every
+     panel, and the sign is about it. */
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  try {
+    const v = view(reading());
+    const el = [...v.sheet.querySelectorAll('.words[data-panel="0"] .w')].find((node) => node.textContent === "el");
+    const touch = (type) => {
+      const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: 10, clientY: 10, target: el }] });
+      el.dispatchEvent(event);
+    };
+    touch("touchstart");
+    touch("touchend");
+    const marked = [...v.sheet.querySelectorAll(".w.touch-marked")].map((node) => node.textContent);
+    assert.deepStrictEqual(marked, ["el"], "what is looked up is the word tapped");
+    assert.deepStrictEqual(v.lit(0), ["el gobierno"], "its group lit round it");
+    assert.deepStrictEqual(v.lit(1), ["die Regierung"]);
+    assert.strictEqual(v.sign.textContent, "die Regierung");
+    document.querySelector(".touch-pick").dispatchEvent(new dom.window.Event("touchstart", { cancelable: true }));
+  } finally {
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
+});
+
+test("on a phone the sign goes while its word lies out of sight, under the bar or scrolled off, and comes back with it", () => {
+  globalThis.TRIGLOSA_SYSTEM = "ios";
+  const fromPoint = document.elementFromPoint;
+  const rectOf = dom.window.HTMLElement.prototype.getBoundingClientRect;
+  dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({ top: 300, bottom: 320, left: 40, right: 100, width: 60, height: 20 });
+  try {
+    const v = view(reading());
+    const gobierno = [...v.sheet.querySelectorAll('.words[data-panel="0"] .w')].find((node) => node.textContent === "gobierno");
+    let atPoint = document.body;
+    document.elementFromPoint = () => atPoint;
+    const touch = (type) => {
+      const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: 10, clientY: 10, target: gobierno }] });
+      gobierno.dispatchEvent(event);
+    };
+    touch("touchstart");
+    touch("touchend");
+    assert.strictEqual(v.sign.textContent, "die Regierung");
+    assert.strictEqual(v.sign.style.visibility, "hidden", "something else stands where the word is");
+    atPoint = gobierno;
+    document.dispatchEvent(new dom.window.Event("scroll"));
+    assert.strictEqual(v.sign.style.visibility, "");
+    document.querySelector(".touch-pick").dispatchEvent(new dom.window.Event("touchstart", { cancelable: true }));
+  } finally {
+    document.elementFromPoint = fromPoint;
+    dom.window.HTMLElement.prototype.getBoundingClientRect = rectOf;
+    delete globalThis.TRIGLOSA_SYSTEM;
+  }
 });

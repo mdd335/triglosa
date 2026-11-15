@@ -1,5 +1,5 @@
-/* The two questions about the verbs of a whole text, and the one that maps
-   them onto the translations.
+/* The two questions about the verbs of a whole text. Where they stand in
+   the translations is the word aligner's (run.js, run eighty-four).
 
    The first two are written in English whatever the languages are, name both
    of them outright, and take the persons and the tense names from the
@@ -11,17 +11,10 @@
    own language closes the mirror image, where a bare prompt answers in the
    reader's language instead.
 
-   The third one, the alignment, is generic for the same reason, and was the
-   last place a Spanish sentence stood. It asks for words copied out of two
-   translations that are in front of the model, and what it answers is checked
-   against those translations before anything is drawn — so a schematic line
-   carries the shape of an answer, and no sentence has to.
-
    Step one only finds the forms, step two annotates the ones chosen in
    between. Splitting them was measured: the selection sits on the critical
    path, and a heavier single prompt pulls the model away from the forms. */
 
-import { languagePack } from "../languages/index.js";
 import { withArticle } from "../text.js";
 
 /* Step one: the bare list of forms. */
@@ -85,66 +78,4 @@ export function annotateVerbsPrompt({ source, reader, level, tenses, persons }) 
     "8. The angle brackets mark the fields. Do not write them.",
     "9. No numbering, no bullets, no quotation marks, no extra text.",
   ].join("\n");
-}
-
-/* Rule 5a of both alignment prompts. It named four Spanish periphrases, which
-   under any other source language read "a Russian periphrasis - llevar +
-   gerundio" — not an example in the wrong language but a plain untruth about
-   the language being read. The point the rule makes does not depend on the
-   list, and every language gets it. */
-function periphrasisRule(source) {
-  return `5a. A hyphen is a correct answer and often the only correct one. A ${source} periphrasis - two or more words carrying one verbal meaning between them - is usually rendered by ONE verb in the translation. Give that verb to the form carrying the meaning and a hyphen to the other. Do NOT split one translated verb across two lines.`;
-}
-
-/* Step three: the same verbs found again in both translations. a and b are
-   the two translated panels, and their languages change from run to run. */
-export function alignVerbsPrompt({ source, a, b, fieldSource, fieldA, fieldB }) {
-  return [
-    `You align verbs between a ${source} sentence and its ${a} and ${b} translation.`,
-    "",
-    "HARD RULES:",
-    `1. Output one line per given ${source} verb, exactly: ${fieldSource} | ${fieldA} | ${fieldB}`,
-    "2. Copy the words EXACTLY as they appear in the translation - same spelling, same capitalisation. Never invent, never inflect, never translate yourself.",
-    `3. If the verb is split in a translation (${a} separable verbs, auxiliary far from participle), give the parts separated by a plus sign.`,
-    "4. Only the verb words themselves. No subjects, no objects, no articles, no adverbs.",
-    `4a. Each ${source} verb gets its own words. Never map two different ${source} verbs to the same word of a translation.`,
-    `4b. Every verb comes with its ${a} meaning in brackets. Use it as the anchor: find the words in each translation that carry THAT meaning, not the nearest auxiliary. A translation often restructures the sentence - follow the meaning, not the position.`,
-    "5. If you cannot find it in a translation, write a single hyphen for that field.",
-    periphrasisRule(source),
-    `5b. The same verb form often occurs several times in a translation, in different clauses. Only the occurrence in the clause that corresponds to the ${source} verb counts. If that clause has no separate verb, write a hyphen. Never take a matching form from another clause just to fill the field - a wrong occurrence is worse than a hyphen.`,
-    `6. The ${fieldSource} field repeats the given ${source} verb unchanged. The ${fieldA} and ${fieldB} fields hold words copied out of the two translations, each in its own language.`,
-    "7. No numbering, no bullets, no quotation marks, no extra text.",
-  ].join("\n");
-}
-
-/* One translation instead of two.
-
-   It is the two-translation question with the second column taken out: the same
-   rules in the same order. Rule 5a keeps its point: a periphrasis is usually rendered by one verb, and
-   the form not carrying the meaning gets a hyphen. */
-export function alignVerbsSinglePrompt({ source, a, fieldSource, fieldA }) {
-  return [
-    `You align verbs between a ${source} sentence and its ${a} translation.`,
-    "",
-    "HARD RULES:",
-    `1. Output one line per given ${source} verb, exactly: ${fieldSource} | ${fieldA}`,
-    "2. Copy the words EXACTLY as they appear in the translation - same spelling, same capitalisation. Never invent, never inflect, never translate yourself.",
-    `3. If the verb is split in the translation (${a} separable verbs, auxiliary far from participle), give the parts separated by a plus sign.`,
-    "4. Only the verb words themselves. No subjects, no objects, no articles, no adverbs.",
-    `4a. Each ${source} verb gets its own words. Never map two different ${source} verbs to the same word of the translation.`,
-    `4b. Every verb comes with its ${a} meaning in brackets. Use it as the anchor: find the words in the translation that carry THAT meaning, not the nearest auxiliary. A translation often restructures the sentence - follow the meaning, not the position.`,
-    "5. If you cannot find it in the translation, write a single hyphen for that field.",
-    periphrasisRule(source),
-    `5b. The same verb form often occurs several times in a translation, in different clauses. Only the occurrence in the clause that corresponds to the ${source} verb counts. If that clause has no separate verb, write a hyphen. Never take a matching form from another clause just to fill the field - a wrong occurrence is worse than a hyphen.`,
-    `6. The ${fieldSource} field repeats the given ${source} verb unchanged. The ${fieldA} field holds words copied out of the translation, in its own language.`,
-    "7. No numbering, no bullets, no quotation marks, no extra text.",
-  ].join("\n");
-}
-
-/* The column names of the aligned table. They were measured as Spanish,
-   German and English words, and the model writes them back — so where a
-   language pack names its columns, that name is used, and otherwise the
-   English name of the language stands in. */
-export function fieldName(code) {
-  return languagePack(code).columnName || languagePack(code).englishName.toLowerCase();
 }

@@ -9,7 +9,7 @@ import { loadApiKey } from "../platform/keychain.js";
 import { createLlmBackend } from "../platform/llm.js";
 import { completeCard, improveCard } from "../ask.js";
 import { exampleLine } from "../card.js";
-import { asHeadword } from "../parse/alternatives.js";
+import { deviceHeadword } from "../base-form.js";
 import { faultOf } from "../faults.js";
 import { isChoosable, languageLabel } from "../languages/index.js";
 import { levelFor, modelConsentFor } from "../settings.js";
@@ -62,7 +62,7 @@ export function deviceCompleter(card, { reader = "", backend = null } = {}) {
       const text = side === "meaning" ? current.term : current.meaning;
       if (side === "term") [from, to] = [to, from];
       /* Written as a dictionary writes it, as the model's side is. */
-      const found = asHeadword(await asked(from, to, text), text, to);
+      const found = await deviceHeadword(await asked(from, to, text), text, to, translation);
       if (found) next = { ...next, [side]: found };
     }
     if (sentence && (!side || next !== current)) {

@@ -42,6 +42,7 @@ npm run bundle:intel          # Mac: the same for Intel, under target/x86_64-app
 npm run release               # Mac: helpers, signed apps and a DMG each for Apple silicon and Intel
 npm run ios                   # iPhone: build, sign with your own team, install on the connected phone (scripts/ios.mjs)
 node scripts/ios.mjs --simulator   # the same for the simulator that is running
+node scripts/ios.mjs --install     # the last build onto the phone again, tried again by itself where the copy breaks off
 node scripts/shot.mjs out.png "some text"   # photograph the window's page (needs npm run dev)
 ```
 
@@ -130,6 +131,7 @@ src/
   screen-text.js  the lines read off the screen, put back in order as text
   screen-pointer.js the word under the pointer, found in what was read off the screen around it
   spelling.js     whether a looked-up word may be misspelled, and as what
+  base-form.js    a verb's base form by Apple's tagger, where no model says it
   settings.js     everything the reader can decide, normalised
   setup.js        the two ways to an AI model
   hotkey.js       recording a key combination
@@ -151,6 +153,7 @@ src/
     identifier.js   the language identifier in the shell
     spelling.js     the system's spelling checker in the shell
     translation.js  Apple's translation through the helper (absent on Windows)
+    dictionary.js   Apple's dictionary: whether it holds a word, and its panel for it
     capture.js      text from other programs, and back into them
     screen.js       text read off a piece of the screen, by Apple's recognition or the shell's
     shortcut.js     the global shortcuts
@@ -179,7 +182,8 @@ src/
     card-layer.js       the flashcard on a phone, over the reading in the same page
     phone-sheets.js     a phone's first steps, and its question before a text first goes to the AI model
     welcome-view.js, welcome-window.js     the first steps, shown at a start
-    example-view.js the first steps' example: a reading made beforehand, drawn as one
+    example-view.js the first steps' example: a reading made beforehand, drawn from its snapshot
+    example-snapshot.js the example as the reading window drew it, written by scripts/example-snapshot.mjs
     example-links.js    its word aligner's links, written by scripts/example-links.mjs
     screen-window.js                       the frame drawn over a screen (Windows)
     note-window.js                         a note said without the reading window, which goes by itself
@@ -196,16 +200,19 @@ src-tauri/
                   pieces.rs (the pieces a word is cut into for it),
                   identify.rs (which language a text is in, by a small
                   model on this machine), spelling.rs (the system's
-                  spelling checker), screen.rs (the screens photographed
+                  spelling checker), dictionary.rs (Apple's dictionary on
+                  the Mac), screen.rs (the screens photographed
                   and framed), ocr.rs (the text in a frame, on Windows),
                   keychain.rs, keyboard.rs, update.rs, diagnostics.rs,
                   journal.rs (the app's last steps, for a problem report), main.rs
   sidecar/        translator.swift, the Mac's translation helper, which also
-                  reads text off the screen with Apple's recognition
+                  reads text off the screen with Apple's recognition and
+                  names words' base forms with Apple's tagger
   ios/            Translation.swift, Apple's translation inside the iPhone's app,
                   and what was copied; Recognition.swift, the text in a picture
-                  (the app's and both share extensions'); Crop.swift, the frame
-                  a picture is cut with before it is read; Keyboard.swift, the
+                  (the app's and both share extensions'); Frame.swift, where in a
+                  picture its text is, for the frame to glide onto; Crop.swift,
+                  the frame a picture is cut with before it is read; Keyboard.swift, the
                   keyboard for a field focused without a tap;
                   Share/ShareViewController.swift, Triglosa in the share menu,
                   which reads, and once more as a flashcard (targets of their
@@ -306,13 +313,22 @@ shell's own code (`src-tauri/src/identify.rs`); it is distributed under the
 Creative Commons Attribution-Share-Alike License 3.0, and so is the shrunk
 file, with its notice beside it; it is in the repository
 (`src-tauri/resources/identifier/`). The aligner's files are too large for
-that, so they are attachments of the release `aligner-1`, and `npm run app`,
+that, so they are attachments of the release `aligner-2`, and `npm run app`,
 `npm run bundle` and the Windows workflow fetch them first
 (`scripts/aligner-fetch.mjs`, by checksum, once). That release must never be
-marked as the latest: the update check reads the latest release.
+marked as the latest: the update check reads the latest release. The
+iPhone runs the same aligner; `ort` brings ONNX Runtime for the Mac and
+Windows only, so `scripts/onnxruntime-ios.mjs` fetches Microsoft's static
+library for the phone and the simulator (by checksum, into
+`src-tauri/gen/onnxruntime/`), and `scripts/ios.mjs` names it to the build.
 `scripts/example-links.mjs` runs the aligner over the first steps' example in
 every interface language, so that its hover is the aligner's own; run it
-after changing an example's text (a test says so).
+after changing an example's text (a test says so), then
+`scripts/example-snapshot.mjs`: it draws the example with the reading window
+once, points at every word and picks every word of the original, and keeps
+what came out. The first steps draw that snapshot and never the reading
+window, so a change to the reading window does not reach them until the
+snapshot is taken again on purpose.
 
 Text read off the screen is recognised on the Mac by Apple's own
 recognition, in the helper. On Windows it is read by PaddleOCR's PP-OCRv5
